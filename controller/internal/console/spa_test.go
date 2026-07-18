@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // TestHandler_ServesIndex 验证前缀根 /console/ 返回 index.html（200 HTML）。
@@ -77,20 +78,17 @@ func TestHandler_IndexNoCache(t *testing.T) {
 }
 
 // TestHandler_AssetsImmutableCache 验证 /console/assets/* 内容 hash 命名资源响应带 Cache-Control: immutable
-// 长缓存（hash 变则 URL 变自动拉新，长缓存零陈旧风险）。资源文件名逐构建变，故从嵌入 dist 取真实名避免硬编码脆化。
+// 长缓存（hash 变则 URL 变自动拉新，长缓存零陈旧风险）。经 handlerFrom 注入产物 fixture——仓库内
+// embed dist 仅占位 index.html（无 assets），真实产物形态与占位形态下本测试语义恒定。
 func TestHandler_AssetsImmutableCache(t *testing.T) {
-	h, err := Handler()
+	h, err := handlerFrom(fstest.MapFS{
+		"index.html":          {Data: []byte("<!doctype html><html></html>")},
+		"assets/index-abc.js": {Data: []byte("console.log(1)")},
+	})
 	if err != nil {
-		t.Fatalf("Handler(): %v", err)
+		t.Fatalf("handlerFrom(): %v", err)
 	}
-	entries, err := distFS.ReadDir("dist/assets")
-	if err != nil {
-		t.Fatalf("read embedded dist/assets: %v", err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("embedded dist/assets is empty, expected hashed bundle assets")
-	}
-	asset := "/console/assets/" + entries[0].Name()
+	asset := "/console/assets/index-abc.js"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, asset, nil))
 	if rec.Code != http.StatusOK {

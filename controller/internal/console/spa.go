@@ -34,6 +34,13 @@ func Handler() (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	return handlerFrom(sub)
+}
+
+// handlerFrom 按给定产物根构造 SPA handler。与 Handler 拆分使缓存头/回退逻辑可经
+// fstest.MapFS 注入测试——仓库内 embed dist 仅占位 index.html（真产物由 console 构建落位），
+// 不能作为 assets 用例的 fixture。
+func handlerFrom(sub fs.FS) (http.Handler, error) {
 	index, err := fs.ReadFile(sub, "index.html")
 	if err != nil {
 		return nil, err
