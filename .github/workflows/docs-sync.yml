@@ -1,0 +1,36 @@
+name: docs-sync
+
+# README.md 与 README.zh-CN.md 互为镜像:改动其一未同步另一份即失败。
+# Bilingual READMEs must be edited together — fails when only one side changed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  bilingual-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check bilingual README sync
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="origin/${{ github.base_ref }}...HEAD"
+            git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          else
+            # push: compare against the previous commit (best effort on first push)
+            git rev-parse HEAD^ >/dev/null 2>&1 && RANGE="HEAD^..HEAD" || exit 0
+          fi
+          CHANGED=$(git diff --name-only $RANGE)
+          echo "changed files:"; echo "$CHANGED"
+          EN=$(echo "$CHANGED" | grep -cx "README.md" || true)
+          ZH=$(echo "$CHANGED" | grep -cx "README.zh-CN.md" || true)
+          if [ "$EN" != "$ZH" ]; then
+            echo "::error::README.md and README.zh-CN.md must be updated together (EN changed=$EN, ZH changed=$ZH). 双语 README 必须同步修改。"
+            exit 1
+          fi
+          echo "bilingual READMEs in sync ✓"

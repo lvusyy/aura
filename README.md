@@ -1,5 +1,7 @@
 # AURA — Agent-User Remote Automation
 
+**English** | [简体中文](README.zh-CN.md)
+
 **Give AI coding agents real eyes and hands on real devices.**
 
 AURA is self-hosted infrastructure that lets coding agents (Claude Code, Codex CLI, Gemini CLI, …) remotely drive real or virtual test machines over [MCP](https://modelcontextprotocol.io) — screenshot → click → type → read back → verify — to catch the UI, interaction and UX bugs that unit tests and code review structurally cannot see.
@@ -58,16 +60,22 @@ Any other MCP client that speaks Streamable HTTP (or spawns a stdio server) work
 
 ## Quickstart — single node, 5 minutes
 
-Requirements: Rust ≥ 1.95 and `protoc` on the build machine.
+**Option A — prebuilt binary (recommended):** grab `aura-node` for your platform (Windows x64 / Linux x64 / macOS arm64) from [Releases](https://github.com/lvusyy/aura/releases), unpack, and jump to step 2.
+
+**Option B — build from source** (requires Rust ≥ 1.95 and `protoc`):
 
 ```bash
-# 1. Build the node (feature flags matter — they compile the reverse-connect,
-#    enrollment and OTel surfaces; a bare build produces a stdio/http-only binary)
+# Feature flags matter — they compile the reverse-connect, enrollment and OTel
+# surfaces; a bare build produces a stdio/http-only binary.
 cd node
 cargo build --release -p aura-node --features grpc,enroll,otel
+```
 
+Then:
+
+```bash
 # 2. Serve MCP over Streamable HTTP on the test machine
-./target/release/aura-node http --bind 0.0.0.0:7100
+./aura-node http --bind 0.0.0.0:7100
 
 # 3. Connect an agent from your workstation, e.g. Claude Code:
 claude mcp add --transport http aura http://<test-machine>:7100/mcp
@@ -84,8 +92,8 @@ Optional access token: start the node with `AURA_MCP_TOKEN=<secret>` in its envi
 
 1. **Backing services** — `controller/deploy/compose.yml` brings up PostgreSQL, Redis and MinIO (change the placeholder passwords).
 2. **Certificates** — `controller/deploy/gen-certs.sh` generates the CA and server certificates for the mTLS gRPC plane (edit `CTRL_IP`).
-3. **Controller** — `cd controller && go build ./cmd/aura-controller`. All configuration is environment variables; the authoritative list with defaults is [`controller/deploy/ENV.md`](controller/deploy/ENV.md).
-4. **Console** — `cd console && npm install && npm run generate && npm run build`, then rebuild the controller (the build output is embedded via `go:embed`).
+3. **Controller** — `cd controller && go build ./cmd/aura-controller`, or use the prebuilt Linux binary from [Releases](https://github.com/lvusyy/aura/releases). All configuration is environment variables; the authoritative list with defaults is [`controller/deploy/ENV.md`](controller/deploy/ENV.md).
+4. **Console** — `cd console && npm install && npm run generate && npm run build`, then rebuild the controller (the build output is embedded via `go:embed`; the prebuilt binary ships with the console already embedded).
 5. **Nodes** — install with `controller/deploy/install/install.sh` (Linux/macOS) or `install.ps1` (Windows), or enroll manually: `aura-node enroll` performs CSR-based enrollment against the controller, then the node reverse-connects with its per-node certificate. The console's onboarding page generates the one-command install line for you.
 
 Reference manifests for optional components live under `controller/deploy/`: Redroid Android environments (`redroid/`), Selkies WebRTC container desktops (`selkies/`), coturn (`turn/`), and the OmniParser-based visual detector service (`detector/`) that augments the accessibility tree with vision-detected UI elements.
@@ -118,15 +126,10 @@ Nodes are meant to control **disposable test machines, not production hosts** �
 
 Actively developed and used against a real mixed fleet (Windows / Linux / macOS / Android / iOS-sim). APIs may still move; the proto contract is versioned and changes have been additive so far. Issues and PRs welcome.
 
-## 中文简介
+## Bilingual docs
 
-AURA（Agent-User Remote Automation）是一套自托管的「让 coding agent 以真实用户视角做测试」的基础设施：Rust 单二进制节点 `aura-node` 内嵌 MCP server（stdio + Streamable HTTP 双传输），Go 控制面 `aura-controller` 提供舰队管理、调度、环境置备（PVE/K8s）、录屏产物与 Web 管理台。agent 连上一台真实/虚拟测试机，完成「截图 → 点击 → 输入 → 读取验证」闭环，发现代码视角与单元测试覆盖不到的 UI/交互/体验类 bug。
-
-- 覆盖 Windows / Linux(X11) / macOS / Android(Redroid) / iOS 模拟器五平台，统一能力契约按平台裁剪
-- 已适配 Claude Code、Codex CLI、Gemini CLI、OpenCode、OpenClaw、Cline、Hermes、CodeBuddy、Kimi Code、Grok Build 等 11 家 coding agent，管理台内置逐家接入指引
-- 单节点直连 5 分钟起步；集群形态提供 mTLS 反连、一键设备接入、HA 双副本、观测全套
-- 快速开始见上文 Quickstart；控制面环境变量权威清单见 `controller/deploy/ENV.md`
+`README.md` (English) and [`README.zh-CN.md`](README.zh-CN.md) (简体中文) mirror each other — **edit one, sync the other** (enforced by CI).
 
 ## License
 
-See [LICENSE](LICENSE).
+See [LICENSE](LICENSE) (Apache-2.0).
