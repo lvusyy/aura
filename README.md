@@ -34,6 +34,7 @@ Coding agents are good at writing code and running tests — but "does the app a
 - **Two deployment shapes.**
   - *Direct:* point your agent at a single node's `/mcp` and start testing in minutes.
   - *Cluster:* `aura-controller` (Go) adds fleet management, scheduling, environment provisioning (Proxmox VE / Kubernetes), artifact & recording storage, trace replay, and a web console — nodes dial **out** to the controller over mTLS gRPC, so test machines behind NAT just work.
+- **Batteries-included web console.** Device wall, live operate seat, task orchestration, recording playback, step-by-step replay and agent observability — embedded in the controller binary, nothing extra to deploy. See [Web console](#web-console).
 - **Fleet operations.** One-command node enrollment (CSR → per-node certificate, private key never leaves the node), fleet dashboard, task history, streaming recording playback, HA dual-replica controller, Prometheus metrics + OpenTelemetry traces.
 - **Direct-access observability.** Nodes report per-call MCP activity of directly-connected agents back to the controller, so the console shows who is testing what, with per-agent-client breakdowns and access guides.
 - **Access control that scales down.** A single node is open by default for frictionless lab use; set `AURA_MCP_TOKEN` to require a bearer token on `/mcp`. The controller REST plane has three token tiers (admin / ops / read-only). See `controller/deploy/ENV.md`.
@@ -57,6 +58,21 @@ Verified configuration guides for each are built into the web console (Agents pa
 | Pi | no MCP by design → use the `auractl` CLI |
 
 Any other MCP client that speaks Streamable HTTP (or spawns a stdio server) works the same way.
+
+## Web console
+
+The controller ships with a full management console — React + Ant Design, embedded in the binary via `go:embed` and served at `https://<controller-host>:18080/console` with bearer-token login. Nothing extra to deploy. Page by page:
+
+- **Fleet** — the device wall: every node is a card with a platform badge, live health state (online / unhealthy / offline) and a hover popover listing its actual tool capabilities grouped by category. Infrastructure labels distinguish bare metal, VMs, containers and Kubernetes pods, with host attribution and search. The add-device dialog generates a one-command install line for new nodes; node metadata is editable in place; deletion is guarded so a live node can't be dropped by accident.
+- **Operate** — a live seat on any online node: a screenshot canvas with adjustable polling (1–10 s), click-through with XGA coordinate back-mapping, and text injection — every action answered with per-call ok/error feedback and tagged with an audit identity. Android nodes can switch the canvas to a low-latency scrcpy/WebCodecs live stream; containerized Linux desktops open a Selkies WebRTC session in a new tab.
+- **Tasks** — dispatch history with cursor pagination and per-node filtering, plus the orchestration wall: fan a tool sequence out across hand-picked nodes or an entire environment group, watch pass/fail buckets fill in live, and drill down into each constituent task.
+- **Agents** — observability for directly-connected MCP agents: sessions and per-call activity with per-client color coding, a 24-hour transport error rate, and built-in copy-paste access guides for all 11 supported coding agents.
+- **Recordings** — screen recordings as streamable MP4 (HTTP Range, instant seeking), filterable by node, with a 30-day retention policy.
+- **Replay** — structured step-by-step playback of recorded traces: every tool call with its arguments and screenshot, optionally re-dispatched live against a node with a PASS / FAIL / UNSUPPORTED verdict per step.
+
+Recordings and Replay complement each other: one is a video of what the screen showed, the other is the structured film of what the agent actually did — and lets you run it again.
+
+Console access follows the REST token tiers (admin / ops / read-only): a read-only token can browse but not dispatch.
 
 ## Quickstart — single node, 5 minutes
 
@@ -95,6 +111,8 @@ Optional access token: start the node with `AURA_MCP_TOKEN=<secret>` in its envi
 3. **Controller** — `cd controller && go build ./cmd/aura-controller`, or use the prebuilt Linux binary from [Releases](https://github.com/lvusyy/aura/releases). All configuration is environment variables; the authoritative list with defaults is [`controller/deploy/ENV.md`](controller/deploy/ENV.md).
 4. **Console** — `cd console && npm install && npm run generate && npm run build`, then rebuild the controller (the build output is embedded via `go:embed`; the prebuilt binary ships with the console already embedded).
 5. **Nodes** — install with `controller/deploy/install/install.sh` (Linux/macOS) or `install.ps1` (Windows), or enroll manually: `aura-node enroll` performs CSR-based enrollment against the controller, then the node reverse-connects with its per-node certificate. The console's onboarding page generates the one-command install line for you.
+
+Once the controller is up, the [web console](#web-console) is at `https://<controller-host>:18080/console` — log in with a bearer token (tiers in `ENV.md`).
 
 Reference manifests for optional components live under `controller/deploy/`: Redroid Android environments (`redroid/`), Selkies WebRTC container desktops (`selkies/`), coturn (`turn/`), and the OmniParser-based visual detector service (`detector/`) that augments the accessibility tree with vision-detected UI elements.
 

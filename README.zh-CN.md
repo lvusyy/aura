@@ -34,6 +34,7 @@ coding agent 很会写代码、跑测试,但「这个应用对人类真的可用
 - **两种部署形态。**
   - *直连:* agent 指向单节点 `/mcp`,几分钟开始测试。
   - *集群:* `aura-controller`(Go)提供舰队管理、调度、环境置备(Proxmox VE / Kubernetes)、产物与录屏存储、trace 回放、Web 管理台——节点**主动外连**控制面(mTLS gRPC 反向长连接),NAT 后的测试机开箱即用。
+- **管理台开箱即用。** 设备墙、实时操作席、任务编排、录屏回放、逐步重放与接入观测——内嵌于控制面二进制,零额外部署。详见 [Web 管理台](#web-管理台)。
 - **舰队运维。** 一键设备接入(CSR → per-node 证书,私钥不出节点)、舰队面板、任务历史、录屏流式回放、控制面 HA 双副本、Prometheus 指标 + OpenTelemetry 追踪。
 - **直连观测。** 节点把直连 agent 的每次 MCP 调用回报控制面,管理台可见谁在测什么,按 agent 客户端聚合,并内置各家接入指引。
 - **访问控制可伸缩。** 单节点默认开放接入(实验室零摩擦);设 `AURA_MCP_TOKEN` 即要求 `/mcp` 携带 bearer token。控制面 REST 有三档令牌(admin / ops / 只读)。详见 `controller/deploy/ENV.md`。
@@ -57,6 +58,21 @@ coding agent 很会写代码、跑测试,但「这个应用对人类真的可用
 | Pi | 官方无 MCP → 走 `auractl` CLI |
 
 其他任何支持 Streamable HTTP(或拉起 stdio server)的 MCP 客户端同样适用。
+
+## Web 管理台
+
+控制面自带完整管理台——React + Ant Design,经 `go:embed` 内嵌进二进制,访问 `https://<控制面>:18080/console`,bearer token 登录,无需任何额外部署。逐页介绍:
+
+- **设备管理** — 设备墙:每个节点一张卡片,配平台徽章、实时健康态(在线/亚健康/离线),悬停即见按类别分组的实际工具能力清单。基础设施标注区分裸机/VM/容器/K8s Pod,含宿主归属与搜索。「添加设备」对话框为新节点生成一条命令的安装行;节点元数据原地可编;删除带守卫,不会误删在线节点。
+- **设备操作台** — 任一在线节点上的实时操作席:截图画布轮询可调(1–10 秒),画布点击经 XGA 坐标回映射直达节点,文本注入——每次操作逐条返回 ok/error 反馈并携带审计身份。Android 节点可把画布切为低延迟 scrcpy/WebCodecs 实时流;容器化 Linux 桌面可在新标签打开 Selkies WebRTC 会话。
+- **任务中心** — 派发历史(游标分页、按节点过滤),外加编排墙:把工具序列 fan-out 到手选节点或整个环境组,实时观察 pass/fail 桶填充,并逐个下钻关联任务。
+- **接入观测** — 直连 MCP agent 的观测面:会话与逐调用流水(按 agent 客户端配色)、24 小时传输错误率,以及 11 家 coding agent 的内置复制粘贴接入指引。
+- **录屏回放** — 屏幕录像以流式 MP4 播放(HTTP Range,秒级拖动),可按节点过滤,30 天保留策略。
+- **操作重放** — 录制 trace 的结构化逐步回放:每一步的工具调用、入参与截图,并可选择对节点实时重放,每步给出 PASS / FAIL / UNSUPPORTED 判定。
+
+录屏回放与操作重放互补:前者是「屏幕上发生了什么」的视频,后者是「agent 实际做了什么」的结构化胶片——而且可以再跑一遍。
+
+管理台访问沿用 REST 令牌三档(admin / ops / 只读):只读令牌可浏览、不可派发。
 
 ## 快速上手——单节点 5 分钟
 
@@ -96,6 +112,8 @@ claude mcp add aura -- /path/to/aura-node stdio
 3. **控制面** — `cd controller && go build ./cmd/aura-controller`(或直接用 Releases 里的 Linux 预编译二进制)。全部配置走环境变量,权威清单见 [`controller/deploy/ENV.md`](controller/deploy/ENV.md)。
 4. **管理台** — `cd console && npm install && npm run generate && npm run build`,然后重新构建控制面(产物经 `go:embed` 内嵌;预编译二进制已内嵌)。
 5. **节点** — 用 `controller/deploy/install/install.sh`(Linux/macOS)或 `install.ps1`(Windows)安装,或手动接入:`aura-node enroll` 完成 CSR 设备接入,之后节点持 per-node 证书反连控制面。管理台的设备接入页会为你生成一键安装命令。
+
+控制面起来后,[Web 管理台](#web-管理台)在 `https://<控制面>:18080/console`——用 bearer token 登录(三档说明见 `ENV.md`)。
 
 可选组件的参考清单在 `controller/deploy/` 下:Redroid Android 环境(`redroid/`)、Selkies WebRTC 容器桌面(`selkies/`)、coturn(`turn/`)、基于 OmniParser 的视觉检测服务(`detector/`,用视觉检出的 UI 元素增强 accessibility 树)。
 
