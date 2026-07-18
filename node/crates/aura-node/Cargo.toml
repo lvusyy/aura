@@ -1,0 +1,85 @@
+[package]
+name = "aura-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "AURA 节点单二进制：MCP 双传输（stdio | Streamable HTTP）+ 工具集"
+
+[[bin]]
+name = "aura-node"
+path = "src/main.rs"
+
+[dependencies]
+aura-capability = { workspace = true }
+aura-platform = { workspace = true }
+# MCP SDK：churn 快，精确锁 =2.1.0（stdio + Streamable HTTP server + 宏 + schemars）
+rmcp = { version = "=2.1.0", features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
+tokio = { workspace = true }
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+# assert baseline 存取（M11 REC-4）：<data_dir>/baselines/<key>.webp 二进制读写 ↔ 信封 base64 互转。
+# 版本与 aura-capability / aura-platform 同款 0.22（依赖树既有，零新 crate）。
+base64 = "0.22"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# 工具边界 catch_unwind（FutureExt::catch_unwind）
+futures = "0.3"
+
+# gRPC 反连（M2）：optional 依赖 + feature 门控，M1 default 关，编译时零依赖入树。
+# tls-ring：rustls + ring provider，跨平台无系统依赖（mTLS 双向流用）。
+# tonic 0.14 拆分：prost codec 运行时在 tonic-prost（生成代码引用 tonic_prost::ProstCodec）。
+tonic = { version = "0.14", optional = true, features = ["tls-ring"] }
+tonic-prost = { version = "0.14", optional = true }
+# prost 版本须与 tonic-prost 0.14 一致（0.14），否则生成代码 Message 派生与 ProstCodec 双版本冲突。
+prost = { version = "0.14", optional = true }
+
+# 大产物旁路上传 HTTP 客户端（M3 G-5，随 grpc feature 入树）：复用 tonic 0.14 既有 hyper-util 依赖链，
+# 不新引 TLS provider（与 tonic tls-ring 的 rustls ring provider 隔离，避免 CryptoProvider 冲突）。
+# 版本用宽 semver 与既有锁（hyper 1.10 / hyper-util 0.1.20 / http-body-util 0.1.3）统一，勿手写精确占位。
+hyper = { version = "1", optional = true }
+hyper-util = { version = "0.1", optional = true, features = ["client", "client-legacy", "http1", "tokio"] }
+http-body-util = { version = "0.1", optional = true }
+
+# M12 节点自报 hostname（Register.name 可读辨识替裸 UUID）：gethostname 1.x 已在依赖树（Cargo.lock
+# 既有 1.1.0，零新 crate，同 base64 先例），随 grpc feature 入树（仅反连 Register 首帧用）。跨平台
+# gethostname() 返宿主名——非机器指纹（PVE clone machine-id 禁用），允许辨识；趋同时 label 由用户区分。
+gethostname = { version = "1", optional = true }
+
+# 可观测 OTLP（M3，otel feature 门控）：opentelemetry 生态 + tracing 桥接。AURA_OTLP_ENDPOINT 未配则
+# 不装 OTLP 层（零开销降级仅 stderr，M1/M2 行为不变）；otel feature 未开则零依赖入树。
+# 版本经三平台构建机 cargo add 解析（勿手写占位——sync 会盖回）。grpc-tonic 传输干跑验证复用工作区
+# 同一 tonic 0.14（依赖树无双 tonic 冲突）；default-features=false 去掉默认 http/reqwest 传输链，
+# 只留 grpc-tonic + trace，保持依赖树精简、不引 openssl 原生库。
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", optional = true, default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.33", optional = true }
+
+# M12 设备接入 enroll/renew 客户端（feature enroll 门控，TASK-006）：一次性 CLI 生成密钥对+CSR（私钥不
+# 离节点）→ HTTPS 换 per-node cert。rcgen 产 CSR（ring 后端，与 tonic tls-ring 同 ring，不引 aws-lc）；
+# reqwest blocking + rustls HTTPS（enroll server-TLS 钉 CA / renew mTLS 客户端证书），default-features=false
+# 去 native-tls（不引 openssl 原生库，同 opentelemetry-otlp 先例）。enroll 为独立一次性进程，与 grpc 服务面
+# tonic(tls-ring) 不同时活，无 rustls CryptoProvider 进程级冲突。版本经三平台构建机 cargo add 解析
+# （勿手写精确占位——sync 会盖回，同 hyper/opentelemetry 先例）；rcgen/reqwest 具体 API 待远程构建验证（T010）。
+rcgen = { version = "0.13", optional = true, default-features = false, features = ["ring", "pem"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[build-dependencies]
+# 仅 grpc feature 激活时由 build.rs 调用生成反连 client（见 build.rs 的 CARGO_FEATURE_GRPC 门控）。
+# build-dep 无法按 feature optional（build.rs 需无条件可引用），故常驻；仅构建期、不入运行时依赖树。
+# tonic 0.14 起 prost codegen 由 tonic-prost-build 承载（tonic_build::configure 已移除）。
+tonic-prost-build = "0.14"
+
+[features]
+default = []
+grpc = ["dep:tonic", "dep:prost", "dep:tonic-prost", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:gethostname"]
+# M12 设备接入（TASK-006）：enroll/renew 一次性子命令 + rcgen CSR + reqwest HTTPS 换证。与 grpc 正交
+# （生产节点两 feature 并开：enroll 换 per-node 证书 → grpc 以之反连）；未启用则零依赖入树，M1/M2 行为不变。
+enroll = ["dep:rcgen", "dep:reqwest", "dep:gethostname"]
+# M3 观测：OTLP span exporter + tracing-opentelemetry 层。与 grpc 正交（per-tool span 覆盖 MCP/反连两路）。
+# 未启用则四个 otel crate 零依赖入树，M1/M2 行为完全不变。
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]

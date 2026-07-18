@@ -1,0 +1,27 @@
+# AURA M5 — Android binderfs 固化 (perms companion): chmod 0666 the device nodes.
+#
+# Install to: /etc/systemd/system/binderfs-perms.service
+# Enable with: systemctl daemon-reload && systemctl enable --now binderfs-perms.service
+#
+# WHY: binderfs creates /dev/binderfs/{binder,hwbinder,vndbinder} as 0600 root:root,
+# but the Redroid Android container opens them as non-root (servicemanager=uid system,
+# HALs=uid 9999). With 0600 the opens fail "Permission denied", servicemanager can't
+# register as context manager, and boot loops forever. Android's own binder devices are
+# 0666, so we relax to match. A systemd `.mount` unit cannot run a post-mount chmod, so
+# this small oneshot is ordered After/PartOf dev-binderfs.mount and re-applies on every
+# (re)mount and at boot.
+[Unit]
+Description=AURA M5 binderfs device-node perms (0666) for the Redroid Android pod
+Documentation=https://github.com/lvusyy/aura/blob/main/controller/deploy/redroid/README.md
+After=dev-binderfs.mount
+Requires=dev-binderfs.mount
+PartOf=dev-binderfs.mount
+ConditionPathExists=/dev/binderfs/binder
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/chmod 0666 /dev/binderfs/binder /dev/binderfs/hwbinder /dev/binderfs/vndbinder
+
+[Install]
+WantedBy=multi-user.target

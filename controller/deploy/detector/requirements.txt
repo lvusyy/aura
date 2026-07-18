@@ -1,0 +1,14 @@
+# AURA M9 detector 服务依赖。torch/torchvision 由基座镜像提供（pytorch/pytorch CUDA
+# runtime，见 Dockerfile ARG BASE），此处绝不重装——pip 解析若在此列 torch 会拉 CPU 轮子
+# 覆盖基座 CUDA 版。版本 = 2026-07-12 首次构建 pip 实际解析值（冒烟闭环验证过的组合，
+# 全量 freeze 快照见 evidence/m9/detector-build.txt）。
+ultralytics==8.4.92
+# Florence-2 remote code 只兼容 OmniParser 时代的 transformers：5.13.1 报
+# Florence2LanguageConfig 缺 forced_bos_token_id；4.57.x 报缺 _supports_sdpa
+# （4.56+ attention 后端重构）。4.49.0 = Florence-2/OmniParser 生态实测稳定点。
+transformers==4.49.0
+timm==1.0.28
+einops==0.8.2
+fastapi==0.139.0
+uvicorn==0.51.0
+pillow==12.2.0

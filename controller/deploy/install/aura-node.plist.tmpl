@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  controller/deploy/install/aura-node.plist.tmpl
+  AURA 一键安装器 launchd 模板（M12 TASK-009）。install.sh 的 Darwin 分支渲染并 launchctl 装载。
+
+  真机验收 DEFERRED（mac 停机，context.md Deferred）；命令格式先行对齐 Linux/Win，Linux/Win 先行。
+
+  设计要点：
+    - LaunchAgent（非 LaunchDaemon）：跑在用户 Aqua GUI 会话，aura-node 得屏幕录制 / 输入注入上下文
+      （与 Windows 计划任务 InteractiveToken 同构；LaunchDaemon 跑 pre-login 无 GUI 会话，不可截图）。
+    - 落位 ~/Library/LaunchAgents/com.aura.node.plist；装载：
+        launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.aura.node.plist
+        launchctl kickstart -k gui/$(id -u)/com.aura.node
+    - per-node 证书 mTLS 自证（enroll 换得），无需 token；证书与 node_id 同落 ${DATA_DIR}（co-locate）。
+    - ⚠ macOS TCC：屏幕录制 / 辅助功能权限须用户在「系统设置 > 隐私与安全性」授予 aura-node 二进制
+      （无法脚本静默授予）——真机接入 T11+ 处理。
+
+  install.sh 以实测值替换 ${...}：
+    CONTROLLER  稳态反连端点 host:7443（节点侧自加 https://）
+    DATA_DIR    enroll 落盘根（缺省 /usr/local/var/aura）
+    TLS_DOMAIN  控制面 server 证书 SAN（aura-controller）
+    HTTP_BIND   常驻 MCP HTTP 监听（缺省 0.0.0.0:7100）
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aura.node</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/aura-node</string>
+        <string>--driver</string>
+        <string>desktop</string>
+        <string>--controller</string>
+        <string>${CONTROLLER}</string>
+        <string>--ca</string>
+        <string>${DATA_DIR}/ca.crt</string>
+        <string>--cert</string>
+        <string>${DATA_DIR}/node.crt</string>
+        <string>--key</string>
+        <string>${DATA_DIR}/node.key</string>
+        <string>--tls-domain</string>
+        <string>${TLS_DOMAIN}</string>
+        <string>--data-dir</string>
+        <string>${DATA_DIR}</string>
+        <string>http</string>
+        <string>--bind</string>
+        <string>${HTTP_BIND}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${DATA_DIR}/aura-node.log</string>
+    <key>StandardErrorPath</key>
+    <string>${DATA_DIR}/aura-node.log</string>
+</dict>
+</plist>

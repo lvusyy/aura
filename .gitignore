@@ -1,0 +1,44 @@
+# ── 内部工作区 / 过程证据 / 站点工具（不随仓库发布） ────────────────
+/.workflow/
+/evidence/
+/e2e/
+/dist/
+/tools/
+/compass_artifact_*.md
+/.maestroignore
+
+# ── 构建产物 / 依赖 ────────────────────────────────────────────
+node_modules/
+target/
+__pycache__/
+*.log
+*.tgz
+
+# console 构建产物（go:embed 消费；仅占位 index.html 入库保证 go build 可过，
+# 真实产物由 `cd console && npm run build` 生成落位）
+/controller/internal/console/dist/*
+!/controller/internal/console/dist/index.html
+
+# ── 备份 / 临时文件 ────────────────────────────────────────────
+*.bak
+*.bak-*
+*.tmp
+*.swp
+
+# ── 站点部署实例（含环境私有拓扑；默认拒绝，白名单放行通用模板） ──────
+/controller/deploy/*
+!/controller/deploy/ENV.md
+!/controller/deploy/compose.yml
+!/controller/deploy/gen-certs.sh
+!/controller/deploy/make-template.sh
+!/controller/deploy/install/
+!/controller/deploy/ios/
+!/controller/deploy/redroid/
+!/controller/deploy/selkies/
+!/controller/deploy/turn/
+!/controller/deploy/detector/
+# 白名单目录内的站点构建/搬运脚本仍排除
+/controller/deploy/detector/deploy.sh
+/controller/deploy/detector/build.sh
+/controller/deploy/detector/stage-weights.sh
+/controller/deploy/redroid/build-sidecar.sh

@@ -1,0 +1,56 @@
+# AURA M8-P2 coturn TURN 服务端部署（备用件 / fallback，不 gate 流架构主线）。
+#
+# 第三方 harness 进程供给：coturn 属部署 harness 拥有的进程（非 AURA 编排面代码）。
+# 主线 = Selkies hostNetwork ICE 直连（evidence/spike-verdict.md：GATE=DIRECT_OK，UDP 直连实测通）；
+# 本 coturn 常备但闲置，仅当 UDP 直连不可用时由 TASK-004 Selkies 经 SELKIES_TURN_* 注入启用。
+#
+# 部署（turnserver.conf 为单一权威源，ConfigMap 由其生成，避免重复）：
+#   SECRET=$(openssl rand -hex 16)
+#   kubectl -n aura create configmap coturn-config \
+#       --from-file=turnserver.conf=controller/deploy/turn/turnserver.conf
+#   kubectl -n aura create secret generic coturn-secret \
+#       --from-literal=static-auth-secret=$SECRET
+#   kubectl apply -f controller/deploy/turn/coturn-deploy.yaml
+#   # $SECRET 留存 .workflow evidence，不入库。
+#
+# 镜像拉取失败回退（memory）：docker.1ms.run/coturn/coturn:4.14 后 retag，或 k3s ctr images import。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: coturn
+  namespace: aura
+  labels:
+    app: coturn
+    aura.dev/role: turn-fallback
+spec:
+  # hostNetwork：监听/relay 端口直接落宿主（=跳板 <host-tailscale-ip>），浏览器经 Tailscale 直达，
+  # 绕开路由器 ACL 死墙（analysis §1.2 交汇点架构）。
+  hostNetwork: true
+  restartPolicy: Always
+  containers:
+    - name: coturn
+      # 官方镜像，4.14.x 含安全修复（research §3）。
+      image: docker.io/coturn/coturn:4.14
+      imagePullPolicy: IfNotPresent
+      args:
+        - "-c"
+        - "/etc/coturn/turnserver.conf"
+        # static-auth-secret 经 k8s env 展开注入，不落配置文件/镜像层。
+        - "--static-auth-secret=$(TURN_STATIC_AUTH_SECRET)"
+      env:
+        - name: TURN_STATIC_AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: coturn-secret
+              key: static-auth-secret
+      # hostNetwork 下 ports 仅作文档声明（进程直接绑宿主）；relay 段 49160-49200 见 turnserver.conf。
+      ports:
+        - {name: turn-udp, containerPort: 3478, protocol: UDP}
+        - {name: turn-tcp, containerPort: 3478, protocol: TCP}
+        - {name: turns-tcp, containerPort: 5349, protocol: TCP}
+      volumeMounts:
+        - {name: config, mountPath: /etc/coturn}
+  volumes:
+    - name: config
+      configMap:
+        name: coturn-config

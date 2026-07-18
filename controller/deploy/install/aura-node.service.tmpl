@@ -1,0 +1,38 @@
+# controller/deploy/install/aura-node.service.tmpl
+# AURA 一键安装器 systemd unit 模板（M12 TASK-009）。install.sh 的 Linux 分支内嵌等价 heredoc
+# 渲染本模板（curl|sh 自包含，不外读文件，同 make-template.sh:88-104 内联先例）；本文件为规范参照，
+# 亦可供手动安装 / T11 真机接入直接填参使用。
+#
+# install.sh 安装时以实测值替换 ${...} 占位：
+#   SERVICE_USER  调用安装的桌面会话属主（X 授权按用户强耦合；SUDO_USER 抄现值）
+#   CONTROLLER    稳态反连端点 host:7443（HA 用 VIP；节点侧自加 https://）
+#   DATA_DIR      enroll 落盘根（node.key/node.crt/ca.crt/node_id 同目录 co-locate，见 enroll.rs T06）
+#   TLS_DOMAIN    控制面 server 证书 SAN（gen-certs.sh: DNS:aura-controller）
+#   HTTP_BIND     常驻 MCP HTTP 监听（缺省 0.0.0.0:7100）
+#
+# 反连身份：per-node 证书 mTLS 自证（enroll 换得），无需 --token（token 已在 enroll 消费）。
+# 桌面 env（DISPLAY/XAUTHORITY/XDG_RUNTIME_DIR）：install.sh 从活跃会话抄现值写 /etc/aura/aura-node.env
+#   （screenshot/input_inject 依赖，spec §4 会话 env 债）；EnvironmentFile=- 前缀 = 缺文件不失败（headless 容忍）。
+#
+# 教训锚点（spec aura-node-systemd-data-dir）：--data-dir 必须显式——systemd 系统服务无 HOME，
+#   node_id 持久化目录无法回落 ~/.aura，漏配则 "cannot resolve data dir" 循环重启。
+# 禁写 After=graphical.target：与 WantedBy=multi-user.target 构成 boot 期 ordering cycle
+#   （graphical→multi-user→本 unit→graphical），systemd 删 start job 破环——enable --now 当场正常、
+#   reboot 后必不自启（M11 T7 reboot 实证）。桌面会话就绪由 EnvironmentFile 现值兜底，不靠 target 排序。
+
+[Unit]
+Description=AURA node (reverse gRPC to controller)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+EnvironmentFile=-/etc/aura/aura-node.env
+# 反连拨出控制面（mTLS，per-node 证书自证）+ 常驻 MCP HTTP 传输并存；证书与 node_id 同落 ${DATA_DIR}。
+ExecStart=/usr/local/bin/aura-node --driver ${DRIVER} --controller ${CONTROLLER} --ca ${DATA_DIR}/ca.crt --cert ${DATA_DIR}/node.crt --key ${DATA_DIR}/node.key --tls-domain ${TLS_DOMAIN} --data-dir ${DATA_DIR} http --bind ${HTTP_BIND}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

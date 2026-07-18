@@ -1,0 +1,41 @@
+{
+  "name": "aura-console",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AURA 管理台前端（M8）：Vite + React 19 + Ant Design 6 SPA，connect-web 消费同源生成的 ConsoleService client，产物 embed 进 aura-controller 单二进制。",
+  "scripts": {
+    "generate": "cd ../proto && buf generate",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "@bufbuild/protobuf": "^2.12.1",
+    "@connectrpc/connect": "^2.1.2",
+    "@connectrpc/connect-web": "^2.1.2",
+    "@yume-chan/adb": "2.6.0",
+    "@yume-chan/adb-credential-web": "2.1.0",
+    "@yume-chan/adb-scrcpy": "2.3.2",
+    "@yume-chan/scrcpy": "2.3.0",
+    "@yume-chan/scrcpy-decoder-webcodecs": "2.5.3",
+    "@yume-chan/stream-extra": "2.6.1",
+    "antd": "^6.5.0",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.71.0",
+    "@bufbuild/protoc-gen-es": "^2.12.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^5.7.3",
+    "vite": "^8.1.4"
+  }
+}

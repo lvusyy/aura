@@ -1,0 +1,74 @@
+# AURA M8-P2 · TASK-001 · UDP 通路 spike echo 端点（可测后删，第三方 harness：alpine/socat）。
+#
+# 用途：端到端实测本机（Tailscale <client-tailscale-ip>）→ k3s 宿主（<host-tailscale-ip>）的 UDP 直连通路，
+# 据此 gate Selkies WebRTC 流架构（见 evidence/spike-verdict.md：GATE=DIRECT_OK）。
+#
+# gate 主线实测采用宿主裸进程 python3 echo（更轻、免镜像；三方铁证：client 回读 MARK + 服务端
+# app 日志 + tailscale0 tcpdump 物理双向抓包，见 evidence/TASK-001-udp-spike*.log 与 *-tcpdump*.log），
+# 结论 UDP_BIDIR_OK（0% 丢包，RTT ~34ms）。本 manifest 为 k8s-native 等价形态 + k3s 转发面对照：
+#
+#   A. udp-echo-host —— hostNetwork Pod，socat 直绑宿主 :49205
+#      = TASK-004 Selkies hostNetwork ICE host candidate 的等价可达性面（主线形态复现）。
+#      注：端口取 49205（coturn relay 段 49160-49200 之外），使与常备 coturn 并存不冲突。
+#   B. udp-echo-np  —— 普通 Pod-network + NodePort UDP :31200→:49200
+#      = 验 k3s kube-proxy UDP 转发面（Selkies 若不用 hostNetwork 而走 NodePort 的备选可行性）。
+#
+# alpine busybox cat 用 raw read/write（无 stdio 缓冲），socat UDP-RECVFROM,fork EXEC:cat 逐报即时回显。
+# 用毕删除：kubectl -n aura delete -f controller/deploy/turn/udp-echo.yaml
+# 镜像 docker.io/alpine/socat:latest（已 pull 进 k3s containerd，IfNotPresent）。
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: udp-echo-host
+  namespace: aura
+  labels:
+    app: udp-echo
+    aura.dev/role: net-spike
+    aura.dev/form: hostnetwork
+spec:
+  hostNetwork: true                         # 绑宿主网络栈 = Selkies hostNetwork ICE 等价面
+  restartPolicy: Never
+  containers:
+    - name: socat
+      image: docker.io/alpine/socat:latest
+      imagePullPolicy: IfNotPresent
+      # ENTRYPOINT=socat；每收一个 UDP 数据报 fork 一个 cat 原样回显给发送方
+      args: ["-v", "UDP-RECVFROM:49205,fork,reuseaddr", "EXEC:/bin/cat"]
+      ports:
+        - {name: udp-echo, containerPort: 49205, hostPort: 49205, protocol: UDP}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: udp-echo-np
+  namespace: aura
+  labels:
+    app: udp-echo
+    aura.dev/role: net-spike
+    aura.dev/form: nodeport
+spec:
+  restartPolicy: Never
+  containers:
+    - name: socat
+      image: docker.io/alpine/socat:latest
+      imagePullPolicy: IfNotPresent
+      args: ["-v", "UDP-RECVFROM:49200,fork,reuseaddr", "EXEC:/bin/cat"]
+      ports:
+        - {name: udp-echo, containerPort: 49200, protocol: UDP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: udp-echo-np
+  namespace: aura
+  labels:
+    app: udp-echo
+    aura.dev/role: net-spike
+spec:
+  type: NodePort
+  selector:
+    app: udp-echo
+    aura.dev/form: nodeport                  # 仅选 NodePort 形态 Pod（不含 hostNetwork Pod）
+  ports:
+    - {name: udp-echo, protocol: UDP, port: 49200, targetPort: 49200, nodePort: 31200}

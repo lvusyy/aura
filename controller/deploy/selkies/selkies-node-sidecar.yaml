@@ -1,0 +1,266 @@
+# AURA M8-P2 — Selkies desktop + aura-node sidecar in ONE pod (SC-3 closed loop).
+#
+# This is the PRODUCT form: the same Selkies WebRTC desktop as selkies-pod.yaml PLUS a
+# second container running aura-node --driver desktop, so a browser watches the live stream
+# AND the control plane can drive the very same desktop (screenshot → click → type).
+#
+# How the node drives Selkies' desktop (differs from the redroid sidecar's adb-over-localhost):
+#   the desktop driver captures the X11 display Selkies renders (aura-platform xcap = libxcb
+#   GetImage) and injects input (enigo = x11rb XTEST). The ONLY coupling is the X server, so
+#   the two containers share Selkies' X unix socket via an emptyDir at /tmp/.X11-unix plus a
+#   matching DISPLAY. Verified against the image: Selkies runs Xvfb at DISPLAY=:20 with `-ac`
+#   (access control OFF) → no MIT-MAGIC-COOKIE / XAUTHORITY sharing needed; the socket + a
+#   matching DISPLAY=:20 is sufficient. entrypoint-desktop.sh waits for /tmp/.X11-unix/X20
+#   then execs the node with an mTLS gRPC reverse connection to the control plane.
+#
+# Why a configMap for the entrypoint (not baked into the image): the sidecar image is shared
+# with the redroid form (built by redroid/build-sidecar.sh) and ships the desktop-capable
+# binary (ldd: libxcb + libdbus; enigo uses x11rb XTEST over the wire, no libXtst .so) but
+# bakes only the ANDROID entrypoint.sh. Keeping entrypoint-desktop.sh in a configMap run via
+# `command` lets ONE image serve both sidecar forms. Create it from the repo file before
+# apply (README §sidecar):
+#   kubectl -n aura create configmap selkies-node-entrypoint \
+#     --from-file=entrypoint-desktop.sh=controller/deploy/selkies/entrypoint-desktop.sh
+#
+# Certs: the same `aura-node-certs` secret (ca.crt/node.crt/node.key) the redroid sidecar uses.
+#
+# COEXISTENCE ("两形态并存" — run ONE at a time): this pod and selkies-pod.yaml are BOTH
+# hostNetwork and BOTH bind host 8082 (nginx) / 8083 / 8084. Run EITHER the streaming-only
+# pod OR this sidecar pod, never both. This sidecar form is the SC-3 deliverable; the
+# streaming-only pod stays the minimal fallback.
+#
+# Ports & ICE: identical to selkies-pod.yaml — NGINX_PORT 8082 (public, basic auth),
+# SELKIES_PORT 8083 + SELKIES_METRICS_HTTP_PORT 8084 (internal, localhost). hostNetwork so
+# webrtcbin enumerates tailscale0 (<host-tailscale-ip>) as an ICE host candidate (gate=DIRECT_OK,
+# carries the media); Selkies' ICE is pointed at our coturn (SELKIES_STUN/TURN_* below) because
+# the image's default external ICE servers are unreachable here — see the env comment + README §TURN.
+#
+# Isolation (Locked-10): `aura` ns only, non-privileged. SAFETY: default-ns VMs untouched;
+# KubeVirt VM desktops keep their existing screenshot/console path (zero change).
+#
+# M9 T12 additions (three deterministic fixes, folded from the acceptance-run derivative
+# evidence/m9/selkies-fusion/selkies-node-sidecar-m9-derived.yaml): ① fix-runtime-perms
+# initContainer (XDG_RUNTIME_DIR ownership — ksmserver hard-crashes otherwise), ② xdg-runtime
+# emptyDir shared by both containers (KDE a11y bus socket path), ③ AT_SPI_BUS_ADDRESS env on
+# the node sidecar (env-first bus discovery; no session bus exists in that container). The
+# derivative's fourth delta — hostPath binary injection — is obsolete since :m9 bakes the
+# fixed binary in (see the node-sidecar image comment).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: selkies-node-sidecar
+  namespace: aura
+  labels:
+    app: selkies-node-sidecar
+    aura.dev/role: linux-desktop-sidecar
+spec:
+  restartPolicy: Always
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  # Selkies' Xvfb runs as the image's default user; fsGroup 1000 makes the shared X-socket
+  # emptyDir group-writable (gid 1000) so the socket lands in it regardless of whether the
+  # desktop runs as uid 1000 or root (root can write a gid-1000 dir either way). The node
+  # sidecar (root, m6) connects to the socket regardless of its ownership.
+  securityContext:
+    fsGroup: 1000
+  # M9 T12 (deterministic, keep): fsGroup only chgrp+setgid's emptyDirs — the dir stays ROOT-owned,
+  # and KDE's ksmserver SIGABRTs deterministically when XDG_RUNTIME_DIR is not owned by the session
+  # user (XDG ownership check; drkonqi then ptrace-stops it and the whole session chain stalls —
+  # reproduced twice on this host). Hand the dir to uid 1000 with XDG-conformant 0700 BEFORE any
+  # container starts. The node sidecar runs as root, so 0700 does not block it (DAC exempt).
+  initContainers:
+    - name: fix-runtime-perms
+      image: ghcr.io/selkies-project/nvidia-egl-desktop:24.04
+      command: ["/bin/sh", "-c", "chown 1000:1000 /tmp/runtime-ubuntu && chmod 0700 /tmp/runtime-ubuntu"]
+      securityContext:
+        runAsUser: 0
+      volumeMounts:
+        - name: xdg-runtime
+          mountPath: /tmp/runtime-ubuntu
+  containers:
+    # --- Container 1: Selkies WebRTC desktop (mirrors selkies-pod.yaml's selkies container,
+    #     plus the shared X-socket mount + an explicit DISPLAY so the sidecar can find it) ---
+    - name: selkies
+      image: ghcr.io/selkies-project/nvidia-egl-desktop:24.04
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        privileged: false
+      env:
+        - name: SELKIES_ENCODER
+          value: "x264enc"
+        - name: SELKIES_ENABLE_BASIC_AUTH
+          value: "true"
+        - name: SELKIES_BASIC_AUTH_USER
+          value: "aura"
+        - name: SELKIES_BASIC_AUTH_PASSWORD
+          value: "aura-selkies"
+        # Ports — see selkies-pod.yaml header for the two-tier rationale (all host-bound).
+        - name: NGINX_PORT
+          value: "8082"
+        - name: SELKIES_PORT
+          value: "8083"
+        - name: SELKIES_METRICS_HTTP_PORT
+          value: "8084"
+        - name: PASSWD
+          value: "aura-selkies"
+        - name: SELKIES_SIZEW
+          value: "1280"
+        - name: SELKIES_SIZEH
+          value: "720"
+        # Pin DISPLAY so the shared-socket contract with the node sidecar is explicit (the
+        # image already defaults to :20; making it explicit keeps both containers in lockstep).
+        - name: DISPLAY
+          value: ":20"
+        # GPU-less Xvfb crash workaround (verified on this host): the image's Xvfb boots with
+        # `+extension GLX +iglx`, which dlopens Mesa's swrast_dri.so → libdril_dri.so and
+        # SEGFAULTS during GLX init with no GPU (Mesa's unified DRI loader). Pointing the DRI
+        # search path at an empty dir makes GLX find no driver and self-disable gracefully →
+        # Xvfb comes up as a 2D software display (RANDR/RENDER/XTEST intact). GLX is not needed
+        # here: aura-node captures via xcb GetImage + injects via XTEST, Selkies captures the 2D
+        # framebuffer, and Chromium uses its own SwiftShader. (research §1's "llvmpipe fallback"
+        # is even softer here — full GLX-less — because this image's llvmpipe path itself crashes.)
+        - name: LIBGL_DRIVERS_PATH
+          value: "/opt/no-dri"
+        # ICE servers → our coturn (README §TURN). The image DEFAULTS to unreachable external
+        # ICE here (stun.l.google.com + openrelay TURN) and its bundled turnserver collides with
+        # our coturn on host :3478, so webrtcbin stalls on ICE gathering and never sends an offer
+        # (verified: browser creates no RTCPeerConnection). Pointing Selkies at our coturn (from
+        # TASK-001, reachable on the Tailscale IP) fixes negotiation; providing TURN host+port+
+        # secret ALSO makes the entrypoint skip its bundled turnserver (dodges the :3478 clash).
+        # DIRECT_OK still holds — ICE prioritises the hostNetwork host candidate (<host-tailscale-ip>)
+        # for media; coturn only supplies STUN discovery + a relay fallback.
+        - name: SELKIES_STUN_HOST
+          value: "<host-tailscale-ip>"
+        - name: SELKIES_STUN_PORT
+          value: "3478"
+        - name: SELKIES_TURN_HOST
+          value: "<host-tailscale-ip>"
+        - name: SELKIES_TURN_PORT
+          value: "3478"
+        - name: SELKIES_TURN_PROTOCOL
+          value: "udp"
+        - name: SELKIES_TURN_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: coturn-secret       # created in TASK-001; value stays out of the repo
+              key: static-auth-secret
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        - name: x11-socket
+          mountPath: /tmp/.X11-unix
+        - name: no-dri
+          mountPath: /opt/no-dri
+        # M9 T12: share the XDG runtime dir — the KDE a11y bus is a PATH-type unix socket at
+        # /tmp/runtime-ubuntu/at-spi/bus_20, previously invisible to the node container (only
+        # /tmp/.X11-unix was shared). Sharing it makes the very bus KDE apps register on
+        # reachable from the sidecar.
+        - name: xdg-runtime
+          mountPath: /tmp/runtime-ubuntu
+      readinessProbe:
+        # Gate on the public nginx port (same reasoning as selkies-pod.yaml).
+        tcpSocket:
+          port: 8082
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+    # --- Container 2: aura-node in desktop-driver mode, reverse-connecting to the controller ---
+    - name: node-sidecar
+      # m11 = m10（M9 a11y 修复 + M10 UploadFailed 发帧）+ M11 T2-T5 node 能力演进
+      # （screenshot output=image / audio_inject 21 广告面 / Linux ffmpeg 录屏实装 / WGC
+      # 多显示器语义），并按 w1-smoke-decision R2 在镜像 apt 行补装 ffmpeg（录屏后端）。
+      # M11-P1 T7 统一滚更烤制，baked via redroid/build-sidecar.sh TAG=m11. Ships the
+      # android entrypoint only; we override command to run the desktop entrypoint
+      # mounted from the configMap below.
+      image: docker.io/library/aura-node-sidecar:m12d
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "/etc/aura/bin/entrypoint-desktop.sh"]
+      env:
+        # Reverse-connect target: the M10 keepalived VIP (ha-contract §4.5) — failover follows the
+        # VIP, zero per-node change afterwards. Same 22.x segment, direct (no socat jump). NOTE:
+        # this pod is hostNetwork ON replica-2's host; when the VIP lands locally, the output-hook
+        # DNAT in deploy/ha/aura-vip.nft (oifname lo condition) routes this dial to <k3s-host>.
+        - name: AURA_CONTROLLER
+          value: "<controller-vip>:7443"
+        - name: AURA_TLS_DOMAIN
+          value: "aura-controller"
+        - name: AURA_DATA_DIR
+          value: "/var/lib/aura"
+        # Must match Selkies' Xvfb DISPLAY (:20). entrypoint-desktop.sh derives the X socket
+        # path (/tmp/.X11-unix/X20) from this; without it the node would look for :0 and stall.
+        - name: DISPLAY
+          value: ":20"
+        # M9 T12: point the atspi crate at Selkies' real KDE a11y bus. aura-node's a11y layer
+        # (>= T5+T12 binary) reads this env FIRST (from_address); without it, discovery falls
+        # back to session-bus GetAddress — and this container has no session bus, so the a11y
+        # tree would come back empty. The :m9 image bakes that binary in, so a cold rebuild
+        # from this manifest reaches full Linux a11y/fusion capability as-is (the hostPath
+        # binary injection the M9 acceptance run used is no longer needed).
+        - name: AT_SPI_BUS_ADDRESS
+          value: "unix:path=/tmp/runtime-ubuntu/at-spi/bus_20"
+        # M12 batch-D (infra labeling): downward API facts for Register.infra_host. hostNetwork
+        # makes the container hostname the HOST's name (fleet showed two cards both named
+        # msc-3975wx), so the pod name MUST come from the downward API (metadata.name), never
+        # hostname; spec.nodeName roots the host chain (<node>/<ns>/<pod>). AURA_ATTACHED
+        # declares the service this node drives (fleet 关联 row) — env wins over the driver's
+        # own derivation (see DeviceDriver::attached).
+        - name: AURA_K8S_NODE
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: AURA_K8S_POD
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: AURA_ATTACHED
+          value: "selkies-desktop@DISPLAY=:20"
+      volumeMounts:
+        - name: x11-socket
+          mountPath: /tmp/.X11-unix
+        - name: xdg-runtime
+          mountPath: /tmp/runtime-ubuntu
+        - name: certs
+          mountPath: /etc/aura/certs
+          readOnly: true
+        - name: entrypoint
+          mountPath: /etc/aura/bin
+          readOnly: true
+        # M10 SC-6: persist node identity (/var/lib/aura/node_id = AURA_DATA_DIR) across pod
+        # recreation. Without a volume the id lives in the container layer, so every cold
+        # rebuild mints a new UUID + a zombie fleet row. hostPath (not emptyDir — that only
+        # survives container restarts, not pod delete+recreate) is safe here: single-node k3s,
+        # fixed pod name → no multi-instance write risk. registry upserts by self-reported id,
+        # so a stable id closes SC-6 with zero controller change.
+        - name: aura-data
+          mountPath: /var/lib/aura
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi
+    # Shared X11 socket dir: Selkies' Xvfb creates X20 here; the node connects to it.
+    - name: x11-socket
+      emptyDir: {}
+    # Intentionally-empty DRI driver dir (LIBGL_DRIVERS_PATH) → GLX self-disables, dodging
+    # the GPU-less Mesa swrast_dri.so segfault (see the selkies container env comment).
+    - name: no-dri
+      emptyDir: {}
+    # M9 T12: shared XDG runtime dir — the a11y bus socket lives here; ownership fixed by the
+    # fix-runtime-perms initContainer (see initContainers comment).
+    - name: xdg-runtime
+      emptyDir: {}
+    - name: certs
+      secret:
+        secretName: aura-node-certs
+        defaultMode: 0400
+    - name: entrypoint
+      configMap:
+        name: selkies-node-entrypoint
+        defaultMode: 0555
+    # M10 SC-6: node identity dir — see the node-sidecar aura-data mount comment. Path is
+    # per-sidecar-form (…-selkies vs …-redroid) so the two forms never share an id.
+    - name: aura-data
+      hostPath:
+        path: /var/lib/aura-selkies
+        type: DirectoryOrCreate

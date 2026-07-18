@@ -1,0 +1,109 @@
+# AURA M9-P1 — OmniParser detector 服务 k3s 部署（CPU 回退变体，T6）。
+#
+# 用途：无 GPU / nvidia runtime 不可用环境的可移植回退（不 gate 验收主线）。
+# 与 GPU 主线（detector-deploy.yaml）同名互替——kubectl apply 本文件即整体替换
+# GPU Deployment（last-applied 三方合并会移除 runtimeClassName/gpu limits），
+# 一次只跑一个 detector。切回 GPU：重新 apply detector-deploy.yaml。
+#
+# CPU 路径强制 float32（fp16-on-CPU 会挂死 >1h，README §延迟预期硬红线）：
+# app.py device 自适应已内建（无 CUDA -> 自动 .float() 双保险）；此处再加
+# CUDA_VISIBLE_DEVICES="" 兜底——即使误部署在带 nvidia runtime 的环境也强制
+# 走 CPU（torch.cuda.is_available()=False），两层保险互不依赖。
+# 延迟预期：15-25s/帧（64C 宿主）；8C VM 实测 43.5s（TASK-002 冒烟下界参照）。
+#
+# 其余红线同 GPU 主线：禁 hostNetwork（m3）、NodePort + bearer（C1）、权重 PVC（C2）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detector
+  namespace: aura
+  labels:
+    app: aura-detector
+    aura.dev/role: visual-detector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aura-detector
+  template:
+    metadata:
+      labels:
+        app: aura-detector
+    spec:
+      # CPU 变体：无 runtimeClassName、无 nodeSelector（任意节点可跑）、无 gpu limits。
+      containers:
+        - name: detector
+          image: docker.io/library/aura-detector:m9
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AURA_DETECTOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: detector-token
+                  key: token
+            # 强制 CPU（app.py 随之自动 float32，防 fp16-on-CPU 挂死）。
+            - name: CUDA_VISIBLE_DEVICES
+              value: ""
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "8"
+              memory: 6Gi
+            limits:
+              cpu: "32"
+              memory: 16Gi
+          volumeMounts:
+            - name: weights
+              mountPath: /weights
+              readOnly: true
+          # CPU 加载 fp32 权重更慢：启动窗口放宽到 600s。
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            # CPU 单帧推理 15-43s 会占满 worker；/healthz 无鉴权且轻量，但给宽超时
+            # 防推理高峰期探针饿死误杀。
+            timeoutSeconds: 10
+            failureThreshold: 5
+      volumes:
+        - name: weights
+          persistentVolumeClaim:
+            claimName: detector-weights
+---
+# Service 与 GPU 主线完全一致（同名互替时 apply 幂等无变化）：NodePort 30808，
+# bearer 主防线，禁 hostNetwork。见 detector-deploy.yaml 的 Service 注释。
+apiVersion: v1
+kind: Service
+metadata:
+  name: detector
+  namespace: aura
+  labels:
+    app: aura-detector
+spec:
+  type: NodePort
+  selector:
+    app: aura-detector
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30808

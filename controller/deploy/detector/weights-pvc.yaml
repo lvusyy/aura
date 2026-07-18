@@ -1,0 +1,48 @@
+# AURA M9-P1 — PersistentVolumeClaim for the OmniParser detector weights.
+#
+# Holds the OmniParser v2 checkpoints (icon_detect + icon_caption_florence) so the M9
+# detector pod (T6) mounts them read-only at /weights with NO runtime download. This is
+# the only self-consistent weight-supply path for this cluster (devil C2):
+#   - Baking the AGPL YOLO weights into the image = distributing AGPL (violates the
+#     project's AGPL policy c: AURA never conveys the weights).
+#   - Runtime `hf download` inside the pod = unreliable: this host's HF egress goes
+#     through a fake-IP hijack layer (huggingface.co -> 198.18.0.86, RFC2544 range;
+#     host-level, persistent) that has already blocked LFS blob downloads once (devil
+#     C2: cdn-lfs SSL fail). A pod-level probe at stage time DID succeed (HF moved to
+#     the Xet CDN us.aws.cdn.hf.co and the proxy let it through that moment), but the
+#     path depends on an uncontrolled interception layer — see WEIGHTS.md.
+# So an operator stages the weights ONCE from an internet-capable machine into this PVC
+# (stage-weights.sh); AURA never conveys the weights = AGPL-clean (policy c = user
+# self-stages), and the weights are available offline. See WEIGHTS.md for the full flow.
+#
+# SAFETY: `kubectl apply` is idempotent and only creates this PVC in the `aura`
+# namespace. The `default`-ns VMs and existing `aura` pods/VMIs are never touched.
+#
+# NOTE (local-path binding): this cluster's `local-path` StorageClass uses
+# volumeBindingMode: WaitForFirstConsumer, so the PVC stays Pending until a pod mounts
+# it. stage-weights.sh brings up a short-lived stage pod to trigger binding and populate
+# the volume; thereafter the PV (a host dir under /var/lib/rancher/k3s/storage/) persists
+# for the PVC's lifetime and the detector pod mounts the same claim.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: detector-weights
+  namespace: aura
+  labels:
+    app: aura-detector
+    component: omniparser-weights
+spec:
+  accessModes:
+    # local-path is single-node hostPath-backed; ReadWriteOnce is the only meaningful
+    # mode. The detector mounts it read-only at the volumeMount level (readOnly: true),
+    # which is independent of the PVC access mode.
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # Measured OmniParser v2 weights = ~1.12 GiB (icon_caption model.safetensors
+      # 1.08 GB float32 + icon_detect model.pt 40 MB; the research doc's "~300MB /
+      # ~200MB florence" estimate undercounted the float32 safetensors). 3Gi leaves
+      # headroom for optional OCR weights. local-path does NOT hard-enforce this quota
+      # (it is a hostPath on the 503 GB host) — the value is advisory / for scheduling.
+      storage: 3Gi

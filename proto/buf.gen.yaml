@@ -1,0 +1,17 @@
+version: v2
+# Go 侧代码生成（connect-go 哑管道）。用 BSR remote plugins 免装本地 protoc-gen-*。
+# 插件版本锁定以匹配 controller/go.mod（protobuf v1.36.11 / connect v1.18.1），避免生成物随 BSR latest 漂移。
+# Rust 侧不走 buf：由 node/crates/aura-node/build.rs 的 tonic-build 直接编译本 proto（见 TASK-005）。
+# 前端 TS 侧（M8，additive）：protoc-gen-es v2 统一插件一并生成 message+service，
+# 前端 connect-web 从同一份 proto 直生 client（protoc-gen-connect-es 已废）。生成物落 console/src/gen（TASK-004 前端工程消费）。
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: ../controller/gen
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go:v1.18.1
+    out: ../controller/gen
+    opt: paths=source_relative
+  - remote: buf.build/bufbuild/es:v2.12.1
+    out: ../console/src/gen
+    opt:
+      - target=ts

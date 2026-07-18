@@ -1,0 +1,72 @@
+[package]
+name = "aura-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "AURA 平台实现层：以 #[cfg(target_os)] 门控，实现能力层三域 trait"
+
+[dependencies]
+aura-capability = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+base64 = "0.22"
+
+# screen 域（TASK-004）：图像缩放 / WebP 编码（平台无关流水线；采集后端见文末 target 段）
+fast_image_resize = "6"
+webp = "0.3"
+# iOS 截图 PNG 解码（M7）：WDA /screenshot 出 base64 PNG（非 android screencap raw RGBA），纯 Rust png
+# 解码器归一 RGBA8 后复用平台无关 encode_scaled 流水线。由 image crate 既有传递依赖提升为直接依赖
+# （Cargo.lock 已锁 0.18.1，非手写占位版本）。
+png = "0.18"
+
+# input 域（TASK-005）：输入模拟（enigo 默认后端；Linux libxdo-dev 已装，暂不启用 x11rb feature）
+enigo = "0.6"
+
+# process/file 域（TASK-006）：进程枚举 / 文件校验
+sysinfo = "0.39"
+sha2 = "0.10"
+
+# iOS WDA HTTP 域（TASK-005）：WdaClient 窄 adapter 的同步 HTTP client + JSON 线格式。
+# ureq default-features=false 关 TLS（localhost WDA 纯 HTTP，无需 rustls——规避工作区 tonic 既有
+# rustls ring provider 冲突；no-default-features 下仅 3 传递依赖 ureq-proto/utf8-zero，零 TLS 栈）。
+# 版本 3.3.0 由 mac 构建机 cargo add 取真实值回写（禁手写占位——sync 会盖回致反向报错）。
+# serde_json 解析 WDA 响应信封 {value,sessionId} + 构造 actions/keys 请求体（workspace 既有，零新传递依赖）。
+ureq = { version = "3.3.0", default-features = false }
+serde_json = { workspace = true }
+
+# screen 采集后端（平台特化，只此层分平台；采集后统一交付 RGBA8 缓冲喂平台无关流水线）
+# Linux（X11）：xcap =0.4.1（pre-pipewire）。0.5+ 在 Linux 无条件依赖 pipewire→libspa 0.9.2，
+# 与 Ubuntu 22.04 旧 spa 头（pipewire 0.3.48 / libspa-0.2）不兼容致编译失败；
+# 0.4.1 仅用 xcb(X11)+dbus+libwayshot，构建机系统库齐备，M1 强制 X11 不需 pipewire。
+# 批F：macOS 迁出 xcap（其 CGGetActiveDisplayList 枚举在 macOS 26 看不到虚拟显示器），
+# cfg 收紧为 Linux 专属，Linux 侧依赖树零变化。
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+xcap = "=0.4.1"
+
+# macOS 采集后端（批F）：CG Online 枚举（手写 extern，CGDirectDisplay.h 元数据 C API）+
+# ScreenCaptureKit 单帧采集（objc2 生态机器生成绑定）。版本由 mac 构建机 cargo 解析取
+# 真实值回写（禁手写占位——sync 会盖回致反向报错，同 ureq 先例）。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"
+
+# Windows：windows-capture（WGC / Windows.Graphics.Capture，Win10 1903+）。对 RDP/无头会话截图
+# 友好，规避 xcap GDI BitBlt 在 RDP 会话隔离下句柄无效（0x80070006）；请求 ColorFormat::Rgba8 直取 RGBA。
+# a11y 域（TASK-005）：uiautomation（IUIAutomation 的安全封装），COM 对象 !Send 起独占线程持有
+# （复刻本层高层平台封装惯例 windows-capture/xcap/enigo，将 COM 收敛在封装内、隔离于 A11yDriver adapter 后）。
+[target.'cfg(windows)'.dependencies]
+windows-capture = "=2.0.0"
+uiautomation = "0.25"
+# 显示器元数据真值（M11 T5）：windows-capture 2.0 的 Monitor 是 HMONITOR 纯包装、不暴露位置/DPI，
+# 以 as_raw_hmonitor() 直调 Win32 GetMonitorInfoW（x/y）+ GetDpiForMonitor（scale）补齐。
+# windows 0.62.2 已在依赖树（windows-capture 同版声明），提升为直接依赖零新 crate；
+# features 只列本 crate 直用面（Foundation=RECT、Gdi=HMONITOR/MONITORINFOEXW、HiDpi=DPI）。
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
+
+# Linux a11y 域（TASK-005）：atspi（纯 Rust zbus AT-SPI2）。走 D-Bus 无障碍总线，天然异步；
+# tokio feature 让内部 zbus 走 tokio 运行时，与节点主运行时一致。macOS 无 a11y 依赖（defer stub）。
+[target.'cfg(target_os = "linux")'.dependencies]
+atspi = { version = "0.30", features = ["tokio"] }

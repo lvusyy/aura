@@ -1,0 +1,561 @@
+syntax = "proto3";
+
+package aura.v1;
+
+// NodeInfo 复用为 FleetEvent 快照载体；node.proto 与本文件同属 aura.v1 契约，同一 connect mux 暴露。
+import "aura/v1/node.proto";
+
+option go_package = "github.com/aura/controller/gen/aura/v1;aurav1";
+
+// ===== aura-console 管理台服务（M8，additive-within-aura.v1）=====
+// 承接 console-design.md 四模块 + track A 并行编排管理面的全部读/触发 RPC。
+// additive 纪律同 node.proto 文件头：本 service 独立成文，零触碰既有 NodeControl / ControllerAdmin /
+// 全部 M1-M6 message——aura.v1 契约只增不改。M8 三 track 的 proto 写冲突面单点收口于本文件，
+// 后续 track 任务只填 handler 不改契约（对抗 H）。
+// proto-first 直通前端：前端 connect-web 从本文件生成 TS client，零协议翻译层。
+service ConsoleService {
+  // 聚合摘要：舰队 / 任务 / 编排 / 录制的计数总览（Dashboard 首屏一次拉取）。
+  rpc GetDashboard(GetDashboardRequest) returns (GetDashboardResponse);
+  // 任务历史分页读（dispatch 审计表消费面）；可按 node / 编排过滤（执行墙下钻）。
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // 录制会话列表分页读（录放中心）。步序详情走既有 ControllerAdmin.GetTrace。
+  rpc ListTraces(ListTracesRequest) returns (ListTracesResponse);
+  // 产物代理读：控制面代取对象存储字节，绕开浏览器不可达的内网 MinIO。
+  rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
+  // per-node 串行队列深度：console 截图轮询前查 >0 即跳帧，避免抢占 agent 任务队列（对抗 G，零 scheduler 改动）。
+  rpc GetQueueDepth(GetQueueDepthRequest) returns (GetQueueDepthResponse);
+  // 并行编排触发：一条用例 fan-out 到 N 目标，gather 聚合 pass/fail 回报（部分失败标 partial 不熔断其余）。
+  rpc RunOrchestration(RunOrchestrationRequest) returns (RunOrchestrationResponse);
+  // 编排详情钻取：orchestration_id → 汇总 + 关联 task_ids（执行墙下钻 → ListTasks 关联明细）。
+  rpc GetOrchestration(GetOrchestrationRequest) returns (GetOrchestrationResponse);
+  // 编排历史分页读。
+  rpc ListOrchestrations(ListOrchestrationsRequest) returns (ListOrchestrationsResponse);
+  // 舰队状态变更事件流（server-streaming）：registry 事件源推送，替代轮询。
+  // aura.v1 首个 server-streaming RPC；浏览器 connect-web HTTP/1.1 即可消费（client/bidi 浏览器不适用，单推足够）。
+  rpc WatchFleet(WatchFleetRequest) returns (stream FleetEvent);
+  // 目标感知视觉融合触发（M9，additive）：仿 M6 StartTrace→GetTrace 的 submit→poll 形态。SubmitFusion 提交
+  // 一次融合任务（a11y 元素树 + vision 检测框 target-aware fan-in）返 job_id 不阻塞。落 ConsoleService（fleet
+  // 面，agent/编排/管理台消费）而非 node.proto ControllerAdmin，保 node.proto 字节级零动（Q1 定案）。
+  rpc SubmitFusion(SubmitFusionRequest) returns (SubmitFusionResponse);
+  // 轮询融合 job 结果：status（running|done|failed）+ vision_invoked + 融合元素表 + result_key。
+  rpc GetFusionResult(GetFusionResultRequest) returns (GetFusionResultResponse);
+  // console 读旁路（M10-P1，additive）：截图等只读工具绕 per-node 串行队列直达节点会话
+  // （scheduler.DispatchReadOnly：只读白名单 + 录制租约豁免 + 不写审计），录制租约期与队列积压期
+  // console 仍可看屏，任务队列时延不受读流量影响（SC-3① 读写分离）。错误语义沿 DispatchTool 响应
+  // 形态：传输层错误合成同构错误信封，前端单一 envelope 解析路径不变。
+  rpc ReadNodeScreen(ReadNodeScreenRequest) returns (ReadNodeScreenResponse);
+  // 设备接入 enrollment token 治理 + 节点元数据编辑（M12-P1，additive）。token 短期（default 1h）+ 限次
+  // （default 1）+ 可吊销 + 权限最小（platform_scope 限定平台，Locked-1）；两副本共享 PG token（Locked-5）。
+  // enroll 端点（节点安装收 CSR 签 per-node cert）走 REST bootstrap（TASK-006），非本 admin RPC——本组仅
+  // console 管理台的 token 生命周期治理 + 节点元数据编辑面。
+  rpc GenerateEnrollToken(GenerateEnrollTokenRequest) returns (GenerateEnrollTokenResponse);
+  rpc RevokeEnrollToken(RevokeEnrollTokenRequest) returns (RevokeEnrollTokenResponse);
+  rpc RotateEnrollToken(RotateEnrollTokenRequest) returns (RotateEnrollTokenResponse);
+  rpc ListEnrollTokens(ListEnrollTokensRequest) returns (ListEnrollTokensResponse);
+  // 节点元数据编辑（label/location 存 nodes 表持久；name 由节点自报不经此编辑）。
+  rpc UpdateNodeMeta(UpdateNodeMetaRequest) returns (UpdateNodeMetaResponse);
+  // 舰队治理：删除离线僵尸节点（M12-P1 追加，additive）。仅 offline 节点可删——transport 层查活跃会话，
+  // 在线拒删返 E_NODE_ONLINE（防误删活跃节点）；删 nodes + node_certs 身份台账，不删 tasks/traces 历史
+  // （node_id 关联的审计/录制行保留，仅注销身份）。删除成功广播 node_removed FleetEvent（WatchFleet 自动
+  // 刷新）。长期离线（AURA_NODE_REAP_DAYS default 30d）由 registry 后台定时自动遗忘，本 RPC 是即时手动路径。
+  rpc DeleteNode(DeleteNodeRequest) returns (DeleteNodeResponse);
+  // 录屏视频列表分页读（录屏回放页，M12-P1 追加，additive）。节点 start_recording/stop_recording 产的
+  // MP4 录屏落 MinIO recordings/*.mp4；本 RPC 列举对象（key/node_id/size/created），视频字节经既有
+  // GetArtifact 代理读（浏览器不可达内网 MinIO，控制面代取）。区别于 ListTraces（工具调用轨迹复演 QA，非视频）。
+  rpc ListRecordings(ListRecordingsRequest) returns (ListRecordingsResponse);
+  // 吊销节点证书（M12-P1 追加，additive）：console「吊销证书」触发面（design §7）。标记 node_certs.revoked
+  // + 清 nodes.cert_fp——节点持吊销 cert 反连即遭 RevocationMiddleware 403 拒（执行面 T06 已验）。配合
+  // DeleteNode 舰队治理（吊销阻反连 + 删离线僵尸身份）。吊销=标记非删行（保留台账供审计）。
+  rpc RevokeNodeCert(RevokeNodeCertRequest) returns (RevokeNodeCertResponse);
+  // 单任务详情钻取（批E，additive）：失败任务下钻查因——ListTasks 摘要行之外补终态回执 envelope /
+  // 录制会话关联 / 终态时刻（tasks 表批E 富化列）。envelope 落库前已剥离内联截图（详情面看回执结构与
+  // 错误码；逐步截图仍走 trace 卸桶路径），旧行（富化列上线前）三者为空。
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  // ===== 直连 MCP agent 观测（M13，additive）=====
+  // 外部 coding agent 直连节点 /mcp 的活动此前 console 完全不可见（区别于 ListTasks 的 controller
+  // 转发审计路径）。节点 /mcp 观测中间件采集 → AgentActivity 反连帧 → controller 落库，本组三 RPC
+  // 供 console「接入观测」页消费：概览统计（GetAgentObservability）+ 接入会话列表（ListAgentSessions）
+  // + 调用流水分页（ListAgentCalls）。纯内存降级：未配置 PG 时 controller 以有界环形缓冲兜底近期活动。
+  rpc GetAgentObservability(GetAgentObservabilityRequest) returns (GetAgentObservabilityResponse);
+  rpc ListAgentSessions(ListAgentSessionsRequest) returns (ListAgentSessionsResponse);
+  rpc ListAgentCalls(ListAgentCallsRequest) returns (ListAgentCallsResponse);
+}
+
+// ===== Dashboard 聚合摘要 =====
+
+message GetDashboardRequest {}
+
+// 首屏聚合计数。节点分状态桶为有界舰队用 int32；历史累计量用 int64 防溢出。
+message GetDashboardResponse {
+  int32 nodes_total = 1;          // 舰队节点总数
+  int32 nodes_online = 2;         // online 节点数
+  int32 nodes_unhealthy = 3;      // unhealthy 节点数
+  int32 nodes_offline = 4;        // offline 节点数
+  int64 tasks_total = 5;          // 历史任务总数
+  int64 tasks_running = 6;        // 在途任务数
+  int64 tasks_succeeded = 7;      // 成功任务累计
+  int64 tasks_failed = 8;         // 失败任务累计（含 timeout）
+  int64 orchestrations_total = 9; // 编排历史总数
+  int64 traces_total = 10;        // 录制会话总数
+}
+
+// ===== 任务中心（分页读审计表）=====
+
+// 分页契约沿 M6 GetTraceRequest（page_size int64 / page_token 字符串游标）。
+message ListTasksRequest {
+  int64 page_size = 1;            // 单页上限（0=服务端默认）
+  string page_token = 2;         // 上页游标（空=首页）
+  string node_id = 3;            // 可选过滤：仅列指定节点任务（空=全部）
+  string orchestration_id = 4;   // 可选过滤：仅列指定编排 fan-out 的任务（执行墙下钻；空=全部）
+}
+
+message ListTasksResponse {
+  repeated TaskSummary tasks = 1;
+  string next_page_token = 2;    // 下页游标（空=末页）
+}
+
+// 任务摘要（审计表行投影；tasks 表 ID/NodeID/Tool/Status/Who + M8 additive orchestration_id）。
+message TaskSummary {
+  string task_id = 1;
+  string node_id = 2;
+  string tool = 3;               // 工具名
+  string status = 4;             // pending | running | succeeded | failed | timeout
+  string who = 5;                // 调用方标识（审计）
+  int64 created_ms = 6;          // 创建时刻（毫秒）
+  string orchestration_id = 7;   // 所属编排（空=独立派发；对抗 C additive 关联列）
+}
+
+// ===== 录放中心（会话列表分页读）=====
+
+message ListTracesRequest {
+  int64 page_size = 1;           // 单页上限（0=服务端默认）
+  string page_token = 2;         // 上页游标（空=首页）
+}
+
+message ListTracesResponse {
+  repeated TraceSummary traces = 1;
+  string next_page_token = 2;    // 下页游标（空=末页）
+}
+
+// 录制会话摘要（列表行；步序详情走 ControllerAdmin.GetTrace 分页）。
+message TraceSummary {
+  string trace_id = 1;
+  string node_id = 2;            // 录制源节点
+  string platform = 3;          // 录制源平台
+  int64 step_count = 4;         // 已录步数
+  string who = 5;               // 录制会话持有者
+  int64 started_ms = 6;         // 开始时刻（毫秒）
+  string status = 7;            // recording | stopped
+}
+
+// ===== 产物库（MinIO 代理读）=====
+
+message GetArtifactRequest {
+  string key = 1;                // 对象存储键（桶内路径，如 trace/<trace_id>/<seq>.webp）
+}
+
+message GetArtifactResponse {
+  bytes data = 1;                // 对象字节（控制面代取，绕开浏览器不可达 MinIO）
+  string content_type = 2;       // MIME 类型（image/webp、video/mp4 等）
+}
+
+// ===== 队列深度（对抗 G：轮询避让 agent 任务）=====
+
+message GetQueueDepthRequest {
+  string node_id = 1;
+}
+
+message GetQueueDepthResponse {
+  int32 depth = 1;               // per-node 串行队列当前在途+排队深度；console 轮询前查 >0 即跳帧
+}
+
+// ===== 并行编排（fan-out / gather）=====
+
+// fan-out 目标二选一：node_ids 直指 或 env_group 解析为 N 节点。
+message RunOrchestrationRequest {
+  string tool = 1;               // 工具名（fan-out 到各目标执行同一工具）
+  bytes json_args = 2;           // MCP 工具入参 JSON（透传各目标，不在 proto 层解释）
+  repeated string node_ids = 3;  // 目标节点直指（与 env_group 二选一）
+  string env_group = 4;          // 环境组名（解析为 N 节点；与 node_ids 二选一）
+  int64 deadline_ms = 5;         // 各目标相对超时
+  string who = 6;                // 审计：发起方标识
+}
+
+message RunOrchestrationResponse {
+  string orchestration_id = 1;
+  string status = 2;             // done | partial | failed（orchestrator.go 实发 done，AUD-3 注释对齐）
+  int32 total = 3;               // 目标总数
+  int32 passed = 4;              // 成功数
+  int32 failed = 5;              // 失败数（含 timeout）
+  repeated EnvResult per_env = 6; // 各目标结果明细
+}
+
+// 单目标执行结果（join 聚合语义：每环境 pass/fail + 动作延迟）。
+message EnvResult {
+  string node_id = 1;
+  string task_id = 2;            // 该目标对应的 dispatch 任务（关联 TaskSummary）
+  string status = 3;             // succeeded | failed | timeout
+  bytes json_envelope = 4;       // 节点回执 Envelope JSON（原样回传）
+  int64 latency_ms = 5;          // 动作延迟（毫秒）
+}
+
+// ===== 编排详情钻取 =====
+
+message GetOrchestrationRequest {
+  string orchestration_id = 1;
+}
+
+message GetOrchestrationResponse {
+  OrchestrationSummary orchestration = 1;
+  repeated string task_ids = 2;  // 编排 fan-out 的 N 个 dispatch 任务 ID（执行墙下钻 → ListTasks(orchestration_id) 明细）
+}
+
+// ===== 编排历史（分页读）=====
+
+message ListOrchestrationsRequest {
+  int64 page_size = 1;           // 单页上限（0=服务端默认）
+  string page_token = 2;         // 上页游标（空=首页）
+}
+
+message ListOrchestrationsResponse {
+  repeated OrchestrationSummary orchestrations = 1;
+  string next_page_token = 2;    // 下页游标（空=末页）
+}
+
+// 编排摘要（orchestrations 表行；trace_id 贯通 OTel fan-out span，M6 管线复用）。
+message OrchestrationSummary {
+  string orchestration_id = 1;
+  string tool = 2;               // fan-out 工具名
+  string status = 3;             // running | done | partial | failed（orchestrator.go 实发 done，AUD-3 注释对齐）
+  int32 total = 4;               // 目标总数
+  int32 passed = 5;              // 成功数
+  int32 failed = 6;              // 失败数（含 timeout）
+  string who = 7;                // 发起方标识
+  int64 started_ms = 8;          // 发起时刻（毫秒）
+  string trace_id = 9;           // OTel trace 关联（fan-out span 贯通）
+}
+
+// ===== 舰队事件流（WatchFleet，server-streaming）=====
+
+message WatchFleetRequest {}
+
+// 舰队事件类型。增量事件（NODE_ADDED/REMOVED/STATUS_CHANGED）携单节点 node；
+// HEARTBEAT_SNAPSHOT 携全量 snapshot（首帧 + 周期重同步）。
+enum FleetEventType {
+  FLEET_EVENT_TYPE_UNSPECIFIED = 0;
+  FLEET_EVENT_TYPE_NODE_ADDED = 1;         // 新节点注册
+  FLEET_EVENT_TYPE_NODE_REMOVED = 2;       // 节点摘除
+  FLEET_EVENT_TYPE_STATUS_CHANGED = 3;     // 状态迁移（online/unhealthy/offline）
+  FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT = 4; // 全量快照（首帧 + 周期重同步）
+}
+
+// 舰队状态变更事件。seq 单调递增；客户端检测跳号（慢消费者被丢弃事件后）即重拉 ListNodes 全量快照
+// ——有界 chan + 丢弃 + 快照重同步三件套（对抗 D 漂移收敛）。
+message FleetEvent {
+  int64 seq = 1;                    // per-stream 单调递增序号（跳号=中途丢弃，客户端重同步）
+  FleetEventType type = 2;
+  NodeInfo node = 3;                // 增量事件的目标节点（HEARTBEAT_SNAPSHOT 时为空）
+  repeated NodeInfo snapshot = 4;   // 全量快照（type=HEARTBEAT_SNAPSHOT 首帧/重同步；增量事件为空）
+  // 本帧覆盖节点的录制占用态（M10-P1 租约期 UX，additive；NodeInfo 属 node.proto 字节级零动，
+  // 故挂本帧而非节点体）：增量事件覆盖 node 单节点、快照帧覆盖 snapshot 全体；覆盖节点不在本表
+  // 即未被录制（前端据此清 badge）。租约读面故障时缺省空（读降级，不断 fleet 流）。
+  repeated NodeRecording recordings = 5;
+}
+
+// ===== 视觉融合（M9，additive）=====
+// a11y 元素树 + vision 检测框的 target-aware 融合：submit→poll 异步 job（仿 M6 录制 submit→poll 形态，
+// 落点取 ConsoleService 保 node.proto 字节级零动）。融合一次产一张统一元素表（FusedElement）；job 状态 +
+// 融合表 + vision_invoked 经 GetFusionResult 轮询回读。CONTRACT_VERSION 不 bump（additive-within-aura.v1）。
+
+// 提交融合任务（不阻塞，返 job_id）。target 可选（驱动 target-aware 剪枝：仅融合与目标元素相关区域，
+// 空=全屏融合）；iou_threshold=0 取服务端默认 0.10；force_vision 强制触发 vision 检测（默认 false 由融合
+// 引擎按需决策）。
+message SubmitFusionRequest {
+  string node_id = 1;         // 目标节点
+  string target = 2;          // 可选元素查询（驱动 target-aware 融合；空=全屏）
+  double iou_threshold = 3;   // a11y/vision 框合并的 IoU 阈值（0=服务端默认 0.10）
+  bool force_vision = 4;      // 强制触发 vision 检测（默认 false=引擎按需）
+  int64 deadline_ms = 5;      // 相对超时
+  string who = 6;             // 审计：发起方标识
+}
+
+message SubmitFusionResponse {
+  string job_id = 1;          // 新建融合 job 标识（GetFusionResult 轮询用）
+}
+
+// 轮询融合 job 结果。
+message GetFusionResultRequest {
+  string job_id = 1;
+}
+
+message GetFusionResultResponse {
+  string status = 1;                   // running | done | failed
+  bool vision_invoked = 2;             // 本次融合是否实际触发 vision 检测
+  double iou_threshold = 3;            // 实际生效的 IoU 阈值
+  repeated FusedElement elements = 4;  // 融合元素表（融合完成后填充）
+  string result_key = 5;               // 融合结果卸桶 key（大结果旁路，空=无）
+  int32 screen_w = 6;                  // 融合基准屏宽（native 像素）
+  int32 screen_h = 7;                  // 融合基准屏高（native 像素）
+}
+
+// 融合后的单个元素（a11y 与 vision 两源合并的统一表示）。bounds 为 native 像素 [x,y,w,h]（同 A11yNode.bounds
+// 制，回 DispatchTool 操作零改）。
+message FusedElement {
+  string source = 1;          // a11y | vision（元素来源）
+  repeated int32 bounds = 2;  // native 像素边界框 [x,y,w,h]
+  string role = 3;            // 元素角色（button | text | ...；vision 源可空）
+  string name = 4;            // 元素名/标签（a11y 源）
+  string caption = 5;         // vision 源生成的描述（a11y 源可空）
+  double confidence = 6;      // 融合置信度 [0,1]
+}
+
+// ===== console 读旁路（M10-P1，读写分离，additive）=====
+// 读通道与 agent 任务写通道分离：ReadNodeScreen 是只读看屏通道（screenshot 白名单），不入 per-node
+// 串行队列、不受录制租约门控、不写 tasks 审计。跨副本：入口副本节点无会话时经 owner 路由转投 owner
+// 副本同 RPC（hop 防环沿 X-Aura-Forwarded-By，ha-contract §1.4 同语义），读旁路语义端到端保持。
+// 附 GetQueueDepth 语义注记（m-2）：其深度为 per-replica 语义——队列只在 owner 副本存在，非 owner
+// 副本恒 0；VIP 单活下 console 流量收敛 active 副本，失真自然消解。读旁路落地后，console 截图轮询
+// 前置的 GetQueueDepth 跳帧判断从「防抢队列的必要避让」降级为「可选的设备侧负载礼让」。
+
+message ReadNodeScreenRequest {
+  string node_id = 1;          // 目标节点
+  bytes json_args = 2;         // screenshot 工具入参 JSON（透传节点，不在 proto 层解释；空对象=默认全屏）
+  int64 deadline_ms = 3;       // 相对超时毫秒（0=服务端默认，截图秒级短窗）
+  string who = 4;              // 调用方标识（日志/跨副本转发穿透；只读不落 tasks 审计表）
+}
+
+message ReadNodeScreenResponse {
+  bytes json_envelope = 1;     // 节点回执 Envelope JSON（成功透传；传输层错误合成同构错误信封）
+}
+
+// ===== 租约期录制占用态（M10-P1，租约期 UX，additive）=====
+// StartTrace 后被租节点对 console 只见泛化 E_BUSY 的补齐：fleet 帧携「谁在录制」显式态
+// （FleetEvent.recordings），前端节点卡/列表渲染「录制中(who)」badge。载荷只含 who/trace_id
+// ——expiry 是租约内部 TTL 语义，不进 UI（避免前端倒计时噪音）。badge 出现/消失时延=下一次
+// 增量事件/心跳快照（≤30s 兜底，M8 三件套既有机制，无新推送面）。
+
+// 单节点录制占用态（FleetEvent.recordings 表项）。node_id 是与 node/snapshot 的关联键。
+message NodeRecording {
+  string node_id = 1;          // 被租约节点
+  string who = 2;              // 租约持有者（StartTrace 登记的 who）
+  string trace_id = 3;         // 录制会话标识（录放中心对账键）
+}
+
+// ===== 设备接入 enrollment token 治理 + 节点元数据编辑（M12-P1，additive）=====
+// enrollment token 全生命周期（生成/吊销/轮换/列举）+ 节点元数据编辑。字段语义对齐 TASK-002
+// enrollment_tokens 表 DDL（token/platform_scope/uses_left/expires_at/label/revoked）。token 默认
+// 短期（ttl 1h）+ 限次（uses 1）+ 权限最小（platform_scope 限定平台，空=不限）。expires_at 沿
+// 毫秒时间戳惯例（last_seen_ms/created_ms/started_ms 同制）。CONTRACT_VERSION 不 bump（additive-within-aura.v1）。
+
+// 生成 join token（console「添加设备」入口）。platform_scope 空=不限平台；ttl_secs=0 取服务端默认
+// 3600（1h）；uses=0 取服务端默认 1。
+message GenerateEnrollTokenRequest {
+  string platform_scope = 1;   // 限定注册平台（windows|linux|macos；空=不限，权限最小化）
+  int64 ttl_secs = 2;          // 有效期秒（0=服务端默认 3600=1h）
+  int32 uses = 3;              // 可用次数（0=服务端默认 1；限次准入）
+  string label = 4;            // token 标签（审计/辨识用途）
+  string who = 5;              // 审计：生成方标识
+}
+
+message GenerateEnrollTokenResponse {
+  string token = 1;            // 生成的一次性 join token
+  int64 expires_at_ms = 2;     // 过期时刻（毫秒时间戳）
+  string install_command = 3;  // 组装的一键安装命令（token+控制面地址+脚本 URL；REC-5）
+}
+
+// 吊销 join token（立即失效，反连准入拒绝）。
+message RevokeEnrollTokenRequest {
+  string token = 1;            // 待吊销 token
+  string who = 2;              // 审计：吊销方标识
+}
+
+message RevokeEnrollTokenResponse {
+  bool revoked = 1;            // 是否成功吊销（token 不存在/已吊销则 false）
+}
+
+// 轮换 join token（吊销旧 + 生成新，承旧 token 的 platform_scope/label；SC-5 轮换需求）。
+message RotateEnrollTokenRequest {
+  string token = 1;            // 待轮换的旧 token
+  string who = 2;              // 审计：轮换方标识
+}
+
+message RotateEnrollTokenResponse {
+  string token = 1;            // 新生成的 token（旧 token 已吊销）
+  int64 expires_at_ms = 2;     // 新 token 过期时刻（毫秒时间戳）
+  string install_command = 3;  // 新 token 组装的一键安装命令
+}
+
+// 列举 enrollment token（console token 治理表；数量有界，全列不分页）。
+message ListEnrollTokensRequest {}
+
+message ListEnrollTokensResponse {
+  repeated EnrollTokenInfo tokens = 1;
+}
+
+// enrollment token 状态投影（治理表行；enrollment_tokens 表投影）。
+message EnrollTokenInfo {
+  string token = 1;            // token 值（治理表标识）
+  string platform_scope = 2;   // 限定平台（空=不限）
+  int32 uses_left = 3;         // 剩余可用次数
+  int64 expires_at_ms = 4;     // 过期时刻（毫秒时间戳）
+  bool revoked = 5;            // 是否已吊销
+}
+
+// 编辑节点元数据（label/location 存 nodes 表持久；name 由节点自报不经此编辑）。
+message UpdateNodeMetaRequest {
+  string node_id = 1;          // 目标节点
+  string label = 2;            // 用户标签（分组/筛选）
+  string location = 3;         // 用户位置
+}
+
+message UpdateNodeMetaResponse {
+  bool updated = 1;            // 是否成功更新（node_id 不存在则 false）
+}
+
+// ===== 舰队治理：离线僵尸节点删除（M12-P1，additive）=====
+// 删除节点身份台账（nodes + node_certs 行），令 console 舰队总览摆脱历史离线僵尸堆积（用户产品反馈：
+// 离线/在线混显、僵尸节点堆积）。安全边界：仅 offline 节点可删（transport 查活跃会话，在线拒删
+// E_NODE_ONLINE，防误删活跃）；tasks/traces 等 node_id 关联历史不删（仅注销身份注册）。用户裁决「两者
+// 结合」：手动删除 + console 状态过滤 + 30d 自动遗忘（AURA_NODE_REAP_DAYS）兜底。CONTRACT_VERSION 不
+// bump（additive-within-aura.v1）。
+
+message DeleteNodeRequest {
+  string node_id = 1;          // 待删除的离线节点
+}
+
+message DeleteNodeResponse {
+  bool deleted = 1;            // 是否成功删除（node_id 不存在则 false → handler 转 NotFound）
+}
+
+// ===== 录屏视频回放（M12-P1，additive）=====
+// 节点 start_recording/stop_recording 产的 MP4 录屏落 MinIO recordings/<rec_id>.mp4（T07 presigned 上传）。
+// ListRecordings 列举录屏对象（MinIO ListObjects prefix='recordings/'），视频字节经既有 GetArtifact 代理读
+//（bytes data + content_type video/mp4，浏览器不可达内网 MinIO）。分页沿 ListTraces 契约（page_size/
+// page_token；录屏对象有界，服务端全列排序后 offset 游标切片）。区别于「录放中心」ListTraces（工具调用轨迹
+// 复演 QA，非视频）。CONTRACT_VERSION 不 bump（additive-within-aura.v1）。
+
+message ListRecordingsRequest {
+  int32 page_size = 1;         // 单页上限（0=服务端默认）
+  string page_token = 2;       // 上页游标（空=首页）
+}
+
+message ListRecordingsResponse {
+  repeated Recording recordings = 1;
+  string next_page_token = 2;  // 下页游标（空=末页）
+}
+
+// 单条录屏对象摘要（MinIO recordings/ 对象投影）。key 为对象存储键（GetArtifact 代取 MP4 字节用）；
+// node_id 从对象存储无解析源时留空（key=recordings/<rec_id>.mp4，rec_id 非 node_id）；size_bytes/created_ms
+// 取对象 stat（大小 + 最后修改时刻）。
+message Recording {
+  string key = 1;              // 对象存储键（recordings/<rec_id>.mp4；GetArtifact 代取字节用）
+  string node_id = 2;          // 录制源节点（对象存储无解析源时空）
+  int64 size_bytes = 3;        // 对象字节大小
+  int64 created_ms = 4;        // 对象创建/最后修改时刻（毫秒时间戳）
+  // 批E（additive）：录屏 → 任务/录制会话关联（recordings_meta 批E 富化列回填）。needs_upload 授权
+  // 发放点（GrantAndAwait）登记产出该对象的 dispatch 上下文；老对象/降级路径空=「未关联」如实呈现。
+  string task_id = 5;          // 产出该录屏的任务（stop_recording dispatch；空=未关联）
+  string trace_id = 6;         // 录制会话关联（dispatch 携 trace_id 时登记；空=非录制会话产物）
+}
+
+// ===== 节点证书吊销（M12-P1，additive）=====
+// console「吊销证书」触发面（design §7）：标记 node_certs.revoked=true + 清 nodes.cert_fp，节点持吊销 cert
+// 反连即遭 RevocationMiddleware 403 拒（应用层准入校验，执行面 T06 已验）。吊销=标记非删行（保留台账）。
+// 较 DeleteNode（删身份台账，仅 offline）：吊销在线/离线皆可（阻可疑节点反连准入，续签多 serial 全吊销）。
+
+message RevokeNodeCertRequest {
+  string node_id = 1;          // 待吊销证书的节点
+}
+
+message RevokeNodeCertResponse {
+  bool revoked = 1;            // 是否成功吊销（该节点无未吊销证书则 false → handler 转 NotFound）
+}
+
+// ===== 单任务详情钻取（批E，additive）=====
+// 失败任务下钻查因：任务表行点击 → 摘要 + 终态回执 Envelope（错误码/回执结构）+ 录制会话关联 +
+// 终态时刻。数据源 tasks 表批E 富化列（json_envelope/trace_id/finished_at——scheduler 终态回填）；
+// 旧行（富化列上线前）envelope/trace_id 空、finished_ms=0，前端如实呈现「无回执留存」。
+
+message GetTaskRequest {
+  string task_id = 1;          // 目标任务（ListTasks 行 task_id）
+}
+
+message GetTaskResponse {
+  TaskSummary task = 1;        // 摘要行（与 ListTasks 同投影）
+  bytes json_envelope = 2;     // 终态回执 Envelope JSON（落库前已剥离内联截图；未终态/旧行空）
+  string trace_id = 3;         // 录制会话关联（空=非录制 dispatch）
+  int64 finished_ms = 4;       // 终态时刻（毫秒；0=未终态/旧行）
+}
+
+// ===== 直连 MCP agent 观测（M13，additive）=====
+// 数据源 agent_calls / agent_sessions 表（AgentActivity 反连帧落库；未配置 PG 时 controller 环形缓冲）。
+// AgentSession/AgentCall 为 console 投影（仿 TaskSummary：与 node.proto 传输消息 AgentCallEvent 解耦，
+// 各自演进）。分页沿 ListTasks 键集游标契约（page_size int64 / page_token 不透明串）。
+
+// 概览统计（「接入观测」页首屏卡片）。window_hours 限定统计窗口。
+message GetAgentObservabilityRequest {
+  int64 window_hours = 1;      // 统计窗口小时数（0=服务端默认 24h）
+}
+
+message GetAgentObservabilityResponse {
+  int32 active_sessions = 1;   // 近 5 分钟有活动的接入会话数（活跃接入）
+  int64 calls_total = 2;       // 窗口内 MCP 调用总数
+  int64 calls_failed = 3;      // 窗口内失败调用数（传输层 ok=false）
+  int64 p95_duration_ms = 4;   // 窗口内调用时延 p95（毫秒）
+  repeated ToolCount top_tools = 5;  // 窗口内 top 工具调用计数（降序，服务端截断前 N）
+}
+
+// 工具调用计数（top_tools 表项）。
+message ToolCount {
+  string tool = 1;             // 工具名
+  int64 count = 2;             // 窗口内调用次数
+}
+
+// 接入会话列表（「谁连着」视图）。node_id 可选过滤（空=全部）。会话数有界（活跃接入不分页）。
+message ListAgentSessionsRequest {
+  string node_id = 1;          // 可选过滤：仅列指定节点的接入会话（空=全部）
+}
+
+message ListAgentSessionsResponse {
+  repeated AgentSession sessions = 1;
+}
+
+// 接入会话（agent_sessions 表投影；(node_id, peer) 唯一，initialize 建立客户端身份、任意调用续 last_seen）。
+message AgentSession {
+  string node_id = 1;          // 被接入的节点
+  string peer = 2;             // 客户端 peer 地址
+  string client_name = 3;      // 客户端标识（claude-code / codex / gemini-cli / ...）
+  string client_version = 4;   // 客户端版本
+  string protocol_version = 5; // MCP 协议版本
+  string transport = 6;        // 传输类型（http）
+  int64 first_seen_ms = 7;     // 首次接入时刻（毫秒）
+  int64 last_seen_ms = 8;      // 最近活动时刻（毫秒）
+  int64 call_count = 9;        // 累计调用数
+}
+
+// 调用流水分页读（「调用了什么」审计表）。node_id/tool 可选过滤（空=全部）。
+message ListAgentCallsRequest {
+  int64 page_size = 1;         // 单页上限（0=服务端默认）
+  string page_token = 2;       // 上页游标（空=首页）
+  string node_id = 3;          // 可选过滤：仅列指定节点（空=全部）
+  string tool = 4;             // 可选过滤：仅列指定工具（空=全部）
+}
+
+message ListAgentCallsResponse {
+  repeated AgentCall calls = 1;
+  string next_page_token = 2;  // 下页游标（空=末页）
+}
+
+// 单条 MCP 调用（agent_calls 表投影；AgentCallEvent 落库行）。
+message AgentCall {
+  string node_id = 1;          // 被调用的节点
+  string peer = 2;             // 客户端 peer 地址
+  string method = 3;           // JSON-RPC 方法（initialize / tools/call / tools/list / ...）
+  string tool = 4;             // 工具名（tools/call 时；否则空）
+  string client_name = 5;      // 客户端标识
+  int64 duration_ms = 6;       // 处理耗时（毫秒）
+  bool ok = 7;                 // 传输层成功
+  string transport = 8;        // 传输类型（http）
+  int64 ts_ms = 9;             // 调用时刻（毫秒；事件时刻，节点自报经控制面 ±10min 夹取）
+  int64 id = 10;               // 服务端行标识（PG BIGSERIAL / 内存兜底进程内单调递增；分页内稳定行身份，前端 rowKey 用）
+}

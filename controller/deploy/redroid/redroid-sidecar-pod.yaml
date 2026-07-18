@@ -1,0 +1,131 @@
+# AURA M5 — Redroid + aura-node sidecar in ONE pod (M8 Redroid-as-EnvProvider 铺路).
+#
+# Difference vs redroid-pod.yaml (hostPort form): aura-node runs as a SECOND container
+# in the SAME pod, sharing the pod network namespace, so it reaches the device over
+# localhost:5555 (D3 endpoint stability — never a bare PodIP) and is fully kubelet-
+# managed. No hostPort is needed (the sidecar IS the in-pod adb client).
+#
+# COEXISTENCE (README "两形态并存"): this pod embeds its OWN Redroid. The binder
+# context manager is a host singleton and both forms bind-mount the same host
+# binderfs nodes, so run EITHER redroid-pod.yaml (hostPort form, node on the host)
+# OR this sidecar pod — never both at once. M5 keeps the hostPort pod resident as the
+# baseline; bring the sidecar up only for the sidecar-form smoke, then restore.
+#
+# binder path (D1): host binderfs nodes bind-mounted onto the image's hardcoded
+# legacy /dev/binder{,hw,vnd} paths. Isolation (Locked-10): privileged, `aura` ns only.
+#
+# Certs: mounted from secret `aura-node-certs` (keys ca.crt/node.crt/node.key) at
+# /etc/aura/certs. Create it before apply (README §sidecar):
+#   kubectl -n aura create secret generic aura-node-certs \
+#     --from-file=ca.crt=~/aura-m5/certs/ca.crt \
+#     --from-file=node.crt=~/aura-m5/certs/node.crt \
+#     --from-file=node.key=~/aura-m5/certs/node.key
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redroid-sidecar
+  namespace: aura
+  labels:
+    app: redroid-sidecar
+    aura.dev/role: android-device-sidecar
+spec:
+  restartPolicy: Always
+  containers:
+    - name: redroid
+      # Same pinned dated build as redroid-pod.yaml (bare NN.0.0 does not exist).
+      image: docker.io/redroid/redroid:13.0.0-240527
+      imagePullPolicy: IfNotPresent
+      args:
+        - androidboot.redroid_gpu_mode=guest   # software rendering (no GPU on host)
+      securityContext:
+        privileged: true
+      # No hostPort: the sidecar reaches the device via localhost:5555 in-pod.
+      volumeMounts:
+        - name: binder
+          mountPath: /dev/binder
+        - name: hwbinder
+          mountPath: /dev/hwbinder
+        - name: vndbinder
+          mountPath: /dev/vndbinder
+        - name: data
+          mountPath: /data
+      readinessProbe:
+        # Android exits 0 from getprop regardless of value, so gate on the value itself.
+        exec:
+          command:
+            - /system/bin/sh
+            - -c
+            - '[ "$(getprop sys.boot_completed)" = "1" ]'
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+    - name: node-sidecar
+      # Built + imported by build-sidecar.sh (docker build on the control-plane VM →
+      # docker save → k3s ctr -n k8s.io images import). IfNotPresent uses the imported
+      # image (no external registry). M11-P1 T7: tag chain :m5→:m11 (repo/真机一致惯例；
+      # 本形态未部署——resident baseline 为 hostPort redroid-pod + 宿主 android 节点进程).
+      image: docker.io/library/aura-node-sidecar:m11
+      imagePullPolicy: IfNotPresent
+      env:
+        # Reverse-connect params (D3 endpoint stability). Same 22.x segment as the k3s
+        # host → direct, no socat jump (unlike M3's 252.x→22.x).
+        - name: AURA_SERIAL
+          value: "localhost:5555"
+        # M10: keepalived VIP (ha-contract §4.5) — failover follows the VIP. Pod-network dials
+        # traverse the host prerouting hook, so the static DNAT covers the VIP-on-this-host case.
+        - name: AURA_CONTROLLER
+          value: "<controller-vip>:7443"
+        - name: AURA_TLS_DOMAIN
+          value: "aura-controller"
+        - name: AURA_DATA_DIR
+          value: "/var/lib/aura"
+        # M12 batch-D (infra labeling): downward API facts for Register.infra_host — pod name
+        # must come from metadata.name (hostname is unreliable across network modes); the
+        # attached service (redroid@<serial>) is auto-derived by AndroidDriver from AURA_SERIAL,
+        # no AURA_ATTACHED override needed here. Kept in this undeployed form for parity with
+        # selkies-node-sidecar.yaml (both sidecar forms report the same infra facts if deployed).
+        - name: AURA_K8S_NODE
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: AURA_K8S_POD
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+      volumeMounts:
+        - name: certs
+          mountPath: /etc/aura/certs
+          readOnly: true
+        # M10 SC-6: persist node identity (/var/lib/aura/node_id = AURA_DATA_DIR) across pod
+        # recreation. hostPath, not emptyDir (emptyDir only survives container restarts, and
+        # the pod IS deleted+recreated for the android S0 reset). Distinct from the `data`
+        # emptyDir above — that is Android's /data, ephemeral BY DESIGN (S0 semantics), while
+        # the node's identity must NOT churn with it (zombie fleet rows otherwise).
+        - name: aura-data
+          mountPath: /var/lib/aura
+  volumes:
+    - name: binder
+      hostPath:
+        path: /dev/binderfs/binder
+        type: CharDevice
+    - name: hwbinder
+      hostPath:
+        path: /dev/binderfs/hwbinder
+        type: CharDevice
+    - name: vndbinder
+      hostPath:
+        path: /dev/binderfs/vndbinder
+        type: CharDevice
+    - name: data
+      emptyDir: {}
+    - name: certs
+      secret:
+        secretName: aura-node-certs
+        defaultMode: 0400
+    # M10 SC-6: node identity dir — survives pod delete+recreate (single-node k3s, fixed pod
+    # name). Path is per-sidecar-form (…-redroid vs …-selkies) so forms never share an id.
+    - name: aura-data
+      hostPath:
+        path: /var/lib/aura-redroid
+        type: DirectoryOrCreate

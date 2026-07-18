@@ -1,0 +1,54 @@
+# AURA M5 — aura-node Android-driver sidecar image (M8 动态化铺路 / 端点稳定化前置).
+#
+# Runs BESIDE a Redroid container in the SAME pod (shared pod network namespace):
+# the node shells out to `adb` against localhost:5555 (D3 endpoint stability — never
+# a bare PodIP; pod rebuilds drift the IP and aura.v1 has no device-rebind frame),
+# drives the device via the unified capability layer, and reverse-connects (mTLS
+# gRPC) to the AURA control plane. Effective command (see entrypoint.sh):
+#   aura-node --driver android --serial localhost:5555 --controller <host:port> \
+#             --ca .. --cert .. --key .. --tls-domain .. --data-dir /var/lib/aura
+#
+# Base is glibc (Free: debian/ubuntu). The release aura-node is glibc-DYNAMICALLY
+# linked (ldd on the M5 binary: libdbus-1/libxcb/libsystemd/libc — the desktop-driver
+# deps are NEEDED at load time even when only the android driver runs), so a musl
+# (alpine) or distroless-static base could NOT load it. ubuntu:22.04 glibc 2.35 exactly
+# matches the Linux 252.25 build host, and ships `adb` (universe) — debian:12-slim was
+# rejected: bookworm has no `adb` candidate in its default repos.
+ARG BASE=ubuntu:22.04
+FROM ${BASE}
+
+# Runtime deps for the (dual-driver) aura-node binary + adb client for the device.
+#   - adb: the AndroidDriver shells out to it (AdbCli, TASK-003); connects localhost:5555.
+#   - libdbus-1-3/libxcb1/libxau6/libxdmcp6: NEEDED entries of the desktop-capable
+#     build; must resolve at load time though the android driver is what runs here.
+#   - libsystemd0 & friends are already present in the base / pulled transitively.
+#   - ca-certificates: TLS trust roots (mTLS uses our own CA; kept for completeness).
+#   - ffmpeg: M11 Linux recording backend (record.rs spawns `ffmpeg -f x11grab` in the
+#     desktop/selkies sidecar form; RECORD_BACKEND=ffmpeg per w1-smoke-decision R2 —
+#     the container was measured MISSING both ffmpeg and gst).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      adb ca-certificates libdbus-1-3 libxcb1 libxau6 libxdmcp6 ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+# The M5-verified release binary (built --features grpc on Linux 252.25, glibc).
+# build-sidecar.sh stages it into the build context next to this Dockerfile.
+COPY aura-node /usr/local/bin/aura-node
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# Normalise line-endings (authored on Windows) and make executable.
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+ && chmod +x /usr/local/bin/aura-node /usr/local/bin/entrypoint.sh
+
+# data_dir 宿主钉死（node-local；M2 教训：容器/systemd 无 HOME 须显式 --data-dir，否则
+# "cannot resolve data dir" 反复重启）。设备侧大产物（screenrecord 等）经 adb pull 桥接到
+# 此目录 —— M8 seam（见 node/crates/aura-platform/src/android.rs 文件头注释）。
+RUN mkdir -p /var/lib/aura
+ENV AURA_DATA_DIR=/var/lib/aura \
+    AURA_SERIAL=localhost:5555 \
+    AURA_TLS_DOMAIN=aura-controller \
+    AURA_CA=/etc/aura/certs/ca.crt \
+    AURA_CERT=/etc/aura/certs/node.crt \
+    AURA_KEY=/etc/aura/certs/node.key
+# AURA_CONTROLLER 无默认值——由 redroid-sidecar-pod.yaml 的 env 注入（fail fast 若缺）。
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

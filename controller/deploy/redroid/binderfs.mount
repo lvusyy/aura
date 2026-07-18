@@ -1,0 +1,26 @@
+# AURA M5 — Android binderfs 固化 (part 3/3): systemd mount unit.
+#
+# Install to: /etc/systemd/system/dev-binderfs.mount
+#   IMPORTANT: systemd derives the unit name from the mount point, so the file MUST
+#   be named `dev-binderfs.mount` on the host (Where=/dev/binderfs). This repo keeps
+#   the source name `binderfs.mount`; the deploy step / README renames on copy.
+#
+# Enable with: systemctl daemon-reload && systemctl enable --now dev-binderfs.mount
+# Equivalent to: mount -t binder binder /dev/binderfs
+#
+# binder_linux (loaded via /etc/modules-load.d/binder.conf) registers the "binder"
+# filesystem type; this unit is ordered after that and only mounts if the module is
+# present. Together the three 固化 files make the host auto-ready after reboot.
+[Unit]
+Description=AURA M5 Android binderfs (/dev/binderfs) for Redroid
+Documentation=https://github.com/lvusyy/aura/blob/main/controller/deploy/redroid/README.md
+After=systemd-modules-load.service
+ConditionPathExists=/sys/module/binder_linux
+
+[Mount]
+What=binder
+Where=/dev/binderfs
+Type=binder
+
+[Install]
+WantedBy=multi-user.target

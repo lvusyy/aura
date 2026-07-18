@@ -1,0 +1,62 @@
+# 控制面依赖底座 —— 在控制面 VM(<controller-host>) 内执行。
+# 起 PostgreSQL 16 / Redis 7 / MinIO，供 aura-controller 使用。
+# 密码明文（M2 可接受；M3 上 docker secret）——记 caveat。
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aura
+      POSTGRES_USER: aura
+      POSTGRES_PASSWORD: changeme-pg-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: aura
+      MINIO_ROOT_PASSWORD: changeme-minio-password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    # minio 镜像(ubi-micro)无 curl/bash，healthcheck 交由外部 nc :9000 验证（TASK-002 判据）
+
+  # OTLP 追踪 collector（ISS-13）：Jaeger all-in-one 内置 OTLP 接收(4317 gRPC / 4318 HTTP)+查询 UI(16686)。
+  # aura-controller(systemd, host 网络) 经 localhost:4317 导出，AURA_OTLP_ENDPOINT 指向之；
+  # node 侧(TASK-004/012) 复用同一 collector。内存存储（重启即清），验收足够，勿作生产留存。
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "4317:4317"   # OTLP gRPC 入口（controller/node 导出）
+      - "4318:4318"   # OTLP HTTP 入口
+      - "16686:16686" # Jaeger UI / 查询 API
+
+volumes:
+  pgdata:
+  miniodata:

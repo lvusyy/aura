@@ -1,0 +1,148 @@
+# AURA M8-P2 — Selkies GPU-less Linux container desktop (WebRTC stream) in the `aura` ns.
+#
+# STREAMING-ONLY baseline (mirrors redroid-pod.yaml's "device-only" form). This pod runs
+# the Selkies desktop and streams it over WebRTC; it does NOT embed an aura-node. Bring up
+# selkies-node-sidecar.yaml instead when you also want the in-container screenshot→click
+# closed loop. Like redroid's "两形态并存", run EITHER this pod OR the sidecar pod — never
+# both at once (both are hostNetwork and bind the same host signaling port).
+#
+# ICE / direct-connect (TASK-001 spike gate = DIRECT_OK, evidence/spike-verdict.md):
+#   hostNetwork:true so GStreamer webrtcbin enumerates the host's tailscale0 (<host-tailscale-ip>)
+#   as an ICE host candidate — the browser reaches it directly over Tailscale (UDP spike:
+#   12/12, 0% loss, host tcpdump-verified). That direct path carries the media.
+#   Selkies' ICE is nonetheless pointed at our coturn (SELKIES_STUN/TURN_* below, README §TURN):
+#   the image's DEFAULT external ICE servers (stun.l.google.com + openrelay TURN) are
+#   unreachable in this air-gapped segment, so without a REACHABLE STUN webrtcbin stalls on ICE
+#   gathering and never offers. coturn supplies STUN candidate discovery (+ relay fallback);
+#   ICE still prioritises the direct host candidate for media, so DIRECT_OK is preserved.
+#
+# Must-change items (research §1; omitting ANY breaks the stream):
+#   - /dev/shm mounted as emptyDir{medium:Memory} — the default 64MB shm crashes Chromium.
+#   - SELKIES_ENCODER=x264enc — CPU H.264 (~30fps@720p); no GPU → the egl image falls back
+#     to llvmpipe software rendering automatically (2D desktop + Chromium fine).
+#   - hostNetwork:true — ICE host-candidate broadcast (above).
+#   - securityContext privileged:false — non-privileged by design (research §1).
+#   - HTTP basic auth on the signaling endpoint (SELKIES_ENABLE_BASIC_AUTH / USER / PASSWORD).
+#
+# Port planning (hostNetwork → EVERY container listen binds a host port; avoid occupied set):
+#   host LISTEN in use: 22 53 80 2222 3478(coturn) 5037 5901-5903 6443/6444(k3s) 7120
+#                       8080 8081 9428 9998 9999 · 18080(console socat) · 7443 is on the
+#                       control-plane VM, not here · redroid adb 5555 reserved.
+#   Selkies is TWO-TIER (verified from the image's selkies-gstreamer-entrypoint.sh): nginx
+#   fronts the PUBLIC signaling/web endpoint (basic auth) and reverse-proxies to the
+#   selkies-gstreamer app (localhost) + its metrics (localhost). All three bind host ports
+#   under hostNetwork, so all three must be free — and nginx's default 8080 AND gstreamer's
+#   default 8081 are BOTH occupied here, so all three are overridden off the defaults:
+#     - NGINX_PORT = 8082                → PUBLIC (browser + readiness probe + curl hit this)
+#     - SELKIES_PORT = 8083              → internal gstreamer app (localhost, nginx-proxied)
+#     - SELKIES_METRICS_HTTP_PORT = 8084 → internal metrics (localhost, nginx /metrics)
+#   WebRTC MEDIA = ephemeral high UDP ports (webrtcbin), distinct from coturn's 49160-49200.
+#
+# Isolation (Locked-10): `aura` ns only. SAFETY: default-ns VMs (ikuai/openwrt/ci-runner/
+# win-ci-runner/ubuntu-desktop/multi-desktop) are untouched.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: selkies
+  namespace: aura
+  labels:
+    app: selkies
+    aura.dev/role: linux-desktop
+spec:
+  restartPolicy: Always
+  hostNetwork: true
+  # With hostNetwork the pod loses cluster DNS unless we opt back in; keep it for TURN-by-name
+  # or controller-by-name resolution should the fallback ever need it.
+  dnsPolicy: ClusterFirstWithHostNet
+  containers:
+    - name: selkies
+      # GPU-less desktop: the egl-desktop image auto-falls-back to llvmpipe when no GPU / no
+      # nvidia runtime is present. Floating :24.04 tag = current Ubuntu-24.04 build.
+      # Fallback if ghcr is throttled (README §image): retag via a Docker Hub mirror or
+      # `k3s ctr -n k8s.io images import selkies.tar`. IfNotPresent uses the pre-pulled image.
+      image: ghcr.io/selkies-project/nvidia-egl-desktop:24.04
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        privileged: false
+      env:
+        # --- video: CPU-only H.264 ---
+        - name: SELKIES_ENCODER
+          value: "x264enc"
+        # --- signaling auth (separate from any TURN auth; research §1) ---
+        - name: SELKIES_ENABLE_BASIC_AUTH
+          value: "true"
+        - name: SELKIES_BASIC_AUTH_USER
+          value: "aura"
+        - name: SELKIES_BASIC_AUTH_PASSWORD
+          value: "aura-selkies"
+        # --- ports (hostNetwork → each listen binds a HOST port; all three must be free) ---
+        # nginx = PUBLIC signaling/web (browser + readiness probe + curl); basic auth here.
+        - name: NGINX_PORT
+          value: "8082"
+        # selkies-gstreamer app — binds localhost, nginx reverse-proxies it (NOT the public port).
+        - name: SELKIES_PORT
+          value: "8083"
+        # selkies metrics — binds localhost, nginx serves at /metrics (default 9081 → move off).
+        - name: SELKIES_METRICS_HTTP_PORT
+          value: "8084"
+        # --- desktop session login password (KDE/greeter); kept in sync with basic auth ---
+        - name: PASSWD
+          value: "aura-selkies"
+        # --- desktop virtual resolution ---
+        - name: SELKIES_SIZEW
+          value: "1280"
+        - name: SELKIES_SIZEH
+          value: "720"
+        # GPU-less Xvfb crash workaround (verified on this host): the image's Xvfb boots with
+        # `+extension GLX +iglx`, which dlopens Mesa's swrast_dri.so → libdril_dri.so and
+        # SEGFAULTS during GLX init with no GPU. Pointing the DRI search path at an empty dir
+        # makes GLX find no driver and self-disable → Xvfb comes up as a 2D software display.
+        # GLX is unneeded here (Selkies captures the 2D framebuffer; Chromium uses SwiftShader).
+        - name: LIBGL_DRIVERS_PATH
+          value: "/opt/no-dri"
+        # ICE servers → our coturn (README §TURN). REQUIRED here: the image DEFAULTS to
+        # unreachable external ICE (stun.l.google.com + openrelay TURN) and its bundled
+        # turnserver collides with our coturn on host :3478, so webrtcbin stalls and the browser
+        # never negotiates. Pointing Selkies at our coturn (TASK-001, reachable on the Tailscale
+        # IP) fixes it and makes the entrypoint skip its bundled turnserver. DIRECT_OK still
+        # holds — ICE keeps the hostNetwork host candidate (<host-tailscale-ip>) for direct media;
+        # coturn only supplies STUN discovery + a relay fallback.
+        - name: SELKIES_STUN_HOST
+          value: "<host-tailscale-ip>"
+        - name: SELKIES_STUN_PORT
+          value: "3478"
+        - name: SELKIES_TURN_HOST
+          value: "<host-tailscale-ip>"
+        - name: SELKIES_TURN_PORT
+          value: "3478"
+        - name: SELKIES_TURN_PROTOCOL
+          value: "udp"
+        - name: SELKIES_TURN_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: coturn-secret       # created in TASK-001; value stays out of the repo
+              key: static-auth-secret
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+        - name: no-dri
+          mountPath: /opt/no-dri
+      readinessProbe:
+        # nginx (NGINX_PORT) answers once the full chain is up — supervisord starts nginx only
+        # after selkies-gstreamer is listening on SELKIES_PORT, so a TCP connect to 8082 gates
+        # on the whole stack (basic-auth 401 still means "serving").
+        tcpSocket:
+          port: 8082
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi
+    # Intentionally-empty DRI driver dir (LIBGL_DRIVERS_PATH) → GLX self-disables, dodging
+    # the GPU-less Mesa swrast_dri.so segfault (see the LIBGL_DRIVERS_PATH env comment).
+    - name: no-dri
+      emptyDir: {}

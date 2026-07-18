@@ -1,0 +1,10 @@
+# AURA M5 — namespace for the privileged Redroid Android device pod.
+#
+# NOTE: the `aura` namespace already exists (created during M3 for KubeVirt VMIs).
+# `kubectl apply` is idempotent — it only ensures the namespace is present and never
+# deletes or disturbs existing resources. SAFETY: the `default` namespace VMs and any
+# existing `aura` VMIs are never touched by this manifest.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aura

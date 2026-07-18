@@ -1,0 +1,124 @@
+# AURA M9-P1 — OmniParser detector 服务 k3s 部署（GPU 主线，T6）。
+#
+# GPU 为验收主路径（GATE Q2）：宿主 msc-3975wx nvidia.com/gpu allocatable=2
+# （RTX 2080 Ti 22GB + RTX 3080 10GB），detector 常驻独占一卡（fp16 ~1s/帧）。
+#
+# 三条部署红线（缺一即错）：
+#   1. runtimeClassName: nvidia 必填（M5）——本集群 nvidia 是非默认 runtime，缺此项
+#      pod 照常调度 Running 但容器内无 CUDA，torch 静默落 CPU（/healthz device=cpu），
+#      表现为"部署成功但慢 20 倍"。验收断言 /healthz device=cuda + /detect 真推理延迟。
+#   2. 禁 hostNetwork（devil m3）——detector 明确不循 coturn/selkies 的 hostNetwork
+#      先例：bearer 服务 + hostNetwork 0.0.0.0 = 精确复现 CVE-2025-55322 的暴露形态。
+#      对外暴露走 NodePort（下方 Service），bearer 为主防线（C1）。
+#   3. 权重从 PVC 挂载（C2）——镜像无权重；部署前断言 PVC Bound + sha256sum -c
+#      /weights/SHA256SUMS 16 条全 OK（deploy.sh 内置该断言）。
+#
+# CPU 回退变体见 detector-deploy-cpu.yaml（同名互替，一次只跑一个）。
+# 隔离（Locked-10）：仅 aura ns；default ns 六台既有 VM 绝对不碰。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detector
+  namespace: aura
+  labels:
+    app: aura-detector
+    aura.dev/role: visual-detector
+spec:
+  replicas: 1
+  # 单副本推理服务 + GPU 独占：Recreate 先杀旧再起新，避免升级期两个 detector
+  # 同时占卡/同抢 PVC（RollingUpdate 对本形态无意义）。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aura-detector
+  template:
+    metadata:
+      labels:
+        app: aura-detector
+    spec:
+      # 红线 1：非默认 runtime，必须显式（见文件头注释）。
+      runtimeClassName: nvidia
+      # 单节点集群且无 nvidia.com/gpu.present 类 label（实测仅 hostname）——
+      # 以 hostname 锚定 GPU 节点；未来扩节点时换 GPU feature label。
+      nodeSelector:
+        kubernetes.io/hostname: msc-3975wx
+      containers:
+        - name: detector
+          # 镜像经 deploy.sh 导入 k3s containerd（VM docker save -> scp -> ctr import，
+          # 复刻 build.sh EXPORT=1 路径）；IfNotPresent 用本地导入镜像，不外拉。
+          image: docker.io/library/aura-detector:m9
+          imagePullPolicy: IfNotPresent
+          env:
+            # bearer 主防线（C1）：无 token 服务拒绝启动（app.py 退出码 2）。
+            - name: AURA_DETECTOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: detector-token
+                  key: token
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              # GPU 主线核心：device plugin 分配一卡并注入 NVIDIA_VISIBLE_DEVICES。
+              nvidia.com/gpu: 1
+              memory: 12Gi
+          volumeMounts:
+            # 红线 3：权重只读挂载（PVC 内容只挂不改）。
+            - name: weights
+              mountPath: /weights
+              readOnly: true
+          # 权重加载慢（florence 1.08GB safetensors + CUDA 初始化）：启动期由
+          # startupProbe 独占兜底（最长 360s），期间 liveness 不参与——避免加载中被
+          # 误杀循环；就绪后 readiness/liveness 以正常节奏接管。
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: weights
+          persistentVolumeClaim:
+            claimName: detector-weights
+---
+# 对外暴露 = NodePort（C1 裁决）：controller 是集群外 PVE VM（user@<controller-host>），
+# ClusterIP 10.43.x 对它不可达；NodePort 令 controller 经 <k3s-host>:30808 同段
+# （intra-22.x）直达，不经 252<->22 ACL。bearer 为主防线，NodePort 面暴露可接受；
+# 绝不 hostNetwork（红线 2）。
+# nodePort 取 30808：任务书示例的 30080 已被既有 jumpserver-jms-web 占用（实测）。
+apiVersion: v1
+kind: Service
+metadata:
+  name: detector
+  namespace: aura
+  labels:
+    app: aura-detector
+spec:
+  type: NodePort
+  selector:
+    app: aura-detector
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30808

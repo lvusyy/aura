@@ -1,0 +1,107 @@
+# AURA M5 — Redroid Android device (privileged) in the `aura` namespace.
+#
+# Endpoint stability (D3): adb is reached via the node hostPort 5555 (localhost:5555
+# on the k3s host), NEVER the ephemeral PodIP — pod rebuilds drift the IP and aura.v1
+# has no device-rebind control frame. aura-node connects to localhost:5555.
+#
+# binder path (D1): the host binderfs nodes (固化 by dev-binderfs.mount) are
+# bind-mounted onto the image's hardcoded legacy /dev/binder{,hw,vnd} paths.
+#
+# scrcpy-server self-heal (M8-P2 R1): /data is an emptyDir, so the scrcpy-server v3.3.4
+# jar (required by the Tango video stream at DefaultServerPath /data/local/tmp/scrcpy-server.jar)
+# is lost on every pod rebuild. An initContainer seeds it into the /data emptyDir BEFORE redroid
+# boots, copying from a read-only configMap (scrcpy-server-jar) — so a pod recreate re-seeds the
+# jar with zero host-adb dependency (replaces the manual "adb push after boot"). Create the configMap:
+#   kubectl -n aura create configmap scrcpy-server-jar \
+#     --from-file=scrcpy-server.jar=/tmp/scrcpy-server-v3.3.4   # sha256 8588238c9a5a…, 90980 B
+# The MCP tool path (screenshot/click via adb) does NOT need this jar — only the live stream does.
+#
+# Isolation (Locked-10): privileged pod confined to the `aura` namespace; only adb
+# 5555 is exposed. SAFETY: default-ns VMs are untouched.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redroid
+  namespace: aura
+  labels:
+    app: redroid
+    aura.dev/role: android-device
+spec:
+  restartPolicy: Always
+  # Seed the scrcpy-server jar into the /data emptyDir before redroid boots. Uses a tiny
+  # pre-pulled Linux image (alpine) for its shell + cp — the redroid image's /system/bin/sh
+  # is an Android binary that needs the /apex runtime (only present after Android init), so it
+  # cannot run in a bare initContainer. Runs to completion in <1s; decoupled from the main
+  # container lifecycle, so it can never crash-loop the android MCP node.
+  initContainers:
+    - name: seed-scrcpy-jar
+      image: docker.io/library/alpine:3.20
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - 'mkdir -p /data/local/tmp && cp /opt/scrcpy/scrcpy-server.jar /data/local/tmp/scrcpy-server.jar && chmod 644 /data/local/tmp/scrcpy-server.jar'
+      volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: scrcpy-jar
+          mountPath: /opt/scrcpy
+          readOnly: true
+  containers:
+    - name: redroid
+      # Image reference is centralised here and replaceable. Free Android versions:
+      # 11/12/13/14/16. Redroid tags are `NN.0.0-latest` or dated `NN.0.0-YYMMDD`
+      # (a bare `NN.0.0` tag does NOT exist); pinned to a dated build for reproducibility.
+      # Fallback (see README.md): docker.1ms.run/redroid/redroid:13.0.0-240527 + retag,
+      # or `k3s ctr -n k8s.io images import redroid.tar` — any one path suffices;
+      # imagePullPolicy IfNotPresent uses whatever is pre-loaded into containerd.
+      image: docker.io/redroid/redroid:13.0.0-240527
+      imagePullPolicy: IfNotPresent
+      args:
+        - androidboot.redroid_gpu_mode=guest   # software rendering (no GPU on host)
+      securityContext:
+        privileged: true
+      ports:
+        - name: adb
+          containerPort: 5555
+          hostPort: 5555
+          protocol: TCP
+      volumeMounts:
+        - name: binder
+          mountPath: /dev/binder
+        - name: hwbinder
+          mountPath: /dev/hwbinder
+        - name: vndbinder
+          mountPath: /dev/vndbinder
+        - name: data
+          mountPath: /data
+      readinessProbe:
+        # Android exits 0 from getprop regardless of value, so gate on the value itself.
+        exec:
+          command:
+            - /system/bin/sh
+            - -c
+            - '[ "$(getprop sys.boot_completed)" = "1" ]'
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+  volumes:
+    - name: binder
+      hostPath:
+        path: /dev/binderfs/binder
+        type: CharDevice
+    - name: hwbinder
+      hostPath:
+        path: /dev/binderfs/hwbinder
+        type: CharDevice
+    - name: vndbinder
+      hostPath:
+        path: /dev/binderfs/vndbinder
+        type: CharDevice
+    - name: data
+      emptyDir: {}
+    # scrcpy-server v3.3.4 jar, mounted read-only; postStart seeds it into /data/local/tmp.
+    - name: scrcpy-jar
+      configMap:
+        name: scrcpy-server-jar

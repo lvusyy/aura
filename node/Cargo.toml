@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aura-capability",
+    "crates/aura-platform",
+    "crates/aura-node",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# 本地 crate（依赖图强制 transport -> capability <- platform 单向约束）
+aura-capability = { path = "crates/aura-capability" }
+aura-platform = { path = "crates/aura-platform" }
+# 序列化 / schema
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+# 错误 / 异步 trait
+thiserror = "2"
+async-trait = "0.1"
+# 异步运行时
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-std", "net", "process", "fs"] }
+# 可观测
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# 错误处理
+anyhow = "1"
+
+# release profile：lto + 单 codegen unit + strip 减体积（min-sized-rust 组合）。
+# 保留默认 unwind 展开策略：工具调用边界 catch_unwind 依赖 unwind，
+# 单次 screenshot/click 崩溃不应拖垮长驻节点（故不启用 abort 展开）。
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
