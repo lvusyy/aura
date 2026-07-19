@@ -24,6 +24,7 @@ import {
 import type { BadgeProps, TableProps } from "antd";
 import {
   AndroidOutlined,
+  AppleFilled,
   AppleOutlined,
   ClockCircleOutlined,
   DeleteOutlined,
@@ -39,11 +40,13 @@ import {
   HistoryOutlined,
   InfoCircleOutlined,
   LinkOutlined,
+  LinuxOutlined,
   PlusOutlined,
   SearchOutlined,
   StopOutlined,
   TagOutlined,
   VideoCameraOutlined,
+  WindowsOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 import { useDashboard, useFleetStream } from "../../api/fleet";
@@ -112,8 +115,9 @@ function toolCategory(tool: string): string {
 
 // 平台展示名（sub-goal 1）：平台值 → 「品牌 + 桌面/移动」人类可读名。运行时 platform 为设备类粒度
 // （driver 上报 desktop/android/ios 三值，见 grpc_reverse Register.platform；桌面 OS 细分经
-// NodeInfo.os_version 渐进披露承载）；未知平台回原始值兜底。PlatformBadge / PlatformKindTag 共用。
-// 批E D5：删 windows/linux/macos 死支——driver 恒报设备类粒度，三键永不命中（YAGNI，OS 细分真落地再加回）。
+// NodeInfo.os_version 渐进披露承载）；未知平台回原始值兜底。deviceMeta 兜底路径共用。
+// 批E D5：删 windows/linux/macos 死支——driver 恒报设备类粒度，三键永不命中；OS 细分现由 deviceMeta
+// 按 os_version 派生（细分键在 os_version 非 platform，本函数保设备类兜底文案）。
 function platformDisplay(platform: string): string {
   switch (platform) {
     case "desktop":
@@ -135,7 +139,7 @@ const PLATFORM_META: Record<string, { icon: ReactNode; label: string; color: str
   android: { icon: <AndroidOutlined />, label: "Android", color: "#3ddc84" },
 };
 
-// 平台元数据查找（图标+文案+主色），未知平台落灰色兜底。PlatformBadge、卡片标题、平台筛选共用。
+// 平台元数据查找（图标+文案+主色），未知平台落灰色兜底。平台筛选 + deviceMeta 兜底共用。
 function platformMeta(platform: string): { icon: ReactNode; label: string; color: string } {
   return (
     PLATFORM_META[platform] ?? {
@@ -144,6 +148,30 @@ function platformMeta(platform: string): { icon: ReactNode; label: string; color
       color: "#8c8c8c",
     }
   );
+}
+
+// 设备可视元数据（OS 图标细分，批E D5 预留的「真落地」）：桌面节点依 os_version 品牌子串细分
+// Windows/macOS/Linux 图标+文案+品牌色；k8s 形态（selkies 类容器桌面）优先以 K8s 身份主显（图标与
+// RUNTIME_KIND_META 同构，用户视角该节点就是「k8s 设备」）。os 未采集（未滚更节点）回落 platformMeta
+// 通用桌面图标——渐进滚更兼容，同批B 纪律。卡片标题 / PlatformKindTag / PlatformBadge 三面共用。
+function deviceMeta(node: NodeInfo): { icon: ReactNode; label: string; color: string } {
+  if (node.platform === "desktop") {
+    if (node.runtimeKind === "k8s") {
+      return { icon: <DeploymentUnitOutlined />, label: "K8s 桌面", color: "#326ce5" };
+    }
+    const os = node.osVersion.toLowerCase();
+    if (os.includes("windows")) {
+      return { icon: <WindowsOutlined />, label: "Windows 桌面", color: "#0078d4" };
+    }
+    if (/macos|mac os|darwin/.test(os)) {
+      return { icon: <AppleFilled />, label: "macOS 桌面", color: "#595959" };
+    }
+    if (/linux|ubuntu|debian|fedora|centos|arch|suse|mint/.test(os)) {
+      return { icon: <LinuxOutlined />, label: "Linux 桌面", color: "#e95420" };
+    }
+  }
+  const meta = platformMeta(node.platform);
+  return { icon: meta.icon, label: platformDisplay(node.platform), color: meta.color };
 }
 
 // 状态色：online/unhealthy/offline 映射 AntD Badge status（success/warning/error），未知落 default。
@@ -160,13 +188,13 @@ const STREAM_TAG: Record<FleetStreamStatus, { color: string; text: string }> = {
   degraded: { color: "orange", text: "降级轮询" },
 };
 
-// 平台徽章（表格平台列）：图标 + 「Windows 桌面」文字（platform 派生设备类型），品牌色着色。
-function PlatformBadge({ platform }: { platform: string }) {
-  const meta = platformMeta(platform);
+// 平台徽章（表格平台列）：图标 + 「Windows 桌面」文字（deviceMeta OS 细分），品牌色着色。
+function PlatformBadge({ node }: { node: NodeInfo }) {
+  const meta = deviceMeta(node);
   return (
     <Space size={6} style={{ color: meta.color, fontWeight: 600 }}>
       {meta.icon}
-      <span>{platformDisplay(platform)}</span>
+      <span>{meta.label}</span>
     </Space>
   );
 }
@@ -174,13 +202,13 @@ function PlatformBadge({ platform }: { platform: string }) {
 // 醒目平台徽章（sub-goal 1，卡片主显）：加大 bordered Tag，品牌色图标 + 「Windows 桌面」加粗文字。
 // 用 bordered（非填充）+ 品牌色仅着色图标/边框、文字用默认深色——各平台（含 android 浅绿）对比度一致可读，
 // 比原标题区小图标显著。
-function PlatformKindTag({ platform }: { platform: string }) {
-  const meta = platformMeta(platform);
+function PlatformKindTag({ node }: { node: NodeInfo }) {
+  const meta = deviceMeta(node);
   return (
     <Tag style={{ fontSize: 13, padding: "3px 10px", borderColor: meta.color }}>
       <Space size={5}>
         <span style={{ color: meta.color }}>{meta.icon}</span>
-        <Typography.Text strong>{platformDisplay(platform)}</Typography.Text>
+        <Typography.Text strong>{meta.label}</Typography.Text>
       </Space>
     </Tag>
   );
@@ -557,7 +585,7 @@ const NodeCard = memo(function NodeCard({
   onRevoke: (nodeId: string) => void;
   revokingId: string | null;
 }) {
-  const meta = platformMeta(node.platform);
+  const meta = deviceMeta(node);
   const name = readableName(node);
   return (
     <Card
@@ -601,7 +629,7 @@ const NodeCard = memo(function NodeCard({
         <Space direction="vertical" size={2}>
           {/* 批D：形态小标签并排平台徽章（K8s/容器/VM/裸机，未标注节点不显）。 */}
           <Space size={4} wrap>
-            <PlatformKindTag platform={node.platform} />
+            <PlatformKindTag node={node} />
             <RuntimeKindTag kind={node.runtimeKind} />
           </Space>
           {node.osVersion ? (
@@ -734,7 +762,7 @@ function NodeTable({
       key: "platform",
       render: (_, n) => (
         <Space direction="vertical" size={0}>
-          <PlatformBadge platform={n.platform} />
+          <PlatformBadge node={n} />
           {/* 批B：系统版本副标题（os_version 简短；未采集节点不显）。 */}
           {n.osVersion ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
