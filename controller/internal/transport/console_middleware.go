@@ -69,7 +69,9 @@ func withCORS(h http.Handler) http.Handler {
 	middleware := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: connectcors.AllowedMethods(),
-		AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization"),
+		// Mcp-Protocol-Version：M14 网关的浏览器跨域 MCP client 在 initialize 后按 Streamable HTTP
+	// 规范携带此头，缺白名单则预检失败请求到不了网关（非浏览器 coding agent 不受影响）。
+	AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization", "Mcp-Protocol-Version"),
 		ExposedHeaders: connectcors.ExposedHeaders(),
 		MaxAge:         7200, // 预检缓存 2h，减少 OPTIONS 往返
 	})

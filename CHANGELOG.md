@@ -5,12 +5,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 本文件记录项目的重要变更,格式遵循 Keep a Changelog,版本号遵循语义化版本。
 
-## [Unreleased]
+## [0.2.0] - 2026-07-19
 
 ### Added
 
 - **MCP gateway** on the controller (`POST /v1/mcp/<node-id>`, TLS + admin-scope bearer): coding agents now reach any internal node's MCP surface through the controller as the single exposed entry point. Raw JSON-RPC is forwarded over the node's outbound mTLS reverse stream to its local MCP server — protocol semantics are byte-identical to direct access, and test machines need no inbound exposure at all (bind the node's `/mcp` to loopback). HA-aware (requests forward to the node's owner replica); gateway calls are audit-logged and appear in the agent observability page; the console's Agents page shows a copy-ready gateway URL per node. Direct node access remains as a same-segment lab shortcut.
 - 控制面新增 **MCP 网关**(`/v1/mcp/<节点ID>`):agent 经控制面单一入口访问内网节点,测试机零暴露;协议语义与直连字节级一致;HA 感知、有审计与观测;管理台逐节点给出可复制网关 URL。
+
+### Fixed
+
+- Node loopback proxy hardening (adversarial review round): the proxied `/mcp` response body is capped at 12 MB — below the 16 MB reverse-stream frame limit — so oversized responses fail loud with 502 instead of breaking the node's whole reverse connection; the 120 s proxy timeout now covers body reads as well, so a hung or never-ending response can no longer leak node-side tasks.
+- Gateway: the HA cross-replica forwarding leg now honors the same 150 s end-to-end timeout as the local path, and audit records are emitted for every outcome (403/404/405/413/forward failures included).
+- Node loopback address derivation: binding `[::]` now proxies via the IPv6 loopback, and binding a specific LAN address proxies to that address (previously always `127.0.0.1`, which broke the gateway for non-loopback binds).
+- CORS: `Mcp-Protocol-Version` added to allowed headers for cross-origin browser MCP clients.
 
 ## [0.1.0] - 2026-07-18
 
@@ -30,4 +37,5 @@ First public release. 首次公开发布。
 - **`auractl`** CLI: task dispatch, environment lifecycle, artifact fetch, trace replay against the controller REST plane.
 - Prebuilt binaries: `aura-node` (Windows x64 / Linux x64 / macOS arm64), `aura-controller` + `auractl` (Linux x64, console embedded), `auractl` (Windows x64).
 
+[0.2.0]: https://github.com/lvusyy/aura/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lvusyy/aura/releases/tag/v0.1.0

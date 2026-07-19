@@ -42,34 +42,44 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) h
 		nodeID := strings.TrimPrefix(r.URL.Path, mcpGatewayPathPrefix)
 		if nodeID == "" || strings.Contains(nodeID, "/") {
 			http.Error(w, "usage: POST /v1/mcp/<node_id>", http.StatusNotFound)
+			auditMcpGateway(r, nodeID, http.StatusNotFound, 0, "bad-path")
 			return
 		}
 		// 与节点 stateless Streamable HTTP 行为一致：仅 POST（GET SSE 探测/DELETE 会话终止均 405）。
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
 			http.Error(w, "method not allowed (stateless MCP endpoint accepts POST only)", http.StatusMethodNotAllowed)
+			auditMcpGateway(r, nodeID, http.StatusMethodNotAllowed, 0, "method-not-allowed")
 			return
 		}
 		switch ScopeFromContext(r.Context()) {
 		case ScopeReadOnly, ScopeOps:
 			http.Error(w, "MCP gateway requires an admin-scope token (gateway grants the node's full MCP surface; tiered dispatch is available on the REST DispatchTool plane)", http.StatusForbidden)
+			auditMcpGateway(r, nodeID, http.StatusForbidden, 0, "forbidden-scope")
 			return
 		}
 
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, mcpGatewayBodyCap))
 		if err != nil {
 			http.Error(w, "request body too large or unreadable", http.StatusRequestEntityTooLarge)
+			auditMcpGateway(r, nodeID, http.StatusRequestEntityTooLarge, 0, "body-too-large")
 			return
 		}
 
 		sess, ok := reg.Ready(nodeID)
 		if !ok {
 			// 本副本无活会话：hop 防环（被转发请求不二次转发）之外尝试 owner 副本转发（HA）。
-			if r.Header.Get(scheduler.ForwardedByHeader) == "" {
-				status, ct, respBody, ferr, attempted := sched.ForwardMcp(r.Context(), nodeID, body, r.Header)
+			// sched nil 卫：装配缺失/测试直建 handler 时安全落 404 而非 nil 解引用。
+			if sched != nil && r.Header.Get(scheduler.ForwardedByHeader) == "" {
+				// 转发腿同受整链兜底超时约束——裸 r.Context() 会让 owner 侧挂起时本副本
+				// handler/连接槽位无限占用。
+				fctx, fcancel := context.WithTimeout(r.Context(), mcpGatewayTimeout)
+				status, ct, respBody, ferr, attempted := sched.ForwardMcp(fctx, nodeID, body, r.Header)
+				fcancel()
 				if attempted {
 					if ferr != nil {
 						http.Error(w, "forward to owner replica failed: "+ferr.Error(), http.StatusBadGateway)
+						auditMcpGateway(r, nodeID, http.StatusBadGateway, len(body), "forward-error")
 						return
 					}
 					writeMcpProxyReply(w, status, ct, respBody)
@@ -78,6 +88,7 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) h
 				}
 			}
 			http.Error(w, "node not connected", http.StatusNotFound)
+			auditMcpGateway(r, nodeID, http.StatusNotFound, len(body), "not-connected")
 			return
 		}
 

@@ -170,14 +170,22 @@ async fn main() -> Result<()> {
     // 读取路径同源（消除 record_tools 既往独立 env 解析的双解析漂移）。未启用 grpc 时用 env 缺省。
     #[cfg(feature = "grpc")]
     let mut reverse_cfg = cli.reverse.into_config()?;
-    // M14：http 传输并存时回填 MCP 网关自环端点（127.0.0.1:<bind 端口>）——控制面网关的代理请求
-    // 经此送达本机 rmcp 面。stdio 模式保持 None：无本地 /mcp，代理请求回 503（fail loud）。
+    // M14：http 传输并存时回填 MCP 网关自环端点——控制面网关的代理请求经此送达本机 rmcp 面。
+    // 通配绑定（0.0.0.0/[::]）走 IPv4 环回；绑定具体地址（含 127.0.0.1 与显式网卡 IP）时自环
+    // 用该地址本身——否则 `--bind <LAN-IP>` 形态下 127.0.0.1 不在监听面、网关恒 502。
+    // stdio 模式保持 None：无本地 /mcp，代理请求回 503（fail loud）。
     #[cfg(feature = "grpc")]
     if let (Some(cfg), TransportCmd::Http { bind }) = (reverse_cfg.as_mut(), &cli.transport) {
-        cfg.mcp_loopback = Some(std::net::SocketAddr::new(
-            std::net::Ipv4Addr::LOCALHOST.into(),
-            bind.port(),
-        ));
+        let ip = if bind.ip().is_unspecified() {
+            // 按地址族取环回：[::] 通配在 IPv6-only 栈上不听 127.0.0.1，须回 [::1]。
+            match bind.ip() {
+                std::net::IpAddr::V4(_) => std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST),
+                std::net::IpAddr::V6(_) => std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST),
+            }
+        } else {
+            bind.ip()
+        };
+        cfg.mcp_loopback = Some(std::net::SocketAddr::new(ip, bind.port()));
     }
     #[cfg(feature = "grpc")]
     let tools = match reverse_cfg.as_ref() {

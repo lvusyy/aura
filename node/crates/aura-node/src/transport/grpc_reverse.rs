@@ -635,8 +635,14 @@ async fn build_channel(cfg: &ReverseConfig) -> Result<Channel> {
 }
 
 /// M14：自环 /mcp 调用硬超时。tools/call 的工具执行超时（deadline_ms，默认 30s）由 rmcp 面内
-/// 生效，本值只兜传输层挂起（网关侧另有整链超时，三层各兜各的）。
+/// 生效，本值只兜传输层挂起（网关侧另有整链超时，三层各兜各的）。覆盖「请求+响应头+正文读取」
+/// 整链——SSE 不终止/慢速正文若只盖响应头，spawn 任务会永久存活累积泄漏。
 const MCP_PROXY_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// M14：自环响应体上限。反连流单帧上限 16MB（max_msg_bytes），超限帧 tonic 编码失败会拖断整个
+/// Connect 流（心跳与其他工具请求连带重连）——在读体处即拒（fail loud 回 502），不让超限载荷
+/// 走到编码层。16MB 内留封装余量取 12MB（XGA 截图 base64 内联远在其下）。
+const MCP_PROXY_RESP_CAP: usize = 12 * 1024 * 1024;
 
 /// M14：处理一帧网关代理请求——自环 POST 本机 /mcp 并把响应回帧。任何失败（http 面未启用/
 /// 自环错误）都以明确 status 回帧而非静默丢弃：网关侧据此给 agent 可辨识错误（fail loud）。
@@ -706,18 +712,32 @@ async fn mcp_loopback_post(
     let request = builder.body(Full::new(Bytes::from(req.body)))?;
     let client: Client<_, Full<Bytes>> =
         Client::builder(TokioExecutor::new()).build(HttpConnector::new());
-    let resp = tokio::time::timeout(MCP_PROXY_TIMEOUT, client.request(request))
-        .await
-        .map_err(|_| anyhow!("loopback /mcp timed out after {}s", MCP_PROXY_TIMEOUT.as_secs()))??;
-    let status = i32::from(resp.status().as_u16());
-    let content_type = resp
-        .headers()
-        .get(hyper::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let body = resp.into_body().collect().await?.to_bytes().to_vec();
-    Ok((status, content_type, body))
+    // 整链单一硬超时（请求+响应头+正文读取），正文经 Limited 封顶（见两常量注释）。
+    let out = tokio::time::timeout(MCP_PROXY_TIMEOUT, async {
+        let resp = client.request(request).await?;
+        let status = i32::from(resp.status().as_u16());
+        let content_type = resp
+            .headers()
+            .get(hyper::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/json")
+            .to_string();
+        let body = http_body_util::Limited::new(resp.into_body(), MCP_PROXY_RESP_CAP)
+            .collect()
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "read loopback /mcp body (cap {}MB, reverse-stream frame limit): {e}",
+                    MCP_PROXY_RESP_CAP / 1024 / 1024
+                )
+            })?
+            .to_bytes()
+            .to_vec();
+        Ok::<_, anyhow::Error>((status, content_type, body))
+    })
+    .await
+    .map_err(|_| anyhow!("loopback /mcp timed out after {}s", MCP_PROXY_TIMEOUT.as_secs()))??;
+    Ok(out)
 }
 
 /// 心跳任务：周期 Send Heartbeat（携当前 node_id）。出站关闭即停止。
@@ -1064,6 +1084,7 @@ mod tests {
             heartbeat: Duration::from_secs(15),
             max_msg_bytes: 16 * 1024 * 1024,
             local_addr: None,
+            mcp_loopback: None,
         };
         let staging = artifact_staging_path(&cfg, key);
 
@@ -1349,6 +1370,7 @@ mod tests {
             heartbeat: Duration::from_secs(15),
             max_msg_bytes: 16 * 1024 * 1024,
             local_addr: None,
+            mcp_loopback: None,
         };
         assert_eq!(
             resolve_network_zone(&cfg).await,
