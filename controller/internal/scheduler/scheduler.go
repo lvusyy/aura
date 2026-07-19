@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -155,6 +156,15 @@ func (s *Scheduler) SetNodeLocker(l NodeLocker, replicaID string) {
 // E_NODE_OFFLINE（单副本零变化红线）。
 func (s *Scheduler) SetForwarder(f *Forwarder) {
 	s.forwarder = f
+}
+
+// ForwardMcp 把 MCP 网关请求（M14）转投 owner 副本；未装配转发器（单副本）时 attempted=false，
+// 网关落回现行 404。窄包装避免 transport 侧持有 *Forwarder（typed-nil 陷阱）与私有字段耦合。
+func (s *Scheduler) ForwardMcp(ctx context.Context, nodeID string, body []byte, hdr http.Header) (status int, contentType string, respBody []byte, err error, attempted bool) {
+	if s.forwarder == nil {
+		return 0, "", nil, nil, false
+	}
+	return s.forwarder.ForwardMcp(ctx, nodeID, body, hdr)
 }
 
 // job 是一次待执行的下发；resultCh 缓冲 1，保证 worker 回填不阻塞（调用方可能已因超时离开）。

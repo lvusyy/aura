@@ -7,19 +7,23 @@
 AURA is self-hosted infrastructure that lets coding agents (Claude Code, Codex CLI, Gemini CLI, …) remotely drive real or virtual test machines over [MCP](https://modelcontextprotocol.io) — screenshot → click → type → read back → verify — to catch the UI, interaction and UX bugs that unit tests and code review structurally cannot see.
 
 ```
-┌──────────────┐   MCP (stdio / Streamable HTTP)   ┌─────────────────────────┐
-│ Coding agent │ ────────────────────────────────► │ aura-node (Rust, 1 bin) │
-│ Claude Code  │                                   │ screenshot / input      │
-│ Codex / …    │        direct, zero-infra         │ a11y tree / assert      │
-└──────┬───────┘                                   │ files / process / rec   │
-       │ REST / console                            └───────────┬─────────────┘
-       ▼                                             mTLS gRPC │ reverse conn
-┌─────────────────────────────────────────────┐                │ (NAT-friendly)
-│ aura-controller (Go, HA-ready)              │ ◄──────────────┘
-│ scheduler · fleet registry · enrollment     │
-│ recordings · traces · web console (embedded)│   + PostgreSQL / Redis / MinIO
-└─────────────────────────────────────────────┘
+┌──────────────┐  MCP over HTTPS + bearer (gateway)  ┌──────────────────────────────┐
+│ Coding agent │ ──────────────────────────────────► │ aura-controller (Go, HA)     │
+│ Claude Code  │  REST / web console                 │ MCP gateway · scheduler      │
+│ Codex / …    │ ──────────────────────────────────► │ fleet · recordings · console │
+└──────┬───────┘   the only exposed surface          └──────────────┬───────────────┘
+       │                                                  mTLS gRPC │ reverse conn
+       │ lab-only shortcut: direct MCP            (nodes dial out — │  NAT-friendly)
+       │ (stdio / plain Streamable HTTP)                            ▼
+       └─────────────────────────────────► ┌────────────────────────────────────────┐
+                                           │ aura-node (Rust, 1 bin, private net)   │
+                                           │ screenshot / input / a11y tree /       │
+                                           │ assert / files / process / recording   │
+                                           └────────────────────────────────────────┘
+                                             + PostgreSQL / Redis / MinIO (internal)
 ```
+
+Test machines and backing stores stay on a private network; the controller is the single TLS + bearer-token entry point — agents reach internal nodes through its **MCP gateway** over the nodes' outbound mTLS reverse connections, so nothing on the test network is ever exposed. Direct node access remains available as a zero-infra shortcut for same-segment lab use.
 
 ## Why
 
@@ -32,8 +36,8 @@ Coding agents are good at writing code and running tests — but "does the app a
 - **5 platforms.** Windows, Linux (X11), macOS on real machines; Android via [Redroid](https://github.com/remote-android/redroid-doc) on Kubernetes; iOS Simulator via WebDriverAgent. One capability contract, per-platform subsets.
 - **Agent-accurate coordinates.** Screenshots are delivered XGA-scaled with click-coordinate back-mapping, following Anthropic's computer-use guidance — the detail that decides whether clicks land.
 - **Two deployment shapes.**
-  - *Direct:* point your agent at a single node's `/mcp` and start testing in minutes.
-  - *Cluster:* `aura-controller` (Go) adds fleet management, scheduling, environment provisioning (Proxmox VE / Kubernetes), artifact & recording storage, trace replay, and a web console — nodes dial **out** to the controller over mTLS gRPC, so test machines behind NAT just work.
+  - *Direct (lab):* point your agent at a single node's `/mcp` on the same network segment and start testing in minutes — zero infrastructure.
+  - *Cluster (production):* `aura-controller` (Go) adds the **MCP gateway** (agents reach any internal node via `https://<controller>/v1/mcp/<node-id>` — one TLS + bearer entry, nodes stay unexposed), fleet management, scheduling, environment provisioning (Proxmox VE / Kubernetes), artifact & recording storage, trace replay, and a web console — nodes dial **out** to the controller over mTLS gRPC, so test machines behind NAT just work.
 - **Batteries-included web console.** Device wall, live operate seat, task orchestration, recording playback, step-by-step replay and agent observability — embedded in the controller binary, nothing extra to deploy. See [Web console](#web-console).
 - **Fleet operations.** One-command node enrollment (CSR → per-node certificate, private key never leaves the node), fleet dashboard, task history, streaming recording playback, HA dual-replica controller, Prometheus metrics + OpenTelemetry traces.
 - **Direct-access observability.** Nodes report per-call MCP activity of directly-connected agents back to the controller, so the console shows who is testing what, with per-agent-client breakdowns and access guides.
@@ -114,6 +118,13 @@ Optional access token: start the node with `AURA_MCP_TOKEN=<secret>` in its envi
 
 Once the controller is up, the [web console](#web-console) is at `https://<controller-host>:18080/console` — log in with a bearer token (tiers in `ENV.md`).
 
+6. **Connect agents through the MCP gateway** — the production path. Each node's MCP surface is reachable at `https://<controller-host>:18080/v1/mcp/<node-id>` with an admin-scope bearer token; the console's Agents page shows a copy-ready URL per node. Nodes need `http --bind 127.0.0.1:7100` alongside the reverse connection (loopback is enough — the gateway rides the mTLS reverse stream, nothing on the test network is exposed). Protocol semantics are byte-identical to direct access: the gateway forwards raw JSON-RPC to the node's own MCP server. Example:
+
+```bash
+claude mcp add --transport http aura https://<controller-host>:18080/v1/mcp/<node-id> \
+  --header "Authorization: Bearer <admin-token>"
+```
+
 Reference manifests for optional components live under `controller/deploy/`: Redroid Android environments (`redroid/`), Selkies WebRTC container desktops (`selkies/`), coturn (`turn/`), and the OmniParser-based visual detector service (`detector/`) that augments the accessibility tree with vision-detected UI elements.
 
 ## Repository layout
@@ -138,7 +149,7 @@ Regenerating protocol code after editing `proto/aura/v1/*.proto`: `cd proto && b
 
 ## Security model in one paragraph
 
-Nodes are meant to control **disposable test machines, not production hosts** — treat every node as an arbitrary-code-execution surface and isolate it accordingly (VM, VLAN, firewall). Controller ↔ node traffic is mTLS with per-node certificates. The REST/console plane requires bearer tokens (three tiers). Direct node access (`/mcp`) is open by default for lab ergonomics and gated by `AURA_MCP_TOKEN` when set; put it behind TLS or a private network for anything sensitive. All dispatched tool calls are audit-logged in the cluster shape.
+Nodes are meant to control **disposable test machines, not production hosts** — treat every node as an arbitrary-code-execution surface and isolate it accordingly (VM, VLAN, firewall). In the cluster shape the controller is the **only exposed surface**: agents enter through the MCP gateway / REST / console over TLS with bearer tokens (three tiers; the gateway requires admin scope), and controller ↔ node traffic is mTLS with per-node certificates over node-initiated connections — test machines accept no inbound connections at all (bind the node's `/mcp` to loopback). Direct node access is a lab convenience for trusted same-segment networks: open by default, gated by `AURA_MCP_TOKEN` when set, plaintext HTTP — keep it off untrusted networks. All dispatched and gateway calls are audit-logged in the cluster shape.
 
 ## Status
 

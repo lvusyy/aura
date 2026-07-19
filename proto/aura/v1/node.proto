@@ -49,6 +49,7 @@ message NodeToController {
     UploadComplete upload_complete = 4;  // M3：大产物旁路 HTTP PUT 上传完成回执（additive）
     UploadFailed upload_failed = 5;      // M10：旁路上传失败即时通知（additive，UploadComplete 对偶帧）
     AgentActivity agent_activity = 6;    // M13：直连 MCP agent 活动批量上报（additive；观测帧，不影响工具执行链）
+    McpProxyResponse mcp_proxy_response = 7;  // M14：MCP 网关代理响应（additive，request_id 关联 McpProxyRequest）
   }
 }
 
@@ -58,7 +59,33 @@ message ControllerToNode {
     RegisterAck register_ack = 1;
     ToolRequest tool_request = 2;
     UploadUrlGrant upload_url_grant = 3;  // M3：大产物旁路上传预签名 URL 授权（additive）
+    McpProxyRequest mcp_proxy_request = 4;  // M14：控制面 MCP 网关代理请求（additive；未滚更节点安全忽略未知帧，网关侧超时可辨）
   }
+}
+
+// ===== M14：控制面 MCP 网关代理（additive） =====
+//
+// agent → controller `/v1/mcp/<node_id>`（TLS + bearer）→ 本帧对经反连流送达节点 → 节点自环 POST
+// 本机 `/mcp`（rmcp Streamable HTTP 面）→ 响应原样回传。控制面与反连层均不解释 MCP 协议
+// （哑管道纪律）：initialize/tools/list/tools/call 的语义、schema、版本协商全部由节点 rmcp 面单一承载，
+// 网关语义与 agent 直连节点严格一致。定位：跨网/生产接入的唯一对外入口（节点 /mcp 可只绑 loopback）。
+
+// 控制面 → 节点：一次 MCP JSON-RPC 请求的代理封装。
+message McpProxyRequest {
+  string request_id = 1;        // 网关生成的关联 id（响应帧回传；与 ToolRequest.task_id 同纪律）
+  bytes body = 2;               // 原始 JSON-RPC 请求体（透传不解释）
+  string content_type = 3;      // 原请求 Content-Type（空 = application/json）
+  string accept = 4;            // 原请求 Accept（空 = application/json, text/event-stream）
+  string user_agent = 5;        // 原请求 User-Agent（透传保 M13 接入观测的 client 辨识语义）
+  string protocol_version = 6;  // 原请求 MCP-Protocol-Version 头（空 = 未携带）
+}
+
+// 节点 → 控制面：代理请求的响应封装。
+message McpProxyResponse {
+  string request_id = 1;
+  int32 status = 2;             // 节点本地 /mcp 的 HTTP 状态码；自环失败 502、http 传输未启用 503
+  bytes body = 3;               // 响应体原样（JSON-RPC response / 错误文本）
+  string content_type = 4;      // 响应 Content-Type（网关原样回传 agent）
 }
 
 // 节点注册（流首帧）。node_id 为空表示首次注册，控制面分配 UUID 经 RegisterAck 回传；

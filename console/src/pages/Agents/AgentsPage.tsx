@@ -183,6 +183,14 @@ export function AgentsPage() {
     return `${host}:7100`;
   }, [nodes, nodeFilter]);
 
+  // M14 网关接入 URL：console 与控制面同源部署（go:embed），window.location.origin 即控制面对外
+  // 地址——选中节点时给出可直接复制的真实网关端点；未选节点用占位模板。
+  const gatewayUrl = useMemo(() => {
+    return nodeFilter
+      ? `${window.location.origin}/v1/mcp/${nodeFilter}`
+      : `${window.location.origin}/v1/mcp/<节点ID>`;
+  }, [nodeFilter]);
+
   const callsTotal = overview ? Number(overview.callsTotal) : 0;
   const callsFailed = overview ? Number(overview.callsFailed) : 0;
   const errRate = callsTotal > 0 ? (callsFailed / callsTotal) * 100 : 0;
@@ -368,11 +376,35 @@ export function AgentsPage() {
       </Card>
 
       <Card title="接入指引" size="small">
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="推荐：经控制面网关接入（跨网/生产）"
+          description={
+            <>
+              <Paragraph style={{ marginBottom: 4 }}>
+                agent 把 MCP 端点指向控制面网关，无需暴露任何测试机——请求经既有 mTLS
+                反连通道送达内网节点，TLS 与鉴权由控制面统一承载（admin 档访问令牌，
+                <Text code>Authorization: Bearer …</Text>）：
+              </Paragraph>
+              <Paragraph copyable={{ text: gatewayUrl }} style={{ marginBottom: 4 }}>
+                <Text code>{gatewayUrl}</Text>
+                {!nodeFilter && "（在上方选择节点后自动填入其 ID）"}
+              </Paragraph>
+              <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                节点侧要求：aura-node 以 <Text code>http --bind</Text> 与反连并存运行（绑
+                <Text code>127.0.0.1</Text> 即可，不必对外开放），且二进制为支持网关的版本。
+              </Paragraph>
+            </>
+          }
+        />
         <Paragraph type="secondary" style={{ marginTop: 0 }}>
-          在上方选择一个节点即可填入其地址；下列配置让各 coding agent 直连该节点的 MCP 端点。
+          备选：同网段实验室可直连节点 MCP 端点。在上方选择一个节点即可填入其地址。
           {guideAddr.startsWith("<") && "（当前为占位地址，选择节点后自动填入 IP）"}
           端口 7100 为默认值，节点以其他 <Text code>--bind</Text> 端口启动时以实际端口为准。
-          直连为明文 http 通道（含访问令牌头），建议仅在受信内网/隧道内使用。
+          直连为明文 http 通道（含访问令牌头），仅建议在受信内网/隧道内使用。
+          下列各家配置中的 URL 两种方式均可填（网关 URL 需带控制面 bearer 令牌头）。
         </Paragraph>
         <Collapse
           items={accessGuides(guideAddr).map((g) => ({

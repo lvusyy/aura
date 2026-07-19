@@ -27,9 +27,15 @@ use super::AuraTools;
 use pb::node_control_client::NodeControlClient;
 use pb::{
     controller_to_node, node_to_controller, AgentActivity, AgentCallEvent, Heartbeat,
-    NodeToController, Register, ToolResponse, UploadComplete, UploadFailed,
+    McpProxyRequest, McpProxyResponse, NodeToController, Register, ToolResponse, UploadComplete,
+    UploadFailed,
 };
+use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
+use hyper::{Method, Request};
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::rt::TokioExecutor;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
 /// tonic-build 从 aura.v1 proto 生成的类型（消息 + NodeControl client）。
@@ -114,6 +120,9 @@ pub struct ReverseConfig {
     pub max_msg_bytes: usize,
     /// 出站源 IP 绑定（--local-addr；None=内核路由选源，行为与既往一致）。
     pub local_addr: Option<IpAddr>,
+    /// M14：MCP 网关代理的自环端点（127.0.0.1:<http bind 端口>）。main.rs 在 `http` 传输并存时回填；
+    /// None（stdio 模式）= 本节点无本地 /mcp 面，代理请求回 503。
+    pub mcp_loopback: Option<SocketAddr>,
 }
 
 impl ReverseOpts {
@@ -154,6 +163,7 @@ impl ReverseOpts {
             heartbeat: Duration::from_secs(15),
             max_msg_bytes: 16 * 1024 * 1024,
             local_addr: self.local_addr,
+            mcp_loopback: None,
         }))
     }
 }
@@ -435,6 +445,13 @@ async fn connect_once(
                     .instrument(span),
                 );
             }
+            Some(controller_to_node::Payload::McpProxyRequest(preq)) => {
+                // M14：控制面 MCP 网关代理。每请求独立 spawn（同 ToolRequest 纪律）：慢调用不阻塞
+                // 收帧/心跳。反连层不解释 MCP 协议——自环 POST 本机 /mcp 由 rmcp 面单一承载语义。
+                let ptx = tx.clone();
+                let loopback = cfg.mcp_loopback;
+                tokio::spawn(mcp_proxy_serve(preq, loopback, ptx));
+            }
             Some(controller_to_node::Payload::UploadUrlGrant(grant)) => {
                 // 大产物旁路上传（G-5）：经预签名 PUT URL 直连对象存储上传，绕开双向流 16MB 内联上限，
                 // 完成回 UploadComplete。每授权独立 spawn：大文件上传不阻塞收帧/心跳。
@@ -615,6 +632,92 @@ async fn build_channel(cfg: &ReverseConfig) -> Result<Channel> {
             .connect_with_connector(local_bound_connector(Some(ip)))
             .await?),
     }
+}
+
+/// M14：自环 /mcp 调用硬超时。tools/call 的工具执行超时（deadline_ms，默认 30s）由 rmcp 面内
+/// 生效，本值只兜传输层挂起（网关侧另有整链超时，三层各兜各的）。
+const MCP_PROXY_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// M14：处理一帧网关代理请求——自环 POST 本机 /mcp 并把响应回帧。任何失败（http 面未启用/
+/// 自环错误）都以明确 status 回帧而非静默丢弃：网关侧据此给 agent 可辨识错误（fail loud）。
+async fn mcp_proxy_serve(
+    req: McpProxyRequest,
+    loopback: Option<SocketAddr>,
+    mut tx: mpsc::Sender<NodeToController>,
+) {
+    let request_id = req.request_id.clone();
+    let (status, content_type, body) = match loopback {
+        None => (
+            503,
+            "text/plain".to_string(),
+            b"node MCP HTTP transport disabled (run the node with `http --bind ...` to enable gateway access)".to_vec(),
+        ),
+        Some(addr) => match mcp_loopback_post(addr, req).await {
+            Ok(t) => t,
+            Err(e) => (
+                502,
+                "text/plain".to_string(),
+                format!("node loopback /mcp call failed: {e:#}").into_bytes(),
+            ),
+        },
+    };
+    let frame = NodeToController {
+        payload: Some(node_to_controller::Payload::McpProxyResponse(McpProxyResponse {
+            request_id,
+            status,
+            body,
+            content_type,
+        })),
+    };
+    // 出站已关闭（连接断裂）则丢弃：网关侧超时回收，agent 重试即可。
+    let _ = tx.send(frame).await;
+}
+
+/// M14：自环 POST `http://127.0.0.1:<bind 端口>/mcp`。头透传白名单：Content-Type/Accept/
+/// User-Agent/MCP-Protocol-Version（保 rmcp 协商与 M13 观测的 client 辨识语义）；节点自身的
+/// `AURA_MCP_TOKEN` 门槛由本进程自带令牌满足（网关侧已凭 controller bearer 完成对外鉴权）。
+async fn mcp_loopback_post(
+    addr: SocketAddr,
+    req: McpProxyRequest,
+) -> Result<(i32, String, Vec<u8>)> {
+    let uri: hyper::Uri = format!("http://{addr}/mcp").parse()?;
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header(
+            hyper::header::CONTENT_TYPE,
+            if req.content_type.is_empty() { "application/json" } else { req.content_type.as_str() },
+        )
+        .header(
+            hyper::header::ACCEPT,
+            if req.accept.is_empty() { "application/json, text/event-stream" } else { req.accept.as_str() },
+        );
+    if !req.user_agent.is_empty() {
+        builder = builder.header(hyper::header::USER_AGENT, req.user_agent.as_str());
+    }
+    if !req.protocol_version.is_empty() {
+        builder = builder.header("mcp-protocol-version", req.protocol_version.as_str());
+    }
+    if let Ok(token) = std::env::var("AURA_MCP_TOKEN") {
+        if !token.is_empty() {
+            builder = builder.header(hyper::header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+    }
+    let request = builder.body(Full::new(Bytes::from(req.body)))?;
+    let client: Client<_, Full<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(HttpConnector::new());
+    let resp = tokio::time::timeout(MCP_PROXY_TIMEOUT, client.request(request))
+        .await
+        .map_err(|_| anyhow!("loopback /mcp timed out after {}s", MCP_PROXY_TIMEOUT.as_secs()))??;
+    let status = i32::from(resp.status().as_u16());
+    let content_type = resp
+        .headers()
+        .get(hyper::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let body = resp.into_body().collect().await?.to_bytes().to_vec();
+    Ok((status, content_type, body))
 }
 
 /// 心跳任务：周期 Send Heartbeat（携当前 node_id）。出站关闭即停止。

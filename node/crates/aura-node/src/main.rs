@@ -169,7 +169,16 @@ async fn main() -> Result<()> {
     // gRPC 反连配置先解析：其 data_dir（`--data-dir` CLI）注入 AuraTools，使录屏落盘路径与旁路上传
     // 读取路径同源（消除 record_tools 既往独立 env 解析的双解析漂移）。未启用 grpc 时用 env 缺省。
     #[cfg(feature = "grpc")]
-    let reverse_cfg = cli.reverse.into_config()?;
+    let mut reverse_cfg = cli.reverse.into_config()?;
+    // M14：http 传输并存时回填 MCP 网关自环端点（127.0.0.1:<bind 端口>）——控制面网关的代理请求
+    // 经此送达本机 rmcp 面。stdio 模式保持 None：无本地 /mcp，代理请求回 503（fail loud）。
+    #[cfg(feature = "grpc")]
+    if let (Some(cfg), TransportCmd::Http { bind }) = (reverse_cfg.as_mut(), &cli.transport) {
+        cfg.mcp_loopback = Some(std::net::SocketAddr::new(
+            std::net::Ipv4Addr::LOCALHOST.into(),
+            bind.port(),
+        ));
+    }
     #[cfg(feature = "grpc")]
     let tools = match reverse_cfg.as_ref() {
         Some(cfg) => AuraTools::new(driver).with_data_dir(cfg.data_dir()),

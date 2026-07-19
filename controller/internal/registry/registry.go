@@ -86,6 +86,9 @@ type NodeSession struct {
 	// pending 关联 task_id -> 等待 ToolResponse 的 channel（请求/响应关联）。
 	pendingMu sync.Mutex
 	pending   map[string]chan *aurav1.ToolResponse
+	// mcpPending 关联 request_id -> 等待 McpProxyResponse 的 channel（M14 网关代理，与 pending
+	// 同锁不同表：两类响应 id 空间独立，混表会让哑管道请求依赖 ToolResponse 类型）。
+	mcpPending map[string]chan *aurav1.McpProxyResponse
 
 	// done 在会话关闭时闭合，唤醒阻塞在 Send / Dispatch 上的调用方。
 	done      chan struct{}
@@ -108,6 +111,7 @@ func NewSession(nodeID, platform string, tools []string, contractVersion string,
 		connectedAt:     now, // M12 批B：会话建立时刻（在线时长源，不可变）
 		sendCh:          make(chan *aurav1.ControllerToNode, sendBuffer),
 		pending:         make(map[string]chan *aurav1.ToolResponse),
+		mcpPending:      make(map[string]chan *aurav1.McpProxyResponse),
 		done:            make(chan struct{}),
 	}
 }
@@ -186,6 +190,56 @@ func (s *NodeSession) Dispatch(ctx context.Context, req *aurav1.ToolRequest) (*a
 		return nil, ctx.Err()
 	case <-s.done:
 		return nil, ErrNodeGone
+	}
+}
+
+// ProxyMcp 向节点下发一次 MCP 网关代理请求并等待 McpProxyResponse（M14，transport 网关入口）。
+// 复刻 Dispatch 的 pending 模板：依 request_id 关联；ctx 到期（网关兜底 timer）或节点掉线时返回错误。
+func (s *NodeSession) ProxyMcp(ctx context.Context, req *aurav1.McpProxyRequest) (*aurav1.McpProxyResponse, error) {
+	requestID := req.GetRequestId()
+	if requestID == "" {
+		return nil, errors.New("mcp proxy request requires request_id")
+	}
+
+	ch := make(chan *aurav1.McpProxyResponse, 1)
+	s.pendingMu.Lock()
+	s.mcpPending[requestID] = ch
+	s.pendingMu.Unlock()
+	defer func() {
+		s.pendingMu.Lock()
+		delete(s.mcpPending, requestID)
+		s.pendingMu.Unlock()
+	}()
+
+	frame := &aurav1.ControllerToNode{
+		Payload: &aurav1.ControllerToNode_McpProxyRequest{McpProxyRequest: req},
+	}
+	if err := s.Send(ctx, frame); err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.done:
+		return nil, ErrNodeGone
+	}
+}
+
+// DeliverMcpResponse 将收到的 McpProxyResponse 路由回等待方（transport 收帧循环调用）。
+// 无人等待或已交付时静默丢弃（同 DeliverResponse 纪律）。
+func (s *NodeSession) DeliverMcpResponse(resp *aurav1.McpProxyResponse) {
+	s.pendingMu.Lock()
+	ch, ok := s.mcpPending[resp.GetRequestId()]
+	s.pendingMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- resp:
+	default:
 	}
 }
 

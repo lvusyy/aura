@@ -452,6 +452,10 @@ func (s *NodeControlServer) Connect(
 		case frame.GetToolResponse() != nil:
 			sess.Touch()
 			sess.DeliverResponse(frame.GetToolResponse())
+		case frame.GetMcpProxyResponse() != nil:
+			// M14：MCP 网关代理响应——依 request_id 路由回网关等待方（哑管道，不解释 body）。
+			sess.Touch()
+			sess.DeliverMcpResponse(frame.GetMcpProxyResponse())
 		case frame.GetUploadComplete() != nil:
 			// 大产物旁路上传完成回执（G-5）：记审计并 resolve 等待中的 GrantAndAwait。产物本体已经
 			// 预签名 PUT 落对象存储，经 resource_link / auractl artifact get 取回；此处不再搬运字节

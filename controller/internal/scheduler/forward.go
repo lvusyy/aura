@@ -9,8 +9,10 @@ package scheduler
 // 传输层错误在信封形态下不可靠区分，任一方向回派生都制造语义斜移）。
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -101,6 +103,7 @@ type Forwarder struct {
 	owners         OwnerReader
 	peers          map[string]peerTarget
 	bearerToken    string
+	httpClient     connect.HTTPClient // 裸 HTTP 转发腿（M14 MCP 网关）：与 connect clients 同源 TLS 配置
 	awaitUploadCap time.Duration // owner 侧 upload-await 上限项（main.go 装配注入，transport 常量同源）
 
 	// peer 失联短路标记（批E C7）：转发遇传输层不可达（CodeUnavailable）即记 replicaID→时刻，
@@ -130,10 +133,62 @@ func NewForwarder(selfID string, peers map[string]string, owners OwnerReader, ht
 		owners:         owners,
 		peers:          targets,
 		bearerToken:    bearerToken,
+		httpClient:     httpClient,
 		awaitUploadCap: awaitUploadCap,
 		peerDown:       make(map[string]time.Time),
 	}
 }
+
+// ForwardMcp 把一次 MCP 网关请求（M14）转投 owner 副本的 `/v1/mcp/<node_id>`。owner 判定与
+// TryForward 同表镜像（无 owner/自指/peers 缺口/读错误 → attempted=false 落回现行 404）；hop 防环
+// 经 ForwardedByHeader——被转发方见此头即不二次转发。转发体为原始 JSON-RPC 字节（哑管道），
+// 白名单头透传保 rmcp 协商与观测语义。返回 owner 侧的 status/content-type/body 原样。
+func (f *Forwarder) ForwardMcp(ctx context.Context, nodeID string, body []byte, hdr http.Header) (status int, contentType string, respBody []byte, err error, attempted bool) {
+	owner, oerr := f.owners.GetNodeOwner(ctx, nodeID)
+	if oerr != nil {
+		slog.Warn("node owner lookup failed; treating as no owner", "node_id", nodeID, "err", oerr)
+		return 0, "", nil, nil, false
+	}
+	if owner == "" || owner == f.selfID {
+		return 0, "", nil, nil, false
+	}
+	peer, known := f.peers[owner]
+	if !known {
+		slog.Warn("node owner not in replica peers table; cannot forward mcp", "node_id", nodeID, "owner_replica", owner, "self_replica", f.selfID)
+		return 0, "", nil, nil, false
+	}
+	if f.peerRecentlyDown(owner) {
+		return 0, "", nil, fmt.Errorf("forward mcp for node %s: replica %s (%s) recently unreachable (fast-fail within %s)", nodeID, owner, peer.endpoint, peerFailTTL), true
+	}
+
+	req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, peer.endpoint+"/v1/mcp/"+nodeID, bytes.NewReader(body))
+	if rerr != nil {
+		return 0, "", nil, rerr, true
+	}
+	for _, h := range []string{"Content-Type", "Accept", "User-Agent", "Mcp-Protocol-Version"} {
+		if v := hdr.Get(h); v != "" {
+			req.Header.Set(h, v)
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+f.bearerToken)
+	req.Header.Set(ForwardedByHeader, f.selfID)
+
+	resp, derr := f.httpClient.Do(req)
+	if derr != nil {
+		f.markPeerDown(owner, derr)
+		return 0, "", nil, fmt.Errorf("forward mcp for node %s to replica %s (%s): %w", nodeID, owner, peer.endpoint, derr), true
+	}
+	defer resp.Body.Close()
+	b, berr := io.ReadAll(io.LimitReader(resp.Body, mcpForwardRespCap))
+	if berr != nil {
+		return 0, "", nil, fmt.Errorf("read forwarded mcp response from replica %s: %w", owner, berr), true
+	}
+	return resp.StatusCode, resp.Header.Get("Content-Type"), b, nil, true
+}
+
+// mcpForwardRespCap 是跨副本 MCP 转发响应体上限（与节点反连帧 16MB 上限同数量级；截图 base64
+// 内联是最大合法载荷）。
+const mcpForwardRespCap = 32 * 1024 * 1024
 
 // peerRecentlyDown 报告 owner 副本是否处于失联短路窗内（批E C7）。命中即调用方快速失败，
 // 免逐请求撞满转发兜底窗。

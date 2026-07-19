@@ -574,9 +574,13 @@ func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScop
 			transport.NewIPRateLimiter(1.0, 5.0), "enroll-ratelimit", enrollSrv.EnrollHandler())
 	}
 
+	// M14 MCP 网关：agent 经控制面单一入口访问节点 MCP 面（bearer 于 NewRESTHandler 内包裹；
+	// hop 防环走 handler 内 ForwardedByHeader 判定，无需 InboundForwardMarker ctx 打标）。
+	mcpGateway := transport.McpGatewayHandler(reg, sched)
+
 	return &http.Server{
 		Addr:    addr,
-		Handler: transport.NewRESTHandler(scopes, mux, tango, artifact, enrollHandler, spa),
+		Handler: transport.NewRESTHandler(scopes, mux, tango, artifact, enrollHandler, mcpGateway, spa),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

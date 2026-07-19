@@ -7,19 +7,23 @@
 AURA 是一套自托管基础设施,让 coding agent(Claude Code、Codex CLI、Gemini CLI 等)通过 [MCP](https://modelcontextprotocol.io) 远程操控真实/虚拟测试机——截图 → 点击 → 输入 → 读取 → 验证——发现单元测试和代码审查在结构上无法覆盖的 UI、交互与体验类 bug。
 
 ```
-┌──────────────┐   MCP (stdio / Streamable HTTP)   ┌─────────────────────────┐
-│ Coding agent │ ────────────────────────────────► │ aura-node (Rust, 1 bin) │
-│ Claude Code  │                                   │ screenshot / input      │
-│ Codex / …    │        direct, zero-infra         │ a11y tree / assert      │
-└──────┬───────┘                                   │ files / process / rec   │
-       │ REST / console                            └───────────┬─────────────┘
-       ▼                                             mTLS gRPC │ reverse conn
-┌─────────────────────────────────────────────┐                │ (NAT-friendly)
-│ aura-controller (Go, HA-ready)              │ ◄──────────────┘
-│ scheduler · fleet registry · enrollment     │
-│ recordings · traces · web console (embedded)│   + PostgreSQL / Redis / MinIO
-└─────────────────────────────────────────────┘
+┌──────────────┐  MCP over HTTPS + bearer (gateway)  ┌──────────────────────────────┐
+│ Coding agent │ ──────────────────────────────────► │ aura-controller (Go, HA)     │
+│ Claude Code  │  REST / web console                 │ MCP gateway · scheduler      │
+│ Codex / …    │ ──────────────────────────────────► │ fleet · recordings · console │
+└──────┬───────┘   the only exposed surface          └──────────────┬───────────────┘
+       │                                                  mTLS gRPC │ reverse conn
+       │ lab-only shortcut: direct MCP            (nodes dial out — │  NAT-friendly)
+       │ (stdio / plain Streamable HTTP)                            ▼
+       └─────────────────────────────────► ┌────────────────────────────────────────┐
+                                           │ aura-node (Rust, 1 bin, private net)   │
+                                           │ screenshot / input / a11y tree /       │
+                                           │ assert / files / process / recording   │
+                                           └────────────────────────────────────────┘
+                                             + PostgreSQL / Redis / MinIO (internal)
 ```
+
+测试机与存储底座全程留在内网;控制面是唯一对外面(TLS + bearer 令牌)——agent 经其 **MCP 网关**、沿节点主动外连的 mTLS 反连通道抵达内网节点,测试网内不暴露任何端口。直连节点仍保留,作为同网段实验室的零基建捷径。
 
 ## 为什么需要 AURA
 
@@ -32,8 +36,8 @@ coding agent 很会写代码、跑测试,但「这个应用对人类真的可用
 - **5 个平台。** Windows、Linux(X11)、macOS 真机;Android 经 [Redroid](https://github.com/remote-android/redroid-doc) on Kubernetes;iOS 模拟器经 WebDriverAgent。统一能力契约,按平台裁剪子集。
 - **坐标对 agent 准确。** 截图按 XGA 缩放交付 + 点击坐标回映射,遵循 Anthropic computer-use 最佳实践——这是决定 agent 点击能否落准的关键细节。
 - **两种部署形态。**
-  - *直连:* agent 指向单节点 `/mcp`,几分钟开始测试。
-  - *集群:* `aura-controller`(Go)提供舰队管理、调度、环境置备(Proxmox VE / Kubernetes)、产物与录屏存储、trace 回放、Web 管理台——节点**主动外连**控制面(mTLS gRPC 反向长连接),NAT 后的测试机开箱即用。
+  - *直连(实验室):* agent 指向同网段单节点的 `/mcp`,几分钟开始测试,零基建。
+  - *集群(生产):* `aura-controller`(Go)提供 **MCP 网关**(agent 经 `https://<控制面>/v1/mcp/<节点ID>` 访问任意内网节点——TLS + bearer 单一入口,节点零暴露)、舰队管理、调度、环境置备(Proxmox VE / Kubernetes)、产物与录屏存储、trace 回放、Web 管理台——节点**主动外连**控制面(mTLS gRPC 反向长连接),NAT 后的测试机开箱即用。
 - **管理台开箱即用。** 设备墙、实时操作席、任务编排、录屏回放、逐步重放与接入观测——内嵌于控制面二进制,零额外部署。详见 [Web 管理台](#web-管理台)。
 - **舰队运维。** 一键设备接入(CSR → per-node 证书,私钥不出节点)、舰队面板、任务历史、录屏流式回放、控制面 HA 双副本、Prometheus 指标 + OpenTelemetry 追踪。
 - **直连观测。** 节点把直连 agent 的每次 MCP 调用回报控制面,管理台可见谁在测什么,按 agent 客户端聚合,并内置各家接入指引。
@@ -115,6 +119,13 @@ claude mcp add aura -- /path/to/aura-node stdio
 
 控制面起来后,[Web 管理台](#web-管理台)在 `https://<控制面>:18080/console`——用 bearer token 登录(三档说明见 `ENV.md`)。
 
+6. **agent 经 MCP 网关接入**——生产路径。每个节点的 MCP 面在 `https://<控制面>:18080/v1/mcp/<节点ID>`,携 admin 档 bearer 令牌;管理台「接入观测」页给出每节点可直接复制的网关 URL。节点侧须以 `http --bind 127.0.0.1:7100` 与反连并存运行(绑 loopback 即可——网关流量走 mTLS 反连通道,测试网内不暴露任何端口)。协议语义与直连字节级一致:网关只把原始 JSON-RPC 转发给节点自身的 MCP server。示例:
+
+```bash
+claude mcp add --transport http aura https://<控制面>:18080/v1/mcp/<节点ID> \
+  --header "Authorization: Bearer <admin令牌>"
+```
+
 可选组件的参考清单在 `controller/deploy/` 下:Redroid Android 环境(`redroid/`)、Selkies WebRTC 容器桌面(`selkies/`)、coturn(`turn/`)、基于 OmniParser 的视觉检测服务(`detector/`,用视觉检出的 UI 元素增强 accessibility 树)。
 
 ## 仓库布局
@@ -138,7 +149,7 @@ proto/       唯一 proto 源(buf;Go/TS 生成物已入库,Rust 绑定由 tonic-
 
 ## 一段话说清访问模型
 
-节点的本职是操控**可丢弃的测试机,而非生产主机**——请把每个节点当作任意代码执行面来隔离(VM、VLAN、防火墙)。控制面 ↔ 节点走 per-node 证书 mTLS。REST/管理台面要求 bearer token(三档)。节点直连面(`/mcp`)默认开放以保实验室易用性,设 `AURA_MCP_TOKEN` 即门控;涉敏场景请置于 TLS 或私有网络之后。集群形态下所有派发的工具调用均有审计日志。
+节点的本职是操控**可丢弃的测试机,而非生产主机**——请把每个节点当作任意代码执行面来隔离(VM、VLAN、防火墙)。集群形态下控制面是**唯一对外面**:agent 经 MCP 网关 / REST / 管理台走 TLS + bearer 令牌进入(三档;网关要求 admin 档),控制面 ↔ 节点走 per-node 证书 mTLS 且连接一律由节点发起——测试机不接受任何入站连接(节点 `/mcp` 绑 loopback 即可)。直连节点是受信同网段的实验室便利:默认开放、设 `AURA_MCP_TOKEN` 即门控、明文 HTTP——请勿用于不受信网络。集群形态下所有派发与网关调用均有审计日志。
 
 ## 项目状态
 

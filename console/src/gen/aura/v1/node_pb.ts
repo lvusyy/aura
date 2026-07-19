@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aura/v1/node.proto.
  */
 export const file_aura_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChJhdXJhL3YxL25vZGUucHJvdG8SB2F1cmEudjEiswIKEE5vZGVUb0NvbnRyb2xsZXISJQoIcmVnaXN0ZXIYASABKAsyES5hdXJhLnYxLlJlZ2lzdGVySAASJwoJaGVhcnRiZWF0GAIgASgLMhIuYXVyYS52MS5IZWFydGJlYXRIABIuCg10b29sX3Jlc3BvbnNlGAMgASgLMhUuYXVyYS52MS5Ub29sUmVzcG9uc2VIABIyCg91cGxvYWRfY29tcGxldGUYBCABKAsyFy5hdXJhLnYxLlVwbG9hZENvbXBsZXRlSAASLgoNdXBsb2FkX2ZhaWxlZBgFIAEoCzIVLmF1cmEudjEuVXBsb2FkRmFpbGVkSAASMAoOYWdlbnRfYWN0aXZpdHkYBiABKAsyFi5hdXJhLnYxLkFnZW50QWN0aXZpdHlIAEIJCgdwYXlsb2FkIq4BChBDb250cm9sbGVyVG9Ob2RlEiwKDHJlZ2lzdGVyX2FjaxgBIAEoCzIULmF1cmEudjEuUmVnaXN0ZXJBY2tIABIsCgx0b29sX3JlcXVlc3QYAiABKAsyFC5hdXJhLnYxLlRvb2xSZXF1ZXN0SAASMwoQdXBsb2FkX3VybF9ncmFudBgDIAEoCzIXLmF1cmEudjEuVXBsb2FkVXJsR3JhbnRIAEIJCgdwYXlsb2FkIqQCCghSZWdpc3RlchIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg0KBXRva2VuGAMgASgJEg0KBXRvb2xzGAQgAygJEhgKEGNvbnRyYWN0X3ZlcnNpb24YBSABKAkSDAoEbmFtZRgGIAEoCRINCgVsYWJlbBgHIAEoCRIQCghsb2NhdGlvbhgIIAEoCRIUCgxuZXR3b3JrX3pvbmUYCSABKAkSEgoKb3NfdmVyc2lvbhgKIAEoCRISCgppcF9hZGRyZXNzGAsgASgJEhQKDHJ1bnRpbWVfa2luZBgMIAEoCRISCgppbmZyYV9ob3N0GA0gASgJEhAKCGF0dGFjaGVkGA4gASgJEhQKDG5vZGVfdmVyc2lvbhgPIAEoCSJBCgtSZWdpc3RlckFjaxIPCgdub2RlX2lkGAEgASgJEhAKCGFjY2VwdGVkGAIgASgIEg8KB21lc3NhZ2UYAyABKAkiMAoJSGVhcnRiZWF0Eg8KB25vZGVfaWQYASABKAkSEgoKdHNfdW5peF9tcxgCIAEoAyJmCgtUb29sUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEgwKBHRvb2wYAiABKAkSEQoJanNvbl9hcmdzGAMgASgMEhMKC2RlYWRsaW5lX21zGAQgASgDEhAKCHRyYWNlX2lkGAUgASgJIjYKDFRvb2xSZXNwb25zZRIPCgd0YXNrX2lkGAEgASgJEhUKDWpzb25fZW52ZWxvcGUYAiABKAwiRgoOVXBsb2FkVXJsR3JhbnQSCwoDa2V5GAEgASgJEhUKDXByZXNpZ25lZF91cmwYAiABKAkSEAoIdHRsX3NlY3MYAyABKAMiKwoOVXBsb2FkQ29tcGxldGUSCwoDa2V5GAEgASgJEgwKBGV0YWcYAiABKAkiKgoMVXBsb2FkRmFpbGVkEgsKA2tleRgBIAEoCRINCgVlcnJvchgCIAEoCSI4Cg1BZ2VudEFjdGl2aXR5EicKBmV2ZW50cxgBIAMoCzIXLmF1cmEudjEuQWdlbnRDYWxsRXZlbnQiywEKDkFnZW50Q2FsbEV2ZW50EgwKBHBlZXIYASABKAkSDgoGbWV0aG9kGAIgASgJEgwKBHRvb2wYAyABKAkSEwoLY2xpZW50X25hbWUYBCABKAkSFgoOY2xpZW50X3ZlcnNpb24YBSABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgGIAEoCRITCgtkdXJhdGlvbl9tcxgHIAEoAxIKCgJvaxgIIAEoCBIRCgl0cmFuc3BvcnQYCSABKAkSEgoKdHNfdW5peF9tcxgKIAEoAyISChBMaXN0Tm9kZXNSZXF1ZXN0ItQCCghOb2RlSW5mbxIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIUCgxsYXN0X3NlZW5fbXMYBCABKAMSDQoFdG9vbHMYBSADKAkSGAoQY29udHJhY3RfdmVyc2lvbhgGIAEoCRIMCgRuYW1lGAcgASgJEg0KBWxhYmVsGAggASgJEhAKCGxvY2F0aW9uGAkgASgJEhIKCm9zX3ZlcnNpb24YCiABKAkSEgoKaXBfYWRkcmVzcxgLIAEoCRIUCgxuZXR3b3JrX3pvbmUYDCABKAkSFwoPY29ubmVjdGVkX2F0X21zGA0gASgDEhQKDHJ1bnRpbWVfa2luZBgOIAEoCRISCgppbmZyYV9ob3N0GA8gASgJEhAKCGF0dGFjaGVkGBAgASgJEhQKDG5vZGVfdmVyc2lvbhgRIAEoCSI1ChFMaXN0Tm9kZXNSZXNwb25zZRIgCgVub2RlcxgBIAMoCzIRLmF1cmEudjEuTm9kZUluZm8iewoTRGlzcGF0Y2hUb29sUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEgwKBHRvb2wYAiABKAkSEQoJanNvbl9hcmdzGAMgASgMEhMKC2RlYWRsaW5lX21zGAQgASgDEgsKA3dobxgFIAEoCRIQCgh0cmFjZV9pZBgGIAEoCSItChREaXNwYXRjaFRvb2xSZXNwb25zZRIVCg1qc29uX2VudmVsb3BlGAEgASgMIjoKGENyZWF0ZUVudmlyb25tZW50UmVxdWVzdBIMCgRraW5kGAEgASgJEhAKCHRlbXBsYXRlGAIgASgJIkoKGUNyZWF0ZUVudmlyb25tZW50UmVzcG9uc2USDgoGZW52X2lkGAEgASgJEgwKBHZtaWQYAiABKAUSDwoHbm9kZV9pZBgDIAEoCSIrChlEZXN0cm95RW52aXJvbm1lbnRSZXF1ZXN0Eg4KBmVudl9pZBgBIAEoCSIvChpEZXN0cm95RW52aXJvbm1lbnRSZXNwb25zZRIRCglkZXN0cm95ZWQYASABKAgiMQoRU3RhcnRUcmFjZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRILCgN3aG8YAiABKAkiJgoSU3RhcnRUcmFjZVJlc3BvbnNlEhAKCHRyYWNlX2lkGAEgASgJIiQKEFN0b3BUcmFjZVJlcXVlc3QSEAoIdHJhY2VfaWQYASABKAkiJAoRU3RvcFRyYWNlUmVzcG9uc2USDwoHc3RvcHBlZBgBIAEoCCJKCg9HZXRUcmFjZVJlcXVlc3QSEAoIdHJhY2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgDEhIKCnBhZ2VfdG9rZW4YAyABKAkicQoQR2V0VHJhY2VSZXNwb25zZRIhCgVzdGVwcxgBIAMoCzISLmF1cmEudjEuVHJhY2VTdGVwEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSFwoPbmV4dF9wYWdlX3Rva2VuGAQgASgJInwKCVRyYWNlU3RlcBILCgNzZXEYASABKAMSDAoEdG9vbBgCIAEoCRIRCglqc29uX2FyZ3MYAyABKAwSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBIWCg5zY3JlZW5zaG90X2tleRgFIAEoCRISCgp0c191bml4X21zGAYgASgDKvABCglFcnJvckNvZGUSGgoWRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEhIKDkVfTk9ERV9PRkZMSU5FEAESDwoLRV9DT09SRF9PT0IQAhIUChBFX0NBUFRVUkVfRkFJTEVEEAMSEgoORV9JTlBVVF9GQUlMRUQQBBIUChBFX1BST0NFU1NfRkFJTEVEEAUSEQoNRV9GSUxFX0ZBSUxFRBAGEhEKDUVfSU5WQUxJRF9BUkcQBxIRCg1FX1VOU1VQUE9SVEVEEAgSDgoKRV9JTlRFUk5BTBAJEgoKBkVfQlVTWRAKEg0KCUVfVElNRU9VVBALMlIKC05vZGVDb250cm9sEkMKB0Nvbm5lY3QSGS5hdXJhLnYxLk5vZGVUb0NvbnRyb2xsZXIaGS5hdXJhLnYxLkNvbnRyb2xsZXJUb05vZGUoATABMqkECg9Db250cm9sbGVyQWRtaW4SQgoJTGlzdE5vZGVzEhkuYXVyYS52MS5MaXN0Tm9kZXNSZXF1ZXN0GhouYXVyYS52MS5MaXN0Tm9kZXNSZXNwb25zZRJLCgxEaXNwYXRjaFRvb2wSHC5hdXJhLnYxLkRpc3BhdGNoVG9vbFJlcXVlc3QaHS5hdXJhLnYxLkRpc3BhdGNoVG9vbFJlc3BvbnNlEloKEUNyZWF0ZUVudmlyb25tZW50EiEuYXVyYS52MS5DcmVhdGVFbnZpcm9ubWVudFJlcXVlc3QaIi5hdXJhLnYxLkNyZWF0ZUVudmlyb25tZW50UmVzcG9uc2USXQoSRGVzdHJveUVudmlyb25tZW50EiIuYXVyYS52MS5EZXN0cm95RW52aXJvbm1lbnRSZXF1ZXN0GiMuYXVyYS52MS5EZXN0cm95RW52aXJvbm1lbnRSZXNwb25zZRJFCgpTdGFydFRyYWNlEhouYXVyYS52MS5TdGFydFRyYWNlUmVxdWVzdBobLmF1cmEudjEuU3RhcnRUcmFjZVJlc3BvbnNlEkIKCVN0b3BUcmFjZRIZLmF1cmEudjEuU3RvcFRyYWNlUmVxdWVzdBoaLmF1cmEudjEuU3RvcFRyYWNlUmVzcG9uc2USPwoIR2V0VHJhY2USGC5hdXJhLnYxLkdldFRyYWNlUmVxdWVzdBoZLmF1cmEudjEuR2V0VHJhY2VSZXNwb25zZUIvWi1naXRodWIuY29tL2F1cmEvY29udHJvbGxlci9nZW4vYXVyYS92MTthdXJhdjFiBnByb3RvMw");
+  fileDesc("ChJhdXJhL3YxL25vZGUucHJvdG8SB2F1cmEudjEi7AIKEE5vZGVUb0NvbnRyb2xsZXISJQoIcmVnaXN0ZXIYASABKAsyES5hdXJhLnYxLlJlZ2lzdGVySAASJwoJaGVhcnRiZWF0GAIgASgLMhIuYXVyYS52MS5IZWFydGJlYXRIABIuCg10b29sX3Jlc3BvbnNlGAMgASgLMhUuYXVyYS52MS5Ub29sUmVzcG9uc2VIABIyCg91cGxvYWRfY29tcGxldGUYBCABKAsyFy5hdXJhLnYxLlVwbG9hZENvbXBsZXRlSAASLgoNdXBsb2FkX2ZhaWxlZBgFIAEoCzIVLmF1cmEudjEuVXBsb2FkRmFpbGVkSAASMAoOYWdlbnRfYWN0aXZpdHkYBiABKAsyFi5hdXJhLnYxLkFnZW50QWN0aXZpdHlIABI3ChJtY3BfcHJveHlfcmVzcG9uc2UYByABKAsyGS5hdXJhLnYxLk1jcFByb3h5UmVzcG9uc2VIAEIJCgdwYXlsb2FkIuUBChBDb250cm9sbGVyVG9Ob2RlEiwKDHJlZ2lzdGVyX2FjaxgBIAEoCzIULmF1cmEudjEuUmVnaXN0ZXJBY2tIABIsCgx0b29sX3JlcXVlc3QYAiABKAsyFC5hdXJhLnYxLlRvb2xSZXF1ZXN0SAASMwoQdXBsb2FkX3VybF9ncmFudBgDIAEoCzIXLmF1cmEudjEuVXBsb2FkVXJsR3JhbnRIABI1ChFtY3BfcHJveHlfcmVxdWVzdBgEIAEoCzIYLmF1cmEudjEuTWNwUHJveHlSZXF1ZXN0SABCCQoHcGF5bG9hZCKHAQoPTWNwUHJveHlSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDAoEYm9keRgCIAEoDBIUCgxjb250ZW50X3R5cGUYAyABKAkSDgoGYWNjZXB0GAQgASgJEhIKCnVzZXJfYWdlbnQYBSABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgGIAEoCSJaChBNY3BQcm94eVJlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDgoGc3RhdHVzGAIgASgFEgwKBGJvZHkYAyABKAwSFAoMY29udGVudF90eXBlGAQgASgJIqQCCghSZWdpc3RlchIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg0KBXRva2VuGAMgASgJEg0KBXRvb2xzGAQgAygJEhgKEGNvbnRyYWN0X3ZlcnNpb24YBSABKAkSDAoEbmFtZRgGIAEoCRINCgVsYWJlbBgHIAEoCRIQCghsb2NhdGlvbhgIIAEoCRIUCgxuZXR3b3JrX3pvbmUYCSABKAkSEgoKb3NfdmVyc2lvbhgKIAEoCRISCgppcF9hZGRyZXNzGAsgASgJEhQKDHJ1bnRpbWVfa2luZBgMIAEoCRISCgppbmZyYV9ob3N0GA0gASgJEhAKCGF0dGFjaGVkGA4gASgJEhQKDG5vZGVfdmVyc2lvbhgPIAEoCSJBCgtSZWdpc3RlckFjaxIPCgdub2RlX2lkGAEgASgJEhAKCGFjY2VwdGVkGAIgASgIEg8KB21lc3NhZ2UYAyABKAkiMAoJSGVhcnRiZWF0Eg8KB25vZGVfaWQYASABKAkSEgoKdHNfdW5peF9tcxgCIAEoAyJmCgtUb29sUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEgwKBHRvb2wYAiABKAkSEQoJanNvbl9hcmdzGAMgASgMEhMKC2RlYWRsaW5lX21zGAQgASgDEhAKCHRyYWNlX2lkGAUgASgJIjYKDFRvb2xSZXNwb25zZRIPCgd0YXNrX2lkGAEgASgJEhUKDWpzb25fZW52ZWxvcGUYAiABKAwiRgoOVXBsb2FkVXJsR3JhbnQSCwoDa2V5GAEgASgJEhUKDXByZXNpZ25lZF91cmwYAiABKAkSEAoIdHRsX3NlY3MYAyABKAMiKwoOVXBsb2FkQ29tcGxldGUSCwoDa2V5GAEgASgJEgwKBGV0YWcYAiABKAkiKgoMVXBsb2FkRmFpbGVkEgsKA2tleRgBIAEoCRINCgVlcnJvchgCIAEoCSI4Cg1BZ2VudEFjdGl2aXR5EicKBmV2ZW50cxgBIAMoCzIXLmF1cmEudjEuQWdlbnRDYWxsRXZlbnQiywEKDkFnZW50Q2FsbEV2ZW50EgwKBHBlZXIYASABKAkSDgoGbWV0aG9kGAIgASgJEgwKBHRvb2wYAyABKAkSEwoLY2xpZW50X25hbWUYBCABKAkSFgoOY2xpZW50X3ZlcnNpb24YBSABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgGIAEoCRITCgtkdXJhdGlvbl9tcxgHIAEoAxIKCgJvaxgIIAEoCBIRCgl0cmFuc3BvcnQYCSABKAkSEgoKdHNfdW5peF9tcxgKIAEoAyISChBMaXN0Tm9kZXNSZXF1ZXN0ItQCCghOb2RlSW5mbxIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIUCgxsYXN0X3NlZW5fbXMYBCABKAMSDQoFdG9vbHMYBSADKAkSGAoQY29udHJhY3RfdmVyc2lvbhgGIAEoCRIMCgRuYW1lGAcgASgJEg0KBWxhYmVsGAggASgJEhAKCGxvY2F0aW9uGAkgASgJEhIKCm9zX3ZlcnNpb24YCiABKAkSEgoKaXBfYWRkcmVzcxgLIAEoCRIUCgxuZXR3b3JrX3pvbmUYDCABKAkSFwoPY29ubmVjdGVkX2F0X21zGA0gASgDEhQKDHJ1bnRpbWVfa2luZBgOIAEoCRISCgppbmZyYV9ob3N0GA8gASgJEhAKCGF0dGFjaGVkGBAgASgJEhQKDG5vZGVfdmVyc2lvbhgRIAEoCSI1ChFMaXN0Tm9kZXNSZXNwb25zZRIgCgVub2RlcxgBIAMoCzIRLmF1cmEudjEuTm9kZUluZm8iewoTRGlzcGF0Y2hUb29sUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEgwKBHRvb2wYAiABKAkSEQoJanNvbl9hcmdzGAMgASgMEhMKC2RlYWRsaW5lX21zGAQgASgDEgsKA3dobxgFIAEoCRIQCgh0cmFjZV9pZBgGIAEoCSItChREaXNwYXRjaFRvb2xSZXNwb25zZRIVCg1qc29uX2VudmVsb3BlGAEgASgMIjoKGENyZWF0ZUVudmlyb25tZW50UmVxdWVzdBIMCgRraW5kGAEgASgJEhAKCHRlbXBsYXRlGAIgASgJIkoKGUNyZWF0ZUVudmlyb25tZW50UmVzcG9uc2USDgoGZW52X2lkGAEgASgJEgwKBHZtaWQYAiABKAUSDwoHbm9kZV9pZBgDIAEoCSIrChlEZXN0cm95RW52aXJvbm1lbnRSZXF1ZXN0Eg4KBmVudl9pZBgBIAEoCSIvChpEZXN0cm95RW52aXJvbm1lbnRSZXNwb25zZRIRCglkZXN0cm95ZWQYASABKAgiMQoRU3RhcnRUcmFjZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRILCgN3aG8YAiABKAkiJgoSU3RhcnRUcmFjZVJlc3BvbnNlEhAKCHRyYWNlX2lkGAEgASgJIiQKEFN0b3BUcmFjZVJlcXVlc3QSEAoIdHJhY2VfaWQYASABKAkiJAoRU3RvcFRyYWNlUmVzcG9uc2USDwoHc3RvcHBlZBgBIAEoCCJKCg9HZXRUcmFjZVJlcXVlc3QSEAoIdHJhY2VfaWQYASABKAkSEQoJcGFnZV9zaXplGAIgASgDEhIKCnBhZ2VfdG9rZW4YAyABKAkicQoQR2V0VHJhY2VSZXNwb25zZRIhCgVzdGVwcxgBIAMoCzISLmF1cmEudjEuVHJhY2VTdGVwEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSFwoPbmV4dF9wYWdlX3Rva2VuGAQgASgJInwKCVRyYWNlU3RlcBILCgNzZXEYASABKAMSDAoEdG9vbBgCIAEoCRIRCglqc29uX2FyZ3MYAyABKAwSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBIWCg5zY3JlZW5zaG90X2tleRgFIAEoCRISCgp0c191bml4X21zGAYgASgDKvABCglFcnJvckNvZGUSGgoWRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEhIKDkVfTk9ERV9PRkZMSU5FEAESDwoLRV9DT09SRF9PT0IQAhIUChBFX0NBUFRVUkVfRkFJTEVEEAMSEgoORV9JTlBVVF9GQUlMRUQQBBIUChBFX1BST0NFU1NfRkFJTEVEEAUSEQoNRV9GSUxFX0ZBSUxFRBAGEhEKDUVfSU5WQUxJRF9BUkcQBxIRCg1FX1VOU1VQUE9SVEVEEAgSDgoKRV9JTlRFUk5BTBAJEgoKBkVfQlVTWRAKEg0KCUVfVElNRU9VVBALMlIKC05vZGVDb250cm9sEkMKB0Nvbm5lY3QSGS5hdXJhLnYxLk5vZGVUb0NvbnRyb2xsZXIaGS5hdXJhLnYxLkNvbnRyb2xsZXJUb05vZGUoATABMqkECg9Db250cm9sbGVyQWRtaW4SQgoJTGlzdE5vZGVzEhkuYXVyYS52MS5MaXN0Tm9kZXNSZXF1ZXN0GhouYXVyYS52MS5MaXN0Tm9kZXNSZXNwb25zZRJLCgxEaXNwYXRjaFRvb2wSHC5hdXJhLnYxLkRpc3BhdGNoVG9vbFJlcXVlc3QaHS5hdXJhLnYxLkRpc3BhdGNoVG9vbFJlc3BvbnNlEloKEUNyZWF0ZUVudmlyb25tZW50EiEuYXVyYS52MS5DcmVhdGVFbnZpcm9ubWVudFJlcXVlc3QaIi5hdXJhLnYxLkNyZWF0ZUVudmlyb25tZW50UmVzcG9uc2USXQoSRGVzdHJveUVudmlyb25tZW50EiIuYXVyYS52MS5EZXN0cm95RW52aXJvbm1lbnRSZXF1ZXN0GiMuYXVyYS52MS5EZXN0cm95RW52aXJvbm1lbnRSZXNwb25zZRJFCgpTdGFydFRyYWNlEhouYXVyYS52MS5TdGFydFRyYWNlUmVxdWVzdBobLmF1cmEudjEuU3RhcnRUcmFjZVJlc3BvbnNlEkIKCVN0b3BUcmFjZRIZLmF1cmEudjEuU3RvcFRyYWNlUmVxdWVzdBoaLmF1cmEudjEuU3RvcFRyYWNlUmVzcG9uc2USPwoIR2V0VHJhY2USGC5hdXJhLnYxLkdldFRyYWNlUmVxdWVzdBoZLmF1cmEudjEuR2V0VHJhY2VSZXNwb25zZUIvWi1naXRodWIuY29tL2F1cmEvY29udHJvbGxlci9nZW4vYXVyYS92MTthdXJhdjFiBnByb3RvMw");
 
 /**
  * 上行帧（节点 → 控制面）。
@@ -63,6 +63,14 @@ export type NodeToController = Message<"aura.v1.NodeToController"> & {
      */
     value: AgentActivity;
     case: "agentActivity";
+  } | {
+    /**
+     * M14：MCP 网关代理响应（additive，request_id 关联 McpProxyRequest）
+     *
+     * @generated from field: aura.v1.McpProxyResponse mcp_proxy_response = 7;
+     */
+    value: McpProxyResponse;
+    case: "mcpProxyResponse";
   } | { case: undefined; value?: undefined };
 };
 
@@ -102,6 +110,14 @@ export type ControllerToNode = Message<"aura.v1.ControllerToNode"> & {
      */
     value: UploadUrlGrant;
     case: "uploadUrlGrant";
+  } | {
+    /**
+     * M14：控制面 MCP 网关代理请求（additive；未滚更节点安全忽略未知帧，网关侧超时可辨）
+     *
+     * @generated from field: aura.v1.McpProxyRequest mcp_proxy_request = 4;
+     */
+    value: McpProxyRequest;
+    case: "mcpProxyRequest";
   } | { case: undefined; value?: undefined };
 };
 
@@ -111,6 +127,102 @@ export type ControllerToNode = Message<"aura.v1.ControllerToNode"> & {
  */
 export const ControllerToNodeSchema: GenMessage<ControllerToNode> = /*@__PURE__*/
   messageDesc(file_aura_v1_node, 1);
+
+/**
+ * 控制面 → 节点：一次 MCP JSON-RPC 请求的代理封装。
+ *
+ * @generated from message aura.v1.McpProxyRequest
+ */
+export type McpProxyRequest = Message<"aura.v1.McpProxyRequest"> & {
+  /**
+   * 网关生成的关联 id（响应帧回传；与 ToolRequest.task_id 同纪律）
+   *
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * 原始 JSON-RPC 请求体（透传不解释）
+   *
+   * @generated from field: bytes body = 2;
+   */
+  body: Uint8Array;
+
+  /**
+   * 原请求 Content-Type（空 = application/json）
+   *
+   * @generated from field: string content_type = 3;
+   */
+  contentType: string;
+
+  /**
+   * 原请求 Accept（空 = application/json, text/event-stream）
+   *
+   * @generated from field: string accept = 4;
+   */
+  accept: string;
+
+  /**
+   * 原请求 User-Agent（透传保 M13 接入观测的 client 辨识语义）
+   *
+   * @generated from field: string user_agent = 5;
+   */
+  userAgent: string;
+
+  /**
+   * 原请求 MCP-Protocol-Version 头（空 = 未携带）
+   *
+   * @generated from field: string protocol_version = 6;
+   */
+  protocolVersion: string;
+};
+
+/**
+ * Describes the message aura.v1.McpProxyRequest.
+ * Use `create(McpProxyRequestSchema)` to create a new message.
+ */
+export const McpProxyRequestSchema: GenMessage<McpProxyRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 2);
+
+/**
+ * 节点 → 控制面：代理请求的响应封装。
+ *
+ * @generated from message aura.v1.McpProxyResponse
+ */
+export type McpProxyResponse = Message<"aura.v1.McpProxyResponse"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * 节点本地 /mcp 的 HTTP 状态码；自环失败 502、http 传输未启用 503
+   *
+   * @generated from field: int32 status = 2;
+   */
+  status: number;
+
+  /**
+   * 响应体原样（JSON-RPC response / 错误文本）
+   *
+   * @generated from field: bytes body = 3;
+   */
+  body: Uint8Array;
+
+  /**
+   * 响应 Content-Type（网关原样回传 agent）
+   *
+   * @generated from field: string content_type = 4;
+   */
+  contentType: string;
+};
+
+/**
+ * Describes the message aura.v1.McpProxyResponse.
+ * Use `create(McpProxyResponseSchema)` to create a new message.
+ */
+export const McpProxyResponseSchema: GenMessage<McpProxyResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 3);
 
 /**
  * 节点注册（流首帧）。node_id 为空表示首次注册，控制面分配 UUID 经 RegisterAck 回传；
@@ -238,7 +350,7 @@ export type Register = Message<"aura.v1.Register"> & {
  * Use `create(RegisterSchema)` to create a new message.
  */
 export const RegisterSchema: GenMessage<Register> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 2);
+  messageDesc(file_aura_v1_node, 4);
 
 /**
  * 注册确认。控制面回传最终 node_id（首次注册时为新分配的 UUID）。
@@ -267,7 +379,7 @@ export type RegisterAck = Message<"aura.v1.RegisterAck"> & {
  * Use `create(RegisterAckSchema)` to create a new message.
  */
 export const RegisterAckSchema: GenMessage<RegisterAck> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 3);
+  messageDesc(file_aura_v1_node, 5);
 
 /**
  * 心跳（应用层，驱动控制面 unhealthy 判定；不依赖 TCP，规避 h2 半开连接）。
@@ -291,7 +403,7 @@ export type Heartbeat = Message<"aura.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 4);
+  messageDesc(file_aura_v1_node, 6);
 
 /**
  * 工具调用请求（控制面 → 节点，哑管道）。
@@ -338,7 +450,7 @@ export type ToolRequest = Message<"aura.v1.ToolRequest"> & {
  * Use `create(ToolRequestSchema)` to create a new message.
  */
 export const ToolRequestSchema: GenMessage<ToolRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 5);
+  messageDesc(file_aura_v1_node, 7);
 
 /**
  * 工具调用响应（节点 → 控制面）。
@@ -364,7 +476,7 @@ export type ToolResponse = Message<"aura.v1.ToolResponse"> & {
  * Use `create(ToolResponseSchema)` to create a new message.
  */
 export const ToolResponseSchema: GenMessage<ToolResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 6);
+  messageDesc(file_aura_v1_node, 8);
 
 /**
  * 大产物旁路上传授权（控制面 → 节点）。
@@ -401,7 +513,7 @@ export type UploadUrlGrant = Message<"aura.v1.UploadUrlGrant"> & {
  * Use `create(UploadUrlGrantSchema)` to create a new message.
  */
 export const UploadUrlGrantSchema: GenMessage<UploadUrlGrant> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 7);
+  messageDesc(file_aura_v1_node, 9);
 
 /**
  * 大产物旁路上传完成回执（节点 → 控制面）。
@@ -429,7 +541,7 @@ export type UploadComplete = Message<"aura.v1.UploadComplete"> & {
  * Use `create(UploadCompleteSchema)` to create a new message.
  */
 export const UploadCompleteSchema: GenMessage<UploadComplete> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 8);
+  messageDesc(file_aura_v1_node, 10);
 
 /**
  * 大产物旁路上传失败即时通知（节点 → 控制面，M10 additive）。
@@ -460,7 +572,7 @@ export type UploadFailed = Message<"aura.v1.UploadFailed"> & {
  * Use `create(UploadFailedSchema)` to create a new message.
  */
 export const UploadFailedSchema: GenMessage<UploadFailed> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 9);
+  messageDesc(file_aura_v1_node, 11);
 
 /**
  * 一批 MCP 交互事件（节点 /mcp 中间件积攒后批量上报，减少反连流帧数）。
@@ -479,7 +591,7 @@ export type AgentActivity = Message<"aura.v1.AgentActivity"> & {
  * Use `create(AgentActivitySchema)` to create a new message.
  */
 export const AgentActivitySchema: GenMessage<AgentActivity> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 10);
+  messageDesc(file_aura_v1_node, 12);
 
 /**
  * 单次 MCP 交互事件（节点 /mcp 观测中间件采集，一次 POST 一条）。
@@ -563,7 +675,7 @@ export type AgentCallEvent = Message<"aura.v1.AgentCallEvent"> & {
  * Use `create(AgentCallEventSchema)` to create a new message.
  */
 export const AgentCallEventSchema: GenMessage<AgentCallEvent> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 11);
+  messageDesc(file_aura_v1_node, 13);
 
 /**
  * @generated from message aura.v1.ListNodesRequest
@@ -576,7 +688,7 @@ export type ListNodesRequest = Message<"aura.v1.ListNodesRequest"> & {
  * Use `create(ListNodesRequestSchema)` to create a new message.
  */
 export const ListNodesRequestSchema: GenMessage<ListNodesRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 12);
+  messageDesc(file_aura_v1_node, 14);
 
 /**
  * @generated from message aura.v1.NodeInfo
@@ -709,7 +821,7 @@ export type NodeInfo = Message<"aura.v1.NodeInfo"> & {
  * Use `create(NodeInfoSchema)` to create a new message.
  */
 export const NodeInfoSchema: GenMessage<NodeInfo> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 13);
+  messageDesc(file_aura_v1_node, 15);
 
 /**
  * @generated from message aura.v1.ListNodesResponse
@@ -726,7 +838,7 @@ export type ListNodesResponse = Message<"aura.v1.ListNodesResponse"> & {
  * Use `create(ListNodesResponseSchema)` to create a new message.
  */
 export const ListNodesResponseSchema: GenMessage<ListNodesResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 14);
+  messageDesc(file_aura_v1_node, 16);
 
 /**
  * 经控制面转发工具调用到指定节点（REST → gRPC stream）。
@@ -774,7 +886,7 @@ export type DispatchToolRequest = Message<"aura.v1.DispatchToolRequest"> & {
  * Use `create(DispatchToolRequestSchema)` to create a new message.
  */
 export const DispatchToolRequestSchema: GenMessage<DispatchToolRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 15);
+  messageDesc(file_aura_v1_node, 17);
 
 /**
  * @generated from message aura.v1.DispatchToolResponse
@@ -793,7 +905,7 @@ export type DispatchToolResponse = Message<"aura.v1.DispatchToolResponse"> & {
  * Use `create(DispatchToolResponseSchema)` to create a new message.
  */
 export const DispatchToolResponseSchema: GenMessage<DispatchToolResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 16);
+  messageDesc(file_aura_v1_node, 18);
 
 /**
  * @generated from message aura.v1.CreateEnvironmentRequest
@@ -819,7 +931,7 @@ export type CreateEnvironmentRequest = Message<"aura.v1.CreateEnvironmentRequest
  * Use `create(CreateEnvironmentRequestSchema)` to create a new message.
  */
 export const CreateEnvironmentRequestSchema: GenMessage<CreateEnvironmentRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 17);
+  messageDesc(file_aura_v1_node, 19);
 
 /**
  * @generated from message aura.v1.CreateEnvironmentResponse
@@ -848,7 +960,7 @@ export type CreateEnvironmentResponse = Message<"aura.v1.CreateEnvironmentRespon
  * Use `create(CreateEnvironmentResponseSchema)` to create a new message.
  */
 export const CreateEnvironmentResponseSchema: GenMessage<CreateEnvironmentResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 18);
+  messageDesc(file_aura_v1_node, 20);
 
 /**
  * @generated from message aura.v1.DestroyEnvironmentRequest
@@ -865,7 +977,7 @@ export type DestroyEnvironmentRequest = Message<"aura.v1.DestroyEnvironmentReque
  * Use `create(DestroyEnvironmentRequestSchema)` to create a new message.
  */
 export const DestroyEnvironmentRequestSchema: GenMessage<DestroyEnvironmentRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 19);
+  messageDesc(file_aura_v1_node, 21);
 
 /**
  * @generated from message aura.v1.DestroyEnvironmentResponse
@@ -882,7 +994,7 @@ export type DestroyEnvironmentResponse = Message<"aura.v1.DestroyEnvironmentResp
  * Use `create(DestroyEnvironmentResponseSchema)` to create a new message.
  */
 export const DestroyEnvironmentResponseSchema: GenMessage<DestroyEnvironmentResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 20);
+  messageDesc(file_aura_v1_node, 22);
 
 /**
  * 开始录制：对 node_id 建立 per-node 独占租约并返回 trace_id。
@@ -909,7 +1021,7 @@ export type StartTraceRequest = Message<"aura.v1.StartTraceRequest"> & {
  * Use `create(StartTraceRequestSchema)` to create a new message.
  */
 export const StartTraceRequestSchema: GenMessage<StartTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 21);
+  messageDesc(file_aura_v1_node, 23);
 
 /**
  * @generated from message aura.v1.StartTraceResponse
@@ -928,7 +1040,7 @@ export type StartTraceResponse = Message<"aura.v1.StartTraceResponse"> & {
  * Use `create(StartTraceResponseSchema)` to create a new message.
  */
 export const StartTraceResponseSchema: GenMessage<StartTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 22);
+  messageDesc(file_aura_v1_node, 24);
 
 /**
  * 停止录制：释放 trace_id 对应的 per-node 租约。
@@ -947,7 +1059,7 @@ export type StopTraceRequest = Message<"aura.v1.StopTraceRequest"> & {
  * Use `create(StopTraceRequestSchema)` to create a new message.
  */
 export const StopTraceRequestSchema: GenMessage<StopTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 23);
+  messageDesc(file_aura_v1_node, 25);
 
 /**
  * @generated from message aura.v1.StopTraceResponse
@@ -966,7 +1078,7 @@ export type StopTraceResponse = Message<"aura.v1.StopTraceResponse"> & {
  * Use `create(StopTraceResponseSchema)` to create a new message.
  */
 export const StopTraceResponseSchema: GenMessage<StopTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 24);
+  messageDesc(file_aura_v1_node, 26);
 
 /**
  * 读取录制步序（回放读路径）。分页 additive：步数×envelope 体积可超 connect 默认 max-recv-bytes，
@@ -1000,7 +1112,7 @@ export type GetTraceRequest = Message<"aura.v1.GetTraceRequest"> & {
  * Use `create(GetTraceRequestSchema)` to create a new message.
  */
 export const GetTraceRequestSchema: GenMessage<GetTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 25);
+  messageDesc(file_aura_v1_node, 27);
 
 /**
  * @generated from message aura.v1.GetTraceResponse
@@ -1038,7 +1150,7 @@ export type GetTraceResponse = Message<"aura.v1.GetTraceResponse"> & {
  * Use `create(GetTraceResponseSchema)` to create a new message.
  */
 export const GetTraceResponseSchema: GenMessage<GetTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 26);
+  messageDesc(file_aura_v1_node, 28);
 
 /**
  * 单条录制步（回放读路径载体）。
@@ -1094,7 +1206,7 @@ export type TraceStep = Message<"aura.v1.TraceStep"> & {
  * Use `create(TraceStepSchema)` to create a new message.
  */
 export const TraceStepSchema: GenMessage<TraceStep> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 27);
+  messageDesc(file_aura_v1_node, 29);
 
 /**
  * 镜像 aura-capability CapError::code()（node/crates/aura-capability/src/types.rs 为规范源），

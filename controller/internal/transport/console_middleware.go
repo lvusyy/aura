@@ -35,8 +35,12 @@ const enrollPathPrefix = "/v1/"
 //   - CORS 置于最外层：浏览器预检 OPTIONS（不带 Authorization）由 CORS 直接应答，不下沉 bearer——
 //     否则预检因缺 token 被 401，跨域失败。
 // 批E C1：token 单值改 TokenScopes 多档映射（ro/ops/admin 分级 + forwarder 独立凭据同表准入）。
-func NewRESTHandler(scopes TokenScopes, apiMux, stream, artifact, enroll, spa http.Handler) http.Handler {
+func NewRESTHandler(scopes TokenScopes, apiMux, stream, artifact, enroll, mcp, spa http.Handler) http.Handler {
 	apiAuth := BearerMiddleware(scopes, apiMux)
+	var mcpAuth http.Handler
+	if mcp != nil {
+		mcpAuth = BearerMiddleware(scopes, mcp)
+	}
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, apiPathPrefix):
@@ -45,6 +49,10 @@ func NewRESTHandler(scopes TokenScopes, apiMux, stream, artifact, enroll, spa ht
 			stream.ServeHTTP(w, r)
 		case artifact != nil && strings.HasPrefix(r.URL.Path, artifactPathPrefix):
 			artifact.ServeHTTP(w, r) // 录屏 Range 流式回放：自持 ?token=（<video src> 无 Authorization 头），不过 bearer
+		// M14 MCP 网关（bearer 鉴权）：/v1/mcp/ 比 enroll 的宽前缀 /v1/ 更特异，必须前置判定，
+		// 否则落公开 enroll 面（404 且绕过 bearer）。
+		case mcpAuth != nil && strings.HasPrefix(r.URL.Path, mcpGatewayPathPrefix):
+			mcpAuth.ServeHTTP(w, r)
 		case enroll != nil && strings.HasPrefix(r.URL.Path, enrollPathPrefix):
 			enroll.ServeHTTP(w, r) // 公开：enroll token 认证在 handler 内（ConsumeToken），不过 bearer
 		default:
