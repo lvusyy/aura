@@ -79,3 +79,33 @@ func TestMcpGateway_HopMarkerNoReforward(t *testing.T) {
 		t.Fatalf("forwarded request, node absent: want 404, got %d", rec.Code)
 	}
 }
+
+// TestGatewayLimiter 验证 per-node 在途闸：占满上限后拒绝，释放后重新可占，且计数按 node 隔离。
+func TestGatewayLimiter(t *testing.T) {
+	l := newGatewayLimiter()
+	for i := 0; i < mcpGatewayPerNodeInflight; i++ {
+		if !l.acquire("node-a") {
+			t.Fatalf("acquire #%d for node-a should succeed (under limit)", i+1)
+		}
+	}
+	if l.acquire("node-a") {
+		t.Fatal("acquire past limit for node-a should fail")
+	}
+	// 另一节点不受 node-a 占用影响（per-node 隔离）。
+	if !l.acquire("node-b") {
+		t.Fatal("node-b should have its own budget")
+	}
+	// 释放一个 node-a 名额后可重新占。
+	l.release("node-a")
+	if !l.acquire("node-a") {
+		t.Fatal("after release, node-a should accept one more")
+	}
+	// 全部释放后键应从 map 删除（不驻留离线节点）。
+	for i := 0; i < mcpGatewayPerNodeInflight; i++ {
+		l.release("node-a")
+	}
+	l.release("node-b")
+	if n := len(l.inflight); n != 0 {
+		t.Fatalf("inflight map should be empty after full release, got %d keys", n)
+	}
+}

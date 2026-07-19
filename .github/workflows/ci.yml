@@ -38,3 +38,33 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+
+  node:
+    name: node (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+      # 系统依赖：protoc（build.rs tonic 反连 codegen）、enigo 的 libxdo、xcap 的 X11/xcb 面、
+      # xvfb（headless 跑图形相关单测的虚拟显示器）。包名在 22.04/24.04 稳定。
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libxdo-dev libx11-dev libxi-dev libxtst-dev \
+            libxrandr-dev libxfixes-dev libxcb-shm0-dev libxcb-randr0-dev \
+            libdbus-1-dev libgbm-dev xvfb
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      # 生产 feature 集（grpc,enroll,otel）——反连/enroll/otel 面均 cfg 门控，裸构建编不到，
+      # 且反连流的 cfg(test) 单测（ReverseConfig 等）只有带 feature 才参与编译（release build 不编测试，
+      # 曾漏过一次字段缺失，故 CI 必带 test 编译）。
+      - name: Build (production features)
+        run: cargo build -p aura-node --features grpc,enroll,otel
+      # xvfb 提供虚拟显示器供图形相关单测；-a 自动挑 display 号。
+      - name: Test
+        run: xvfb-run -a cargo test -p aura-node --features grpc,enroll,otel

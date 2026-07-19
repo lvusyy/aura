@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,10 +35,48 @@ const mcpGatewayTimeout = 150 * time.Second
 // 8MB 已远超合法载荷；超限即 413，防经网关向节点灌注超帧载荷。
 const mcpGatewayBodyCap = 8 * 1024 * 1024
 
+// mcpGatewayPerNodeInflight 是单节点在途网关请求上限（bounded best-effort 纪律，同 agentObsSem/
+// 内存 cap 家族）：合法并行工具调用远在其下，超限即 429——防单个 agent 的失控循环把一台节点的
+// 反连流/pending 埋满、拖累该节点其他请求。admin-only 准入之外的纵深防御（可信令牌亦可能有 bug）。
+const mcpGatewayPerNodeInflight = 8
+
+// gatewayLimiter 以 node_id 计在途请求数。计数归零即从 map 删除，长期不驻留离线节点键。
+type gatewayLimiter struct {
+	mu       sync.Mutex
+	inflight map[string]int
+}
+
+func newGatewayLimiter() *gatewayLimiter {
+	return &gatewayLimiter{inflight: make(map[string]int)}
+}
+
+// acquire 尝试为 nodeID 占一个在途名额；已达上限返回 false（调用方 429）。
+func (l *gatewayLimiter) acquire(nodeID string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.inflight[nodeID] >= mcpGatewayPerNodeInflight {
+		return false
+	}
+	l.inflight[nodeID]++
+	return true
+}
+
+// release 归还一个在途名额；归零即删键。
+func (l *gatewayLimiter) release(nodeID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.inflight[nodeID] <= 1 {
+		delete(l.inflight, nodeID)
+		return
+	}
+	l.inflight[nodeID]--
+}
+
 // McpGatewayHandler 构造网关 handler。鉴权（bearer）由外层 NewRESTHandler 统一包裹；本层只做
 // 档位门控：网关等价节点全权 MCP 面（不解析工具名，无法按工具分级），故仅 admin 档（含单 token
 // 部署的空 scope 兼容）放行；ops/ro 拒绝——需要分级派发的走 REST DispatchTool 面。
 func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) http.Handler {
+	limiter := newGatewayLimiter()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nodeID := strings.TrimPrefix(r.URL.Path, mcpGatewayPathPrefix)
 		if nodeID == "" || strings.Contains(nodeID, "/") {
@@ -65,6 +104,15 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) h
 			auditMcpGateway(r, nodeID, http.StatusRequestEntityTooLarge, 0, "body-too-large")
 			return
 		}
+
+		// per-node 在途闸：占名额失败即 429（Retry-After 提示退避），不进派发/转发。
+		if !limiter.acquire(nodeID) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "too many concurrent gateway requests for this node", http.StatusTooManyRequests)
+			auditMcpGateway(r, nodeID, http.StatusTooManyRequests, len(body), "node-inflight-limit")
+			return
+		}
+		defer limiter.release(nodeID)
 
 		sess, ok := reg.Ready(nodeID)
 		if !ok {
