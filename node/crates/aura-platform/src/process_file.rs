@@ -173,7 +173,13 @@ impl ProcessFileDriver for PlatformDriver {
                 .spawn()
                 .map_err(|e| CapError::ProcessError(format!("spawn '{cmd}' failed: {e}")))?;
             let pid = child.id().unwrap_or(0);
-            // 不持有句柄：子进程退出后由 tokio 后台 reap，不留 zombie。
+            // 显式后台 reap：spawn 一个任务 await child.wait()——子进程退出即被回收，杜绝 zombie
+            // （tokio 虽有 orphan reaper 兜底，但显式 wait 意图明确、不依赖运行时内部机制）。GUI 常驻
+            // 程序（xterm 等）期间该任务空闲等待，进程被杀后 wait 返回、任务自然结束。
+            let mut child = child;
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
             return Ok(CmdResult {
                 exit_code: 0,
                 stdout: format!("detached pid={pid}"),

@@ -111,24 +111,28 @@ struct StatusReport {
 // ===== Linux：systemd（systemctl）=====
 #[cfg(target_os = "linux")]
 fn status(name: &str) -> Result<StatusReport> {
-    // 先查 system 级，未知再查 --user（生产为 system unit /etc/systemd/system，但两者都探）。
-    let system_active = systemctl_is_active(name, false);
-    let (active, scope) = if system_active.is_some() {
-        (system_active.unwrap(), "system")
+    // system 与 user 两 scope 独立探测，**任一 active 即报 active**——不能让 inactive 的 system unit
+    // 遮蔽 active 的 user unit（生产为 system unit，但两 scope 同名并存时须都判）。
+    // systemctl_is_active 返回 Some(true/false)=该 scope 已知（active/非active），None=该 scope 不存在。
+    let system = systemctl_is_active(name, false);
+    let user = systemctl_is_active(name, true);
+    let (active, scope, is_user) = if system == Some(true) {
+        (true, "system", false)
+    } else if user == Some(true) {
+        (true, "user", true)
+    } else if system.is_some() {
+        (false, "system", false) // system 存在但非 active（user 亦非 active 或不存在）
+    } else if user.is_some() {
+        (false, "user", true)
     } else {
-        match systemctl_is_active(name, true) {
-            Some(a) => (a, "user"),
-            None => {
-                return Ok(StatusReport {
-                    supervisor: "systemd",
-                    active: false,
-                    detail: Some(format!("unit {name} not found (system or --user)")),
-                })
-            }
-        }
+        return Ok(StatusReport {
+            supervisor: "systemd",
+            active: false,
+            detail: Some(format!("unit {name} not found (system or --user)")),
+        });
     };
     // 取 FragmentPath 佐证（best-effort）。
-    let frag = systemctl_show(name, scope == "user", "FragmentPath");
+    let frag = systemctl_show(name, is_user, "FragmentPath");
     Ok(StatusReport {
         supervisor: "systemd",
         active,
@@ -233,38 +237,52 @@ fn restart(name: &str) -> Result<()> {
     }
 }
 
-// ===== Windows：计划任务（schtasks）=====
+// ===== Windows：计划任务（schtasks / PowerShell）=====
 #[cfg(target_os = "windows")]
 fn status(name: &str) -> Result<StatusReport> {
-    // schtasks 任务名带前导反斜杠（\AuraNode）；--name 传裸名则补前缀。
-    let task = normalize_task_name(name);
-    let out = Command::new("schtasks")
-        .args(["/query", "/tn", &task, "/fo", "list"])
+    // 用 PowerShell 取 ScheduledTask.State 枚举名（Running/Ready/Disabled）——.NET 枚举 ToString **不随
+    // 系统语言本地化**。schtasks /fo list 的 Status 文本会本地化（中文系统输出「正在运行」），
+    // 若 text.contains("Running") 判活跃则中文 Windows（生产形态）恒误判 inactive。State=Running 表
+    // 任务正在执行=活跃。-TaskName 收裸名（不带路径反斜杠）跨所有 TaskPath 匹配。
+    let bare = name.trim_start_matches('\\');
+    let ps = format!(
+        "$ErrorActionPreference='SilentlyContinue'; (Get-ScheduledTask -TaskName '{}').State",
+        ps_single_quote_escape(bare)
+    );
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
         .output();
     match out {
-        Ok(o) if o.status.success() => {
-            let text = String::from_utf8_lossy(&o.stdout);
-            // "Status:" 行含 Running/Ready/Disabled（本地化系统可能非英文，Running 关键字尽力匹配）。
-            let active = text.contains("Running");
-            let detail = text
-                .lines()
-                .find(|l| l.trim_start().starts_with("Status:"))
-                .map(|l| l.trim().to_string());
+        Ok(o) => {
+            let state = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if state.is_empty() {
+                return Ok(StatusReport {
+                    supervisor: "schtasks",
+                    active: false,
+                    detail: Some(format!("task {bare} not found")),
+                });
+            }
             Ok(StatusReport {
                 supervisor: "schtasks",
-                active,
-                detail: detail.or(Some(format!("task={task}"))),
+                active: state.eq_ignore_ascii_case("Running"),
+                detail: Some(format!("task={bare} state={state}")),
             })
         }
-        _ => Ok(StatusReport {
+        Err(e) => Ok(StatusReport {
             supervisor: "schtasks",
             active: false,
-            detail: Some(format!("task {task} not found")),
+            detail: Some(format!("powershell query failed: {e}")),
         }),
     }
 }
 
-/// schtasks 任务名规范化：补前导反斜杠（根命名空间任务）。
+/// PowerShell 单引号字符串内转义单引号（'' 表一个字面单引号）；防 --name 含引号破坏命令。
+#[cfg(target_os = "windows")]
+fn ps_single_quote_escape(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// schtasks 任务名规范化：补前导反斜杠（根命名空间任务，schtasks /tn 需要）。
 #[cfg(target_os = "windows")]
 fn normalize_task_name(name: &str) -> String {
     if name.starts_with('\\') {

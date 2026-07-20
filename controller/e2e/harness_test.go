@@ -66,7 +66,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		fatal("mktemp", err)
 	}
-	defer os.RemoveAll(tmp)
+	// 注意：os.Exit 不执行 defer——临时目录（证书/二进制/node 数据）的清理在 m.Run() 后、os.Exit 前
+	// 显式做（见文末）。fatal() 提前退出路径故意保留现场供诊断，不清理。
 
 	certDir := filepath.Join(tmp, "certs")
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
@@ -118,6 +119,9 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	stop()
+	// 显式清理：os.Exit 跳过 defer，须在此手动删临时目录，否则每次 e2e 全跑残留证书/二进制/node 数据
+	// （本地反复跑会积累，CI runner 一次性无害但一并清）。
+	_ = os.RemoveAll(tmp)
 	os.Exit(code)
 }
 

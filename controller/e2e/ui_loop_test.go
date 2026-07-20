@@ -29,6 +29,11 @@ func TestUILoop(t *testing.T) {
 	defer stop()
 	h.waitDispatchable(t, nodeID, 30*time.Second)
 
+	// 预清理：杀掉可能残留的 xterm（上次用例异常退出未清者）——同一 DISPLAY 下残留窗口会抢焦点、
+	// 令后续键鼠注入落到错窗口致间歇误判。pkill 无匹配返回退出码 1 但命令已跑（envelope ok），无害。
+	h.toolCall(t, nodeID, "run_command", map[string]any{"cmd": "/usr/bin/pkill", "args": []string{"-x", "xterm"}})
+	time.Sleep(300 * time.Millisecond)
+
 	markFile := filepath.Join(t.TempDir(), "aura-mark.txt")
 	const marker = "AURA-MARK-7391"
 
