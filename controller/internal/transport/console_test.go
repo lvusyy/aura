@@ -33,7 +33,7 @@ func newTestRESTHandler(token string) http.Handler {
 	artifact := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("artifact"))
 	})
-	return NewRESTHandler(SingleToken(token), apiMux, stream, artifact, enroll, nil, spa)
+	return NewRESTHandler(SingleToken(token), nil, apiMux, stream, artifact, enroll, nil, spa)
 }
 
 // TestRESTHandler_StreamBridgeRoute 验证 /stream/* 路由到桥 handler（不过 BearerMiddleware——桥自持 bearer，
@@ -98,7 +98,7 @@ func TestRESTHandler_EnrollNilFallsBackToSPA(t *testing.T) {
 	apiMux := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("api-ok")) })
 	stream := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("stream")) })
 	spa := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("spa")) })
-	h := NewRESTHandler(SingleToken("secret"), apiMux, stream, nil, nil, nil, spa)
+	h := NewRESTHandler(SingleToken("secret"), nil, apiMux, stream, nil, nil, nil, spa)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/enroll", strings.NewReader("{}")))
 	if rec.Body.String() != "spa" {

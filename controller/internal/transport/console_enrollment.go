@@ -50,6 +50,13 @@ func (s *ConsoleServiceServer) GenerateEnrollToken(
 		uses = defaultEnrollUses
 	}
 
+	// M15 项目归属：项目令牌只能生成本项目的 enroll token（强制覆写请求 project，防越权把新节点塞进他项目）；
+	// 全域令牌可指定任意 project（含空=不归属）。节点 enroll 消费该 token 即落 nodes.project（ConsumeToken 回传）。
+	project := m.GetProject()
+	if tokProject := IdentityFromContext(ctx).Project; tokProject != "" {
+		project = tokProject
+	}
+
 	token, err := newEnrollToken()
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -61,6 +68,7 @@ func (s *ConsoleServiceServer) GenerateEnrollToken(
 		UsesLeft:      uses,
 		ExpiresAt:     expiresAt,
 		Label:         m.GetLabel(),
+		Project:       project,
 		CreatedBy:     m.GetWho(),
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -137,6 +145,7 @@ func (s *ConsoleServiceServer) RotateEnrollToken(
 		UsesLeft:      uses,
 		ExpiresAt:     expiresAt,
 		Label:         prev.Label,
+		Project:       prev.Project, // M15：轮换承继项目归属（旧 token 的归属不因轮换丢失）
 		CreatedBy:     req.Msg.GetWho(),
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -165,14 +174,20 @@ func (s *ConsoleServiceServer) ListEnrollTokens(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	// M15：项目令牌只见本项目 enroll token（全域令牌见全部）。token 为 admin 小表，内存过滤即可。
+	tokProject := IdentityFromContext(ctx).Project
 	infos := make([]*aurav1.EnrollTokenInfo, 0, len(toks))
 	for _, t := range toks {
+		if tokProject != "" && t.Project != tokProject {
+			continue
+		}
 		infos = append(infos, &aurav1.EnrollTokenInfo{
 			Token:         t.Token,
 			PlatformScope: t.PlatformScope,
 			UsesLeft:      t.UsesLeft,
 			ExpiresAtMs:   t.ExpiresAt.UnixMilli(),
 			Revoked:       t.Revoked,
+			Project:       t.Project,
 		})
 	}
 	return connect.NewResponse(&aurav1.ListEnrollTokensResponse{Tokens: infos}), nil
@@ -184,9 +199,11 @@ func (s *ConsoleServiceServer) ListEnrollTokens(
 // （调用方映射 401/403）。两副本并发消费同一 token 由单 SQL UPDATE..RETURNING 天然串行，绝不超用。
 // pub 方法：TASK-006 的 enroll 端点持 *ConsoleServiceServer 引用即可调；亦可直调 store.ConsumeToken
 // （同签名）——二者等价，本方法是语义入口。
-func (s *ConsoleServiceServer) ValidateToken(ctx context.Context, token, platform string) (string, error) {
+// M15：返回 (label, project, error)——enroll 端点直调 store.ConsumeToken 落 project，本方法保持语义入口
+// 一致（三值透传）。
+func (s *ConsoleServiceServer) ValidateToken(ctx context.Context, token, platform string) (string, string, error) {
 	if s.store == nil {
-		return "", errors.New("enrollment token store not configured")
+		return "", "", errors.New("enrollment token store not configured")
 	}
 	return s.store.ConsumeToken(ctx, token, platform)
 }

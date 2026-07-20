@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,10 +15,10 @@ import (
 func gwRequest(t *testing.T, method, path, scope string, hdr map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	reg := registry.NewRegistry(nil)
-	h := McpGatewayHandler(reg, nil) // sched=nil：单测覆盖 nil 卫（生产恒注入）
+	h := McpGatewayHandler(reg, nil, nil) // sched/pg=nil：单测覆盖 nil 卫（生产恒注入；pg=nil→节点视同未归属，全域令牌路径）
 	req := httptest.NewRequest(method, path, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
 	if scope != "" {
-		req = req.WithContext(context.WithValue(req.Context(), scopeKey, scope))
+		req = req.WithContext(WithIdentity(req.Context(), TokenIdentity{Scope: scope}))
 	}
 	for k, v := range hdr {
 		req.Header.Set(k, v)

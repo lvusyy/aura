@@ -21,6 +21,7 @@ import (
 	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/store"
 )
 
 // mcpGatewayPathPrefix 是网关路由前缀（console_middleware 路由分支消费；须先于 enroll 的宽前缀
@@ -75,7 +76,9 @@ func (l *gatewayLimiter) release(nodeID string) {
 // McpGatewayHandler 构造网关 handler。鉴权（bearer）由外层 NewRESTHandler 统一包裹；本层只做
 // 档位门控：网关等价节点全权 MCP 面（不解析工具名，无法按工具分级），故仅 admin 档（含单 token
 // 部署的空 scope 兼容）放行；ops/ro 拒绝——需要分级派发的走 REST DispatchTool 面。
-func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) http.Handler {
+// M15：档位之后再过项目视界（CheckNodeProjectAccess 唯一规则）——项目 admin 令牌仅达本项目节点，
+// 越界 403；pg 可为 nil（无持久层=节点未归属，仅全域令牌在场，行为零变化）。
+func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, pg *store.PGStore) http.Handler {
 	limiter := newGatewayLimiter()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nodeID := strings.TrimPrefix(r.URL.Path, mcpGatewayPathPrefix)
@@ -95,6 +98,12 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler) h
 		case ScopeReadOnly, ScopeOps:
 			http.Error(w, "MCP gateway requires an admin-scope token (gateway grants the node's full MCP surface; tiered dispatch is available on the REST DispatchTool plane)", http.StatusForbidden)
 			auditMcpGateway(r, nodeID, http.StatusForbidden, 0, "forbidden-scope")
+			return
+		}
+		// M15 项目视界：全域令牌零成本短路；项目令牌越界节点 403（connect 错误映射 http 状态）。
+		if err := CheckNodeProjectAccess(r.Context(), pg, nodeID); err != nil {
+			http.Error(w, "token project does not cover this node", http.StatusForbidden)
+			auditMcpGateway(r, nodeID, http.StatusForbidden, 0, "forbidden-project")
 			return
 		}
 

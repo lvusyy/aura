@@ -79,6 +79,14 @@ service ConsoleService {
   rpc GetAgentObservability(GetAgentObservabilityRequest) returns (GetAgentObservabilityResponse);
   rpc ListAgentSessions(ListAgentSessionsRequest) returns (ListAgentSessionsResponse);
   rpc ListAgentCalls(ListAgentCallsRequest) returns (ListAgentCallsResponse);
+
+  // ===== API 访问令牌治理（M15，additive）：管控 bearer 令牌实体化 =====
+  // env 静态令牌（AURA_BEARER_TOKEN*）继续有效=全域凭据（零破坏兼容）；本组 RPC 管 DB 实体令牌
+  //（名字身份/档位/项目归属/过期/吊销/最近使用）。仅 admin 档可用；项目 admin 只能治理本项目令牌
+  //（创建强制归本项目 + 列表过滤，transport 层约束）。明文 secret 仅创建响应返回一次，服务端只存哈希。
+  rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse);
+  rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse);
+  rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse);
 }
 
 // ===== Dashboard 聚合摘要 =====
@@ -355,6 +363,7 @@ message GenerateEnrollTokenRequest {
   int32 uses = 3;              // 可用次数（0=服务端默认 1；限次准入）
   string label = 4;            // token 标签（审计/辨识用途）
   string who = 5;              // 审计：生成方标识
+  string project = 6;          // M15：节点入网即归属的项目（空=不归属；项目令牌生成时强制=本项目）
 }
 
 message GenerateEnrollTokenResponse {
@@ -399,13 +408,18 @@ message EnrollTokenInfo {
   int32 uses_left = 3;         // 剩余可用次数
   int64 expires_at_ms = 4;     // 过期时刻（毫秒时间戳）
   bool revoked = 5;            // 是否已吊销
+  string project = 6;          // M15：该 token enroll 的节点归属项目（空=不归属）
 }
 
-// 编辑节点元数据（label/location 存 nodes 表持久；name 由节点自报不经此编辑）。
+// 编辑节点元数据（label/location/project 存 nodes 表持久；name 由节点自报不经此编辑）。
 message UpdateNodeMetaRequest {
   string node_id = 1;          // 目标节点
   string label = 2;            // 用户标签（分组/筛选）
   string location = 3;         // 用户位置
+  // M15：项目归属（管理面权威单写方）。optional 显式 presence：未携带=不改动（老 console/旧客户端
+  // 兼容，绝不静默清空归属）；携带（含空串=清除归属）即写入。项目令牌不可经此改归属——改归属即
+  // 越权迁移节点，transport 层限全域令牌。
+  optional string project = 4;
 }
 
 message UpdateNodeMetaResponse {
@@ -558,4 +572,57 @@ message AgentCall {
   string transport = 8;        // 传输类型（http）
   int64 ts_ms = 9;             // 调用时刻（毫秒；事件时刻，节点自报经控制面 ±10min 夹取）
   int64 id = 10;               // 服务端行标识（PG BIGSERIAL / 内存兜底进程内单调递增；分页内稳定行身份，前端 rowKey 用）
+}
+
+// ===== API 访问令牌治理（M15，additive）=====
+// 字段语义对齐 api_tokens 表 DDL（id/name/secret_hash/secret_hint/scope/project/expires_at/last_used_at/
+// revoked）。scope 复用批E C1 三档字面（ro|ops|admin）；project 空=全域。明文 secret 仅 Create 响应
+// 返回一次（服务端只存 sha256 哈希，列表/审计以 secret_hint 前缀辨识）。时间戳沿毫秒惯例。
+// CONTRACT_VERSION 不 bump（additive-within-aura.v1）。
+
+// 创建 API 令牌。scope 必填三档之一；ttl_secs=0 即永不过期（管控令牌长期使用为常态，区别于 enroll
+// token 的短时默认）；name 必填非空（审计身份，tasks.who / 审计日志归因）。
+message CreateApiTokenRequest {
+  string name = 1;             // 令牌名（审计身份，必填非空）
+  string scope = 2;            // 档位 ro|ops|admin
+  string project = 3;          // 归属项目（空=全域；项目 admin 创建时强制=本项目）
+  int64 ttl_secs = 4;          // 有效期秒（0=永不过期）
+  string who = 5;              // 审计：创建方标识
+}
+
+message CreateApiTokenResponse {
+  string id = 1;               // 令牌 UUID（治理句柄，吊销用）
+  string secret = 2;           // 令牌明文（仅此一次返回；服务端只存哈希，丢失须重建）
+  ApiTokenInfo info = 3;       // 创建后的状态投影
+}
+
+// 列举 API 令牌（治理表；admin 小表全列不分页，同 ListEnrollTokens 契约）。项目 admin 仅见本项目令牌。
+message ListApiTokensRequest {}
+
+message ListApiTokensResponse {
+  repeated ApiTokenInfo tokens = 1;
+}
+
+// API 令牌状态投影（治理表行；不含 secret/哈希）。
+message ApiTokenInfo {
+  string id = 1;               // 令牌 UUID
+  string name = 2;             // 令牌名（审计身份）
+  string scope = 3;            // 档位 ro|ops|admin
+  string project = 4;          // 归属项目（空=全域）
+  string secret_hint = 5;      // 明文前缀提示（辨识用，如 aura_ab12cd3…）
+  int64 created_ms = 6;        // 创建时刻（毫秒）
+  int64 expires_at_ms = 7;     // 过期时刻（毫秒；0=永不过期）
+  int64 last_used_ms = 8;      // 最近使用时刻（毫秒；0=从未使用，60s 粒度节流回写）
+  bool revoked = 9;            // 是否已吊销
+  string created_by = 10;      // 创建方标识（审计）
+}
+
+// 吊销 API 令牌（立即失效：BearerMiddleware 查验 WHERE NOT revoked）。
+message RevokeApiTokenRequest {
+  string id = 1;               // 待吊销令牌 UUID
+  string who = 2;              // 审计：吊销方标识
+}
+
+message RevokeApiTokenResponse {
+  bool revoked = 1;            // 是否成功吊销（不存在/已吊销则 false）
 }

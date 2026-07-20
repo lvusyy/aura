@@ -74,7 +74,7 @@ func TestRunOrchestrationScopeGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			if tc.scope != "" {
-				ctx = context.WithValue(ctx, scopeKey, tc.scope)
+				ctx = WithIdentity(ctx, TokenIdentity{Scope: tc.scope}) // M15：scope 注入经 TokenIdentity
 			}
 			_, err := s.RunOrchestration(ctx, connect.NewRequest(&aurav1.RunOrchestrationRequest{Tool: tc.tool}))
 			if connect.CodeOf(err) != tc.want {

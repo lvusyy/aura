@@ -2034,6 +2034,7 @@ type GenerateEnrollTokenRequest struct {
 	Uses          int32                  `protobuf:"varint,3,opt,name=uses,proto3" json:"uses,omitempty"`                                       // 可用次数（0=服务端默认 1；限次准入）
 	Label         string                 `protobuf:"bytes,4,opt,name=label,proto3" json:"label,omitempty"`                                      // token 标签（审计/辨识用途）
 	Who           string                 `protobuf:"bytes,5,opt,name=who,proto3" json:"who,omitempty"`                                          // 审计：生成方标识
+	Project       string                 `protobuf:"bytes,6,opt,name=project,proto3" json:"project,omitempty"`                                  // M15：节点入网即归属的项目（空=不归属；项目令牌生成时强制=本项目）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2099,6 +2100,13 @@ func (x *GenerateEnrollTokenRequest) GetLabel() string {
 func (x *GenerateEnrollTokenRequest) GetWho() string {
 	if x != nil {
 		return x.Who
+	}
+	return ""
+}
+
+func (x *GenerateEnrollTokenRequest) GetProject() string {
+	if x != nil {
+		return x.Project
 	}
 	return ""
 }
@@ -2462,6 +2470,7 @@ type EnrollTokenInfo struct {
 	UsesLeft      int32                  `protobuf:"varint,3,opt,name=uses_left,json=usesLeft,proto3" json:"uses_left,omitempty"`               // 剩余可用次数
 	ExpiresAtMs   int64                  `protobuf:"varint,4,opt,name=expires_at_ms,json=expiresAtMs,proto3" json:"expires_at_ms,omitempty"`    // 过期时刻（毫秒时间戳）
 	Revoked       bool                   `protobuf:"varint,5,opt,name=revoked,proto3" json:"revoked,omitempty"`                                 // 是否已吊销
+	Project       string                 `protobuf:"bytes,6,opt,name=project,proto3" json:"project,omitempty"`                                  // M15：该 token enroll 的节点归属项目（空=不归属）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2531,12 +2540,23 @@ func (x *EnrollTokenInfo) GetRevoked() bool {
 	return false
 }
 
-// 编辑节点元数据（label/location 存 nodes 表持久；name 由节点自报不经此编辑）。
+func (x *EnrollTokenInfo) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+// 编辑节点元数据（label/location/project 存 nodes 表持久；name 由节点自报不经此编辑）。
 type UpdateNodeMetaRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // 目标节点
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                 // 用户标签（分组/筛选）
-	Location      string                 `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`           // 用户位置
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	NodeId   string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"` // 目标节点
+	Label    string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                 // 用户标签（分组/筛选）
+	Location string                 `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`           // 用户位置
+	// M15：项目归属（管理面权威单写方）。optional 显式 presence：未携带=不改动（老 console/旧客户端
+	// 兼容，绝不静默清空归属）；携带（含空串=清除归属）即写入。项目令牌不可经此改归属——改归属即
+	// 越权迁移节点，transport 层限全域令牌。
+	Project       *string `protobuf:"bytes,4,opt,name=project,proto3,oneof" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2588,6 +2608,13 @@ func (x *UpdateNodeMetaRequest) GetLabel() string {
 func (x *UpdateNodeMetaRequest) GetLocation() string {
 	if x != nil {
 		return x.Location
+	}
+	return ""
+}
+
+func (x *UpdateNodeMetaRequest) GetProject() string {
+	if x != nil && x.Project != nil {
+		return *x.Project
 	}
 	return ""
 }
@@ -3727,6 +3754,439 @@ func (x *AgentCall) GetId() int64 {
 	return 0
 }
 
+// 创建 API 令牌。scope 必填三档之一；ttl_secs=0 即永不过期（管控令牌长期使用为常态，区别于 enroll
+// token 的短时默认）；name 必填非空（审计身份，tasks.who / 审计日志归因）。
+type CreateApiTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                       // 令牌名（审计身份，必填非空）
+	Scope         string                 `protobuf:"bytes,2,opt,name=scope,proto3" json:"scope,omitempty"`                     // 档位 ro|ops|admin
+	Project       string                 `protobuf:"bytes,3,opt,name=project,proto3" json:"project,omitempty"`                 // 归属项目（空=全域；项目 admin 创建时强制=本项目）
+	TtlSecs       int64                  `protobuf:"varint,4,opt,name=ttl_secs,json=ttlSecs,proto3" json:"ttl_secs,omitempty"` // 有效期秒（0=永不过期）
+	Who           string                 `protobuf:"bytes,5,opt,name=who,proto3" json:"who,omitempty"`                         // 审计：创建方标识
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateApiTokenRequest) Reset() {
+	*x = CreateApiTokenRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateApiTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateApiTokenRequest) ProtoMessage() {}
+
+func (x *CreateApiTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateApiTokenRequest.ProtoReflect.Descriptor instead.
+func (*CreateApiTokenRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *CreateApiTokenRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateApiTokenRequest) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *CreateApiTokenRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *CreateApiTokenRequest) GetTtlSecs() int64 {
+	if x != nil {
+		return x.TtlSecs
+	}
+	return 0
+}
+
+func (x *CreateApiTokenRequest) GetWho() string {
+	if x != nil {
+		return x.Who
+	}
+	return ""
+}
+
+type CreateApiTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`         // 令牌 UUID（治理句柄，吊销用）
+	Secret        string                 `protobuf:"bytes,2,opt,name=secret,proto3" json:"secret,omitempty"` // 令牌明文（仅此一次返回；服务端只存哈希，丢失须重建）
+	Info          *ApiTokenInfo          `protobuf:"bytes,3,opt,name=info,proto3" json:"info,omitempty"`     // 创建后的状态投影
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateApiTokenResponse) Reset() {
+	*x = CreateApiTokenResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateApiTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateApiTokenResponse) ProtoMessage() {}
+
+func (x *CreateApiTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateApiTokenResponse.ProtoReflect.Descriptor instead.
+func (*CreateApiTokenResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *CreateApiTokenResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CreateApiTokenResponse) GetSecret() string {
+	if x != nil {
+		return x.Secret
+	}
+	return ""
+}
+
+func (x *CreateApiTokenResponse) GetInfo() *ApiTokenInfo {
+	if x != nil {
+		return x.Info
+	}
+	return nil
+}
+
+// 列举 API 令牌（治理表；admin 小表全列不分页，同 ListEnrollTokens 契约）。项目 admin 仅见本项目令牌。
+type ListApiTokensRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListApiTokensRequest) Reset() {
+	*x = ListApiTokensRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListApiTokensRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListApiTokensRequest) ProtoMessage() {}
+
+func (x *ListApiTokensRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListApiTokensRequest.ProtoReflect.Descriptor instead.
+func (*ListApiTokensRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{61}
+}
+
+type ListApiTokensResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tokens        []*ApiTokenInfo        `protobuf:"bytes,1,rep,name=tokens,proto3" json:"tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListApiTokensResponse) Reset() {
+	*x = ListApiTokensResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListApiTokensResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListApiTokensResponse) ProtoMessage() {}
+
+func (x *ListApiTokensResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListApiTokensResponse.ProtoReflect.Descriptor instead.
+func (*ListApiTokensResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *ListApiTokensResponse) GetTokens() []*ApiTokenInfo {
+	if x != nil {
+		return x.Tokens
+	}
+	return nil
+}
+
+// API 令牌状态投影（治理表行；不含 secret/哈希）。
+type ApiTokenInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                         // 令牌 UUID
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                                     // 令牌名（审计身份）
+	Scope         string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`                                   // 档位 ro|ops|admin
+	Project       string                 `protobuf:"bytes,4,opt,name=project,proto3" json:"project,omitempty"`                               // 归属项目（空=全域）
+	SecretHint    string                 `protobuf:"bytes,5,opt,name=secret_hint,json=secretHint,proto3" json:"secret_hint,omitempty"`       // 明文前缀提示（辨识用，如 aura_ab12cd3…）
+	CreatedMs     int64                  `protobuf:"varint,6,opt,name=created_ms,json=createdMs,proto3" json:"created_ms,omitempty"`         // 创建时刻（毫秒）
+	ExpiresAtMs   int64                  `protobuf:"varint,7,opt,name=expires_at_ms,json=expiresAtMs,proto3" json:"expires_at_ms,omitempty"` // 过期时刻（毫秒；0=永不过期）
+	LastUsedMs    int64                  `protobuf:"varint,8,opt,name=last_used_ms,json=lastUsedMs,proto3" json:"last_used_ms,omitempty"`    // 最近使用时刻（毫秒；0=从未使用，60s 粒度节流回写）
+	Revoked       bool                   `protobuf:"varint,9,opt,name=revoked,proto3" json:"revoked,omitempty"`                              // 是否已吊销
+	CreatedBy     string                 `protobuf:"bytes,10,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`         // 创建方标识（审计）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApiTokenInfo) Reset() {
+	*x = ApiTokenInfo{}
+	mi := &file_aura_v1_console_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApiTokenInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApiTokenInfo) ProtoMessage() {}
+
+func (x *ApiTokenInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApiTokenInfo.ProtoReflect.Descriptor instead.
+func (*ApiTokenInfo) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *ApiTokenInfo) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ApiTokenInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ApiTokenInfo) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *ApiTokenInfo) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *ApiTokenInfo) GetSecretHint() string {
+	if x != nil {
+		return x.SecretHint
+	}
+	return ""
+}
+
+func (x *ApiTokenInfo) GetCreatedMs() int64 {
+	if x != nil {
+		return x.CreatedMs
+	}
+	return 0
+}
+
+func (x *ApiTokenInfo) GetExpiresAtMs() int64 {
+	if x != nil {
+		return x.ExpiresAtMs
+	}
+	return 0
+}
+
+func (x *ApiTokenInfo) GetLastUsedMs() int64 {
+	if x != nil {
+		return x.LastUsedMs
+	}
+	return 0
+}
+
+func (x *ApiTokenInfo) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
+func (x *ApiTokenInfo) GetCreatedBy() string {
+	if x != nil {
+		return x.CreatedBy
+	}
+	return ""
+}
+
+// 吊销 API 令牌（立即失效：BearerMiddleware 查验 WHERE NOT revoked）。
+type RevokeApiTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`   // 待吊销令牌 UUID
+	Who           string                 `protobuf:"bytes,2,opt,name=who,proto3" json:"who,omitempty"` // 审计：吊销方标识
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeApiTokenRequest) Reset() {
+	*x = RevokeApiTokenRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeApiTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeApiTokenRequest) ProtoMessage() {}
+
+func (x *RevokeApiTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeApiTokenRequest.ProtoReflect.Descriptor instead.
+func (*RevokeApiTokenRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{64}
+}
+
+func (x *RevokeApiTokenRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RevokeApiTokenRequest) GetWho() string {
+	if x != nil {
+		return x.Who
+	}
+	return ""
+}
+
+type RevokeApiTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Revoked       bool                   `protobuf:"varint,1,opt,name=revoked,proto3" json:"revoked,omitempty"` // 是否成功吊销（不存在/已吊销则 false）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeApiTokenResponse) Reset() {
+	*x = RevokeApiTokenResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeApiTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeApiTokenResponse) ProtoMessage() {}
+
+func (x *RevokeApiTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeApiTokenResponse.ProtoReflect.Descriptor instead.
+func (*RevokeApiTokenResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{65}
+}
+
+func (x *RevokeApiTokenResponse) GetRevoked() bool {
+	if x != nil {
+		return x.Revoked
+	}
+	return false
+}
+
 var File_aura_v1_console_proto protoreflect.FileDescriptor
 
 const file_aura_v1_console_proto_rawDesc = "" +
@@ -3887,13 +4347,14 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\rNodeRecording\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x10\n" +
 	"\x03who\x18\x02 \x01(\tR\x03who\x12\x19\n" +
-	"\btrace_id\x18\x03 \x01(\tR\atraceId\"\x9a\x01\n" +
+	"\btrace_id\x18\x03 \x01(\tR\atraceId\"\xb4\x01\n" +
 	"\x1aGenerateEnrollTokenRequest\x12%\n" +
 	"\x0eplatform_scope\x18\x01 \x01(\tR\rplatformScope\x12\x19\n" +
 	"\bttl_secs\x18\x02 \x01(\x03R\attlSecs\x12\x12\n" +
 	"\x04uses\x18\x03 \x01(\x05R\x04uses\x12\x14\n" +
 	"\x05label\x18\x04 \x01(\tR\x05label\x12\x10\n" +
-	"\x03who\x18\x05 \x01(\tR\x03who\"\x80\x01\n" +
+	"\x03who\x18\x05 \x01(\tR\x03who\x12\x18\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\x80\x01\n" +
 	"\x1bGenerateEnrollTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\"\n" +
 	"\rexpires_at_ms\x18\x02 \x01(\x03R\vexpiresAtMs\x12'\n" +
@@ -3912,17 +4373,21 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\x0finstall_command\x18\x03 \x01(\tR\x0einstallCommand\"\x19\n" +
 	"\x17ListEnrollTokensRequest\"L\n" +
 	"\x18ListEnrollTokensResponse\x120\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x18.aura.v1.EnrollTokenInfoR\x06tokens\"\xa9\x01\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x18.aura.v1.EnrollTokenInfoR\x06tokens\"\xc3\x01\n" +
 	"\x0fEnrollTokenInfo\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12%\n" +
 	"\x0eplatform_scope\x18\x02 \x01(\tR\rplatformScope\x12\x1b\n" +
 	"\tuses_left\x18\x03 \x01(\x05R\busesLeft\x12\"\n" +
 	"\rexpires_at_ms\x18\x04 \x01(\x03R\vexpiresAtMs\x12\x18\n" +
-	"\arevoked\x18\x05 \x01(\bR\arevoked\"b\n" +
+	"\arevoked\x18\x05 \x01(\bR\arevoked\x12\x18\n" +
+	"\aproject\x18\x06 \x01(\tR\aproject\"\x8d\x01\n" +
 	"\x15UpdateNodeMetaRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1a\n" +
-	"\blocation\x18\x03 \x01(\tR\blocation\"2\n" +
+	"\blocation\x18\x03 \x01(\tR\blocation\x12\x1d\n" +
+	"\aproject\x18\x04 \x01(\tH\x00R\aproject\x88\x01\x01B\n" +
+	"\n" +
+	"\b_project\"2\n" +
 	"\x16UpdateNodeMetaResponse\x12\x18\n" +
 	"\aupdated\x18\x01 \x01(\bR\aupdated\",\n" +
 	"\x11DeleteNodeRequest\x12\x17\n" +
@@ -4010,13 +4475,47 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\ttransport\x18\b \x01(\tR\ttransport\x12\x13\n" +
 	"\x05ts_ms\x18\t \x01(\x03R\x04tsMs\x12\x0e\n" +
 	"\x02id\x18\n" +
-	" \x01(\x03R\x02id*\xc4\x01\n" +
+	" \x01(\x03R\x02id\"\x88\x01\n" +
+	"\x15CreateApiTokenRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05scope\x18\x02 \x01(\tR\x05scope\x12\x18\n" +
+	"\aproject\x18\x03 \x01(\tR\aproject\x12\x19\n" +
+	"\bttl_secs\x18\x04 \x01(\x03R\attlSecs\x12\x10\n" +
+	"\x03who\x18\x05 \x01(\tR\x03who\"k\n" +
+	"\x16CreateApiTokenResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06secret\x18\x02 \x01(\tR\x06secret\x12)\n" +
+	"\x04info\x18\x03 \x01(\v2\x15.aura.v1.ApiTokenInfoR\x04info\"\x16\n" +
+	"\x14ListApiTokensRequest\"F\n" +
+	"\x15ListApiTokensResponse\x12-\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x15.aura.v1.ApiTokenInfoR\x06tokens\"\xa1\x02\n" +
+	"\fApiTokenInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x18\n" +
+	"\aproject\x18\x04 \x01(\tR\aproject\x12\x1f\n" +
+	"\vsecret_hint\x18\x05 \x01(\tR\n" +
+	"secretHint\x12\x1d\n" +
+	"\n" +
+	"created_ms\x18\x06 \x01(\x03R\tcreatedMs\x12\"\n" +
+	"\rexpires_at_ms\x18\a \x01(\x03R\vexpiresAtMs\x12 \n" +
+	"\flast_used_ms\x18\b \x01(\x03R\n" +
+	"lastUsedMs\x12\x18\n" +
+	"\arevoked\x18\t \x01(\bR\arevoked\x12\x1d\n" +
+	"\n" +
+	"created_by\x18\n" +
+	" \x01(\tR\tcreatedBy\"9\n" +
+	"\x15RevokeApiTokenRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
+	"\x03who\x18\x02 \x01(\tR\x03who\"2\n" +
+	"\x16RevokeApiTokenResponse\x12\x18\n" +
+	"\arevoked\x18\x01 \x01(\bR\arevoked*\xc4\x01\n" +
 	"\x0eFleetEventType\x12 \n" +
 	"\x1cFLEET_EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bFLEET_EVENT_TYPE_NODE_ADDED\x10\x01\x12!\n" +
 	"\x1dFLEET_EVENT_TYPE_NODE_REMOVED\x10\x02\x12#\n" +
 	"\x1fFLEET_EVENT_TYPE_STATUS_CHANGED\x10\x03\x12'\n" +
-	"#FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT\x10\x042\xd2\x0f\n" +
+	"#FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT\x10\x042\xc8\x11\n" +
 	"\x0eConsoleService\x12K\n" +
 	"\fGetDashboard\x12\x1c.aura.v1.GetDashboardRequest\x1a\x1d.aura.v1.GetDashboardResponse\x12B\n" +
 	"\tListTasks\x12\x19.aura.v1.ListTasksRequest\x1a\x1a.aura.v1.ListTasksResponse\x12E\n" +
@@ -4044,7 +4543,10 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\aGetTask\x12\x17.aura.v1.GetTaskRequest\x1a\x18.aura.v1.GetTaskResponse\x12f\n" +
 	"\x15GetAgentObservability\x12%.aura.v1.GetAgentObservabilityRequest\x1a&.aura.v1.GetAgentObservabilityResponse\x12Z\n" +
 	"\x11ListAgentSessions\x12!.aura.v1.ListAgentSessionsRequest\x1a\".aura.v1.ListAgentSessionsResponse\x12Q\n" +
-	"\x0eListAgentCalls\x12\x1e.aura.v1.ListAgentCallsRequest\x1a\x1f.aura.v1.ListAgentCallsResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
+	"\x0eListAgentCalls\x12\x1e.aura.v1.ListAgentCallsRequest\x1a\x1f.aura.v1.ListAgentCallsResponse\x12Q\n" +
+	"\x0eCreateApiToken\x12\x1e.aura.v1.CreateApiTokenRequest\x1a\x1f.aura.v1.CreateApiTokenResponse\x12N\n" +
+	"\rListApiTokens\x12\x1d.aura.v1.ListApiTokensRequest\x1a\x1e.aura.v1.ListApiTokensResponse\x12Q\n" +
+	"\x0eRevokeApiToken\x12\x1e.aura.v1.RevokeApiTokenRequest\x1a\x1f.aura.v1.RevokeApiTokenResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
 
 var (
 	file_aura_v1_console_proto_rawDescOnce sync.Once
@@ -4059,7 +4561,7 @@ func file_aura_v1_console_proto_rawDescGZIP() []byte {
 }
 
 var file_aura_v1_console_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_aura_v1_console_proto_msgTypes = make([]protoimpl.MessageInfo, 59)
+var file_aura_v1_console_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
 var file_aura_v1_console_proto_goTypes = []any{
 	(FleetEventType)(0),                   // 0: aura.v1.FleetEventType
 	(*GetDashboardRequest)(nil),           // 1: aura.v1.GetDashboardRequest
@@ -4121,7 +4623,14 @@ var file_aura_v1_console_proto_goTypes = []any{
 	(*ListAgentCallsRequest)(nil),         // 57: aura.v1.ListAgentCallsRequest
 	(*ListAgentCallsResponse)(nil),        // 58: aura.v1.ListAgentCallsResponse
 	(*AgentCall)(nil),                     // 59: aura.v1.AgentCall
-	(*NodeInfo)(nil),                      // 60: aura.v1.NodeInfo
+	(*CreateApiTokenRequest)(nil),         // 60: aura.v1.CreateApiTokenRequest
+	(*CreateApiTokenResponse)(nil),        // 61: aura.v1.CreateApiTokenResponse
+	(*ListApiTokensRequest)(nil),          // 62: aura.v1.ListApiTokensRequest
+	(*ListApiTokensResponse)(nil),         // 63: aura.v1.ListApiTokensResponse
+	(*ApiTokenInfo)(nil),                  // 64: aura.v1.ApiTokenInfo
+	(*RevokeApiTokenRequest)(nil),         // 65: aura.v1.RevokeApiTokenRequest
+	(*RevokeApiTokenResponse)(nil),        // 66: aura.v1.RevokeApiTokenResponse
+	(*NodeInfo)(nil),                      // 67: aura.v1.NodeInfo
 }
 var file_aura_v1_console_proto_depIdxs = []int32{
 	5,  // 0: aura.v1.ListTasksResponse.tasks:type_name -> aura.v1.TaskSummary
@@ -4130,8 +4639,8 @@ var file_aura_v1_console_proto_depIdxs = []int32{
 	20, // 3: aura.v1.GetOrchestrationResponse.orchestration:type_name -> aura.v1.OrchestrationSummary
 	20, // 4: aura.v1.ListOrchestrationsResponse.orchestrations:type_name -> aura.v1.OrchestrationSummary
 	0,  // 5: aura.v1.FleetEvent.type:type_name -> aura.v1.FleetEventType
-	60, // 6: aura.v1.FleetEvent.node:type_name -> aura.v1.NodeInfo
-	60, // 7: aura.v1.FleetEvent.snapshot:type_name -> aura.v1.NodeInfo
+	67, // 6: aura.v1.FleetEvent.node:type_name -> aura.v1.NodeInfo
+	67, // 7: aura.v1.FleetEvent.snapshot:type_name -> aura.v1.NodeInfo
 	30, // 8: aura.v1.FleetEvent.recordings:type_name -> aura.v1.NodeRecording
 	27, // 9: aura.v1.GetFusionResultResponse.elements:type_name -> aura.v1.FusedElement
 	39, // 10: aura.v1.ListEnrollTokensResponse.tokens:type_name -> aura.v1.EnrollTokenInfo
@@ -4140,59 +4649,67 @@ var file_aura_v1_console_proto_depIdxs = []int32{
 	53, // 13: aura.v1.GetAgentObservabilityResponse.top_tools:type_name -> aura.v1.ToolCount
 	56, // 14: aura.v1.ListAgentSessionsResponse.sessions:type_name -> aura.v1.AgentSession
 	59, // 15: aura.v1.ListAgentCallsResponse.calls:type_name -> aura.v1.AgentCall
-	1,  // 16: aura.v1.ConsoleService.GetDashboard:input_type -> aura.v1.GetDashboardRequest
-	3,  // 17: aura.v1.ConsoleService.ListTasks:input_type -> aura.v1.ListTasksRequest
-	6,  // 18: aura.v1.ConsoleService.ListTraces:input_type -> aura.v1.ListTracesRequest
-	9,  // 19: aura.v1.ConsoleService.GetArtifact:input_type -> aura.v1.GetArtifactRequest
-	11, // 20: aura.v1.ConsoleService.GetQueueDepth:input_type -> aura.v1.GetQueueDepthRequest
-	13, // 21: aura.v1.ConsoleService.RunOrchestration:input_type -> aura.v1.RunOrchestrationRequest
-	16, // 22: aura.v1.ConsoleService.GetOrchestration:input_type -> aura.v1.GetOrchestrationRequest
-	18, // 23: aura.v1.ConsoleService.ListOrchestrations:input_type -> aura.v1.ListOrchestrationsRequest
-	21, // 24: aura.v1.ConsoleService.WatchFleet:input_type -> aura.v1.WatchFleetRequest
-	23, // 25: aura.v1.ConsoleService.SubmitFusion:input_type -> aura.v1.SubmitFusionRequest
-	25, // 26: aura.v1.ConsoleService.GetFusionResult:input_type -> aura.v1.GetFusionResultRequest
-	28, // 27: aura.v1.ConsoleService.ReadNodeScreen:input_type -> aura.v1.ReadNodeScreenRequest
-	31, // 28: aura.v1.ConsoleService.GenerateEnrollToken:input_type -> aura.v1.GenerateEnrollTokenRequest
-	33, // 29: aura.v1.ConsoleService.RevokeEnrollToken:input_type -> aura.v1.RevokeEnrollTokenRequest
-	35, // 30: aura.v1.ConsoleService.RotateEnrollToken:input_type -> aura.v1.RotateEnrollTokenRequest
-	37, // 31: aura.v1.ConsoleService.ListEnrollTokens:input_type -> aura.v1.ListEnrollTokensRequest
-	40, // 32: aura.v1.ConsoleService.UpdateNodeMeta:input_type -> aura.v1.UpdateNodeMetaRequest
-	42, // 33: aura.v1.ConsoleService.DeleteNode:input_type -> aura.v1.DeleteNodeRequest
-	44, // 34: aura.v1.ConsoleService.ListRecordings:input_type -> aura.v1.ListRecordingsRequest
-	47, // 35: aura.v1.ConsoleService.RevokeNodeCert:input_type -> aura.v1.RevokeNodeCertRequest
-	49, // 36: aura.v1.ConsoleService.GetTask:input_type -> aura.v1.GetTaskRequest
-	51, // 37: aura.v1.ConsoleService.GetAgentObservability:input_type -> aura.v1.GetAgentObservabilityRequest
-	54, // 38: aura.v1.ConsoleService.ListAgentSessions:input_type -> aura.v1.ListAgentSessionsRequest
-	57, // 39: aura.v1.ConsoleService.ListAgentCalls:input_type -> aura.v1.ListAgentCallsRequest
-	2,  // 40: aura.v1.ConsoleService.GetDashboard:output_type -> aura.v1.GetDashboardResponse
-	4,  // 41: aura.v1.ConsoleService.ListTasks:output_type -> aura.v1.ListTasksResponse
-	7,  // 42: aura.v1.ConsoleService.ListTraces:output_type -> aura.v1.ListTracesResponse
-	10, // 43: aura.v1.ConsoleService.GetArtifact:output_type -> aura.v1.GetArtifactResponse
-	12, // 44: aura.v1.ConsoleService.GetQueueDepth:output_type -> aura.v1.GetQueueDepthResponse
-	14, // 45: aura.v1.ConsoleService.RunOrchestration:output_type -> aura.v1.RunOrchestrationResponse
-	17, // 46: aura.v1.ConsoleService.GetOrchestration:output_type -> aura.v1.GetOrchestrationResponse
-	19, // 47: aura.v1.ConsoleService.ListOrchestrations:output_type -> aura.v1.ListOrchestrationsResponse
-	22, // 48: aura.v1.ConsoleService.WatchFleet:output_type -> aura.v1.FleetEvent
-	24, // 49: aura.v1.ConsoleService.SubmitFusion:output_type -> aura.v1.SubmitFusionResponse
-	26, // 50: aura.v1.ConsoleService.GetFusionResult:output_type -> aura.v1.GetFusionResultResponse
-	29, // 51: aura.v1.ConsoleService.ReadNodeScreen:output_type -> aura.v1.ReadNodeScreenResponse
-	32, // 52: aura.v1.ConsoleService.GenerateEnrollToken:output_type -> aura.v1.GenerateEnrollTokenResponse
-	34, // 53: aura.v1.ConsoleService.RevokeEnrollToken:output_type -> aura.v1.RevokeEnrollTokenResponse
-	36, // 54: aura.v1.ConsoleService.RotateEnrollToken:output_type -> aura.v1.RotateEnrollTokenResponse
-	38, // 55: aura.v1.ConsoleService.ListEnrollTokens:output_type -> aura.v1.ListEnrollTokensResponse
-	41, // 56: aura.v1.ConsoleService.UpdateNodeMeta:output_type -> aura.v1.UpdateNodeMetaResponse
-	43, // 57: aura.v1.ConsoleService.DeleteNode:output_type -> aura.v1.DeleteNodeResponse
-	45, // 58: aura.v1.ConsoleService.ListRecordings:output_type -> aura.v1.ListRecordingsResponse
-	48, // 59: aura.v1.ConsoleService.RevokeNodeCert:output_type -> aura.v1.RevokeNodeCertResponse
-	50, // 60: aura.v1.ConsoleService.GetTask:output_type -> aura.v1.GetTaskResponse
-	52, // 61: aura.v1.ConsoleService.GetAgentObservability:output_type -> aura.v1.GetAgentObservabilityResponse
-	55, // 62: aura.v1.ConsoleService.ListAgentSessions:output_type -> aura.v1.ListAgentSessionsResponse
-	58, // 63: aura.v1.ConsoleService.ListAgentCalls:output_type -> aura.v1.ListAgentCallsResponse
-	40, // [40:64] is the sub-list for method output_type
-	16, // [16:40] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	64, // 16: aura.v1.CreateApiTokenResponse.info:type_name -> aura.v1.ApiTokenInfo
+	64, // 17: aura.v1.ListApiTokensResponse.tokens:type_name -> aura.v1.ApiTokenInfo
+	1,  // 18: aura.v1.ConsoleService.GetDashboard:input_type -> aura.v1.GetDashboardRequest
+	3,  // 19: aura.v1.ConsoleService.ListTasks:input_type -> aura.v1.ListTasksRequest
+	6,  // 20: aura.v1.ConsoleService.ListTraces:input_type -> aura.v1.ListTracesRequest
+	9,  // 21: aura.v1.ConsoleService.GetArtifact:input_type -> aura.v1.GetArtifactRequest
+	11, // 22: aura.v1.ConsoleService.GetQueueDepth:input_type -> aura.v1.GetQueueDepthRequest
+	13, // 23: aura.v1.ConsoleService.RunOrchestration:input_type -> aura.v1.RunOrchestrationRequest
+	16, // 24: aura.v1.ConsoleService.GetOrchestration:input_type -> aura.v1.GetOrchestrationRequest
+	18, // 25: aura.v1.ConsoleService.ListOrchestrations:input_type -> aura.v1.ListOrchestrationsRequest
+	21, // 26: aura.v1.ConsoleService.WatchFleet:input_type -> aura.v1.WatchFleetRequest
+	23, // 27: aura.v1.ConsoleService.SubmitFusion:input_type -> aura.v1.SubmitFusionRequest
+	25, // 28: aura.v1.ConsoleService.GetFusionResult:input_type -> aura.v1.GetFusionResultRequest
+	28, // 29: aura.v1.ConsoleService.ReadNodeScreen:input_type -> aura.v1.ReadNodeScreenRequest
+	31, // 30: aura.v1.ConsoleService.GenerateEnrollToken:input_type -> aura.v1.GenerateEnrollTokenRequest
+	33, // 31: aura.v1.ConsoleService.RevokeEnrollToken:input_type -> aura.v1.RevokeEnrollTokenRequest
+	35, // 32: aura.v1.ConsoleService.RotateEnrollToken:input_type -> aura.v1.RotateEnrollTokenRequest
+	37, // 33: aura.v1.ConsoleService.ListEnrollTokens:input_type -> aura.v1.ListEnrollTokensRequest
+	40, // 34: aura.v1.ConsoleService.UpdateNodeMeta:input_type -> aura.v1.UpdateNodeMetaRequest
+	42, // 35: aura.v1.ConsoleService.DeleteNode:input_type -> aura.v1.DeleteNodeRequest
+	44, // 36: aura.v1.ConsoleService.ListRecordings:input_type -> aura.v1.ListRecordingsRequest
+	47, // 37: aura.v1.ConsoleService.RevokeNodeCert:input_type -> aura.v1.RevokeNodeCertRequest
+	49, // 38: aura.v1.ConsoleService.GetTask:input_type -> aura.v1.GetTaskRequest
+	51, // 39: aura.v1.ConsoleService.GetAgentObservability:input_type -> aura.v1.GetAgentObservabilityRequest
+	54, // 40: aura.v1.ConsoleService.ListAgentSessions:input_type -> aura.v1.ListAgentSessionsRequest
+	57, // 41: aura.v1.ConsoleService.ListAgentCalls:input_type -> aura.v1.ListAgentCallsRequest
+	60, // 42: aura.v1.ConsoleService.CreateApiToken:input_type -> aura.v1.CreateApiTokenRequest
+	62, // 43: aura.v1.ConsoleService.ListApiTokens:input_type -> aura.v1.ListApiTokensRequest
+	65, // 44: aura.v1.ConsoleService.RevokeApiToken:input_type -> aura.v1.RevokeApiTokenRequest
+	2,  // 45: aura.v1.ConsoleService.GetDashboard:output_type -> aura.v1.GetDashboardResponse
+	4,  // 46: aura.v1.ConsoleService.ListTasks:output_type -> aura.v1.ListTasksResponse
+	7,  // 47: aura.v1.ConsoleService.ListTraces:output_type -> aura.v1.ListTracesResponse
+	10, // 48: aura.v1.ConsoleService.GetArtifact:output_type -> aura.v1.GetArtifactResponse
+	12, // 49: aura.v1.ConsoleService.GetQueueDepth:output_type -> aura.v1.GetQueueDepthResponse
+	14, // 50: aura.v1.ConsoleService.RunOrchestration:output_type -> aura.v1.RunOrchestrationResponse
+	17, // 51: aura.v1.ConsoleService.GetOrchestration:output_type -> aura.v1.GetOrchestrationResponse
+	19, // 52: aura.v1.ConsoleService.ListOrchestrations:output_type -> aura.v1.ListOrchestrationsResponse
+	22, // 53: aura.v1.ConsoleService.WatchFleet:output_type -> aura.v1.FleetEvent
+	24, // 54: aura.v1.ConsoleService.SubmitFusion:output_type -> aura.v1.SubmitFusionResponse
+	26, // 55: aura.v1.ConsoleService.GetFusionResult:output_type -> aura.v1.GetFusionResultResponse
+	29, // 56: aura.v1.ConsoleService.ReadNodeScreen:output_type -> aura.v1.ReadNodeScreenResponse
+	32, // 57: aura.v1.ConsoleService.GenerateEnrollToken:output_type -> aura.v1.GenerateEnrollTokenResponse
+	34, // 58: aura.v1.ConsoleService.RevokeEnrollToken:output_type -> aura.v1.RevokeEnrollTokenResponse
+	36, // 59: aura.v1.ConsoleService.RotateEnrollToken:output_type -> aura.v1.RotateEnrollTokenResponse
+	38, // 60: aura.v1.ConsoleService.ListEnrollTokens:output_type -> aura.v1.ListEnrollTokensResponse
+	41, // 61: aura.v1.ConsoleService.UpdateNodeMeta:output_type -> aura.v1.UpdateNodeMetaResponse
+	43, // 62: aura.v1.ConsoleService.DeleteNode:output_type -> aura.v1.DeleteNodeResponse
+	45, // 63: aura.v1.ConsoleService.ListRecordings:output_type -> aura.v1.ListRecordingsResponse
+	48, // 64: aura.v1.ConsoleService.RevokeNodeCert:output_type -> aura.v1.RevokeNodeCertResponse
+	50, // 65: aura.v1.ConsoleService.GetTask:output_type -> aura.v1.GetTaskResponse
+	52, // 66: aura.v1.ConsoleService.GetAgentObservability:output_type -> aura.v1.GetAgentObservabilityResponse
+	55, // 67: aura.v1.ConsoleService.ListAgentSessions:output_type -> aura.v1.ListAgentSessionsResponse
+	58, // 68: aura.v1.ConsoleService.ListAgentCalls:output_type -> aura.v1.ListAgentCallsResponse
+	61, // 69: aura.v1.ConsoleService.CreateApiToken:output_type -> aura.v1.CreateApiTokenResponse
+	63, // 70: aura.v1.ConsoleService.ListApiTokens:output_type -> aura.v1.ListApiTokensResponse
+	66, // 71: aura.v1.ConsoleService.RevokeApiToken:output_type -> aura.v1.RevokeApiTokenResponse
+	45, // [45:72] is the sub-list for method output_type
+	18, // [18:45] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_aura_v1_console_proto_init() }
@@ -4201,13 +4718,14 @@ func file_aura_v1_console_proto_init() {
 		return
 	}
 	file_aura_v1_node_proto_init()
+	file_aura_v1_console_proto_msgTypes[39].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aura_v1_console_proto_rawDesc), len(file_aura_v1_console_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   59,
+			NumMessages:   66,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

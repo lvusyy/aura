@@ -7,6 +7,7 @@ import { TasksPage } from "./pages/Tasks/TasksPage";
 import { AgentsPage } from "./pages/Agents/AgentsPage";
 import { RecordingsPage } from "./pages/Recordings/RecordingsPage";
 import { ReplayPage } from "./pages/Replay/ReplayPage";
+import { TokensPage } from "./pages/Tokens/TokensPage";
 
 // 根组件：AntD v6 主题（默认 CSS 变量）+ react-router 四模块路由，basename 对齐 /console/* 部署前缀。
 export function App() {
@@ -22,6 +23,7 @@ export function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="recordings" element={<RecordingsPage />} />
             <Route path="replay" element={<ReplayPage />} />
+            <Route path="tokens" element={<TokensPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -91,6 +91,7 @@ export function AppLayout() {
     { key: "/agents", icon: <ApiOutlined />, label: <Link to="/agents">接入观测</Link> },
     { key: "/recordings", icon: <VideoCameraOutlined />, label: <Link to="/recordings">录屏回放</Link> },
     { key: "/replay", icon: <PlayCircleOutlined />, label: <Link to="/replay">操作重放</Link> },
+    { key: "/tokens", icon: <KeyOutlined />, label: <Link to="/tokens">访问令牌</Link> },
   ];
   // basename 已剥离，pathname 形如 /fleet；前缀匹配高亮当前模块。
   const selectedKey = navItems.find((i) => location.pathname.startsWith(i.key))?.key ?? "/fleet";

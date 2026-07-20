@@ -35,11 +35,12 @@ const enrollPathPrefix = "/v1/"
 //   - CORS 置于最外层：浏览器预检 OPTIONS（不带 Authorization）由 CORS 直接应答，不下沉 bearer——
 //     否则预检因缺 token 被 401，跨域失败。
 // 批E C1：token 单值改 TokenScopes 多档映射（ro/ops/admin 分级 + forwarder 独立凭据同表准入）。
-func NewRESTHandler(scopes TokenScopes, apiMux, stream, artifact, enroll, mcp, spa http.Handler) http.Handler {
-	apiAuth := BearerMiddleware(scopes, apiMux)
+// M15：tokens 为 DB 实体令牌查验源（nil=env-only，行为零变化）——API 面与 MCP 网关同源鉴权。
+func NewRESTHandler(scopes TokenScopes, tokens ApiTokenSource, apiMux, stream, artifact, enroll, mcp, spa http.Handler) http.Handler {
+	apiAuth := BearerMiddlewareDB(scopes, tokens, apiMux)
 	var mcpAuth http.Handler
 	if mcp != nil {
-		mcpAuth = BearerMiddleware(scopes, mcp)
+		mcpAuth = BearerMiddlewareDB(scopes, tokens, mcp)
 	}
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

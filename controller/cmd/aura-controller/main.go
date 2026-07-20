@@ -427,7 +427,7 @@ func main() {
 	}
 
 	grpcServer := newGRPCServer(*grpcAddr, serverCert, caPool, ncs, enrollSrv, pgStore, handlerOpts...)
-	restServer := newRESTServer(*restAddr, serverCert, tokenScopes, reg, gw, sched, prov, consoleSrv, tangoBridge, artifactHandler, enrollSrv, spaHandler, handlerOpts...)
+	restServer := newRESTServer(*restAddr, serverCert, tokenScopes, pgStore, reg, gw, sched, prov, consoleSrv, tangoBridge, artifactHandler, enrollSrv, spaHandler, handlerOpts...)
 
 	// 指标端口（明文 HTTP，供 Prometheus 抓取）：故障仅记日志，不拖垮控制面主服务。
 	var metricsServer *http.Server
@@ -552,9 +552,11 @@ func newGRPCServer(addr string, cert tls.Certificate, caPool *x509.CertPool, ncs
 // 可为 nil）；consoleSrv 挂 M8 ConsoleService（与 ControllerAdmin 同 mux），tango 挂实时流 WS 桥（/stream/*），
 // spa 托管 embed 前端；opts 挂入站拦截器（otelconnect），DispatchTool 由此成为 REST→gRPC 两跳的父 span。
 // 中间件边界（对齐 research §4/§6）：CORS(最外) → /aura.v1.* 经 bearer 鉴权 / /stream/* 桥自持 bearer / 其余 SPA 公开。
-func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScopes, reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider, consoleSrv *transport.ConsoleServiceServer, tango http.Handler, artifact http.Handler, enrollSrv *transport.EnrollServer, spa http.Handler, opts ...connect.HandlerOption) *http.Server {
+// M15：pgStore 直传（可为 nil）——供 ControllerAdmin/网关项目隔离判据 + REST 鉴权 DB 令牌源 +
+// ConsoleService token 治理。typed-nil 纪律：nil 具体指针直传即旁路（api tokenSource 装配处判 nil 保接口 nil）。
+func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScopes, pgStore *store.PGStore, reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider, consoleSrv *transport.ConsoleServiceServer, tango http.Handler, artifact http.Handler, enrollSrv *transport.EnrollServer, spa http.Handler, opts ...connect.HandlerOption) *http.Server {
 	mux := http.NewServeMux()
-	adminPath, adminHandler := aurav1connect.NewControllerAdminHandler(transport.NewControllerAdminServer(reg, gw, sched, prov), opts...)
+	adminPath, adminHandler := aurav1connect.NewControllerAdminHandler(transport.NewControllerAdminServer(reg, gw, sched, prov, pgStore), opts...)
 	// T8 hop 防环入站面（ha-contract §1.4，m-1）：读 X-Aura-Forwarded-By 即在请求 ctx 打标——被
 	// 转发方 Ready 失败时不查 owner、不二次转发，E_NODE_OFFLINE 一跳终态（middleware 形态零动
 	// rest.go/transport；标记经 connect handler → gateway → scheduler.dispatch ctx 贯通）。
@@ -575,12 +577,19 @@ func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScop
 	}
 
 	// M14 MCP 网关：agent 经控制面单一入口访问节点 MCP 面（bearer 于 NewRESTHandler 内包裹；
-	// hop 防环走 handler 内 ForwardedByHeader 判定，无需 InboundForwardMarker ctx 打标）。
-	mcpGateway := transport.McpGatewayHandler(reg, sched)
+	// hop 防环走 handler 内 ForwardedByHeader 判定，无需 InboundForwardMarker ctx 打标）。M15：pgStore
+	// 供项目视界判据。
+	mcpGateway := transport.McpGatewayHandler(reg, sched, pgStore)
+
+	// M15：DB 实体令牌鉴权源——typed-nil 纪律，仅 PG 在位才赋非 nil 接口（*store.PGStore 实现 ApiTokenSource）。
+	var apiTokens transport.ApiTokenSource
+	if pgStore != nil {
+		apiTokens = pgStore
+	}
 
 	return &http.Server{
 		Addr:    addr,
-		Handler: transport.NewRESTHandler(scopes, mux, tango, artifact, enrollHandler, mcpGateway, spa),
+		Handler: transport.NewRESTHandler(scopes, apiTokens, mux, tango, artifact, enrollHandler, mcpGateway, spa),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

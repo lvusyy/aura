@@ -23,6 +23,7 @@ type EnrollToken struct {
 	UsesLeft      int32     // 剩余可用次数；ConsumeToken 原子 -1
 	ExpiresAt     time.Time // 绝对过期时刻（generate 时 = now()+ttl）
 	Label         string    // enroll 成功赋新节点的初始 label（ConsumeToken RETURNING 回传）
+	Project       string    // M15：enroll 即归属的项目（空=不归属；ConsumeToken RETURNING 随 label 回传）
 	CreatedBy     string    // 生成者标识（审计）
 	CreatedAt     time.Time // 读路径回填
 	Revoked       bool
@@ -34,9 +35,9 @@ var ErrTokenInvalid = errors.New("enrollment token invalid, expired, exhausted, 
 
 // InsertToken 插入一条 enrollment token（created_at 取 SQL DEFAULT now()、revoked 取 DEFAULT false）。
 func (s *PGStore) InsertToken(ctx context.Context, t EnrollToken) error {
-	const q = `INSERT INTO enrollment_tokens (token, platform_scope, uses_left, expires_at, label, created_by)
-VALUES ($1, $2, $3, $4, $5, $6)`
-	if _, err := s.pool.Exec(ctx, q, t.Token, t.PlatformScope, t.UsesLeft, t.ExpiresAt, t.Label, t.CreatedBy); err != nil {
+	const q = `INSERT INTO enrollment_tokens (token, platform_scope, uses_left, expires_at, label, project, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	if _, err := s.pool.Exec(ctx, q, t.Token, t.PlatformScope, t.UsesLeft, t.ExpiresAt, t.Label, t.Project, t.CreatedBy); err != nil {
 		return fmt.Errorf("insert enrollment token: %w", err)
 	}
 	return nil
@@ -45,7 +46,7 @@ VALUES ($1, $2, $3, $4, $5, $6)`
 // GetToken 按 token 主键读一行（不存在返回 pgx.ErrNoRows，同 GetOrchestration 惯例；消费方经
 // store.IsNotFound 判定）。供 RotateEnrollToken 读旧 token 承继 platform_scope/label/ttl。
 func (s *PGStore) GetToken(ctx context.Context, token string) (EnrollToken, error) {
-	const q = `SELECT token, platform_scope, uses_left, expires_at, label, created_by, created_at, revoked
+	const q = `SELECT token, platform_scope, uses_left, expires_at, label, COALESCE(project, ''), created_by, created_at, revoked
 FROM enrollment_tokens WHERE token = $1`
 	return scanEnrollToken(s.pool.QueryRow(ctx, q, token))
 }
@@ -54,7 +55,8 @@ FROM enrollment_tokens WHERE token = $1`
 // 未过期/未耗尽/未吊销/平台匹配（platform_scope='' 短路放行不限平台）。命中 0 行（token 无效）返回
 // ErrTokenInvalid；命中 1 行即有效且已原子扣减一次。两副本并发消费同一 token 由 PG 行锁天然串行，
 // 仅一方扣到最后一次，杜绝超用（读-改-写会竞态；沿 AllocVMID UPDATE..RETURNING 先例）。platform=请求平台。
-func (s *PGStore) ConsumeToken(ctx context.Context, token, platform string) (string, error) {
+// M15：RETURNING 增 project——enroll 端点随 label 同路落 nodes.project（节点入网即归属）。
+func (s *PGStore) ConsumeToken(ctx context.Context, token, platform string) (string, string, error) {
 	const q = `
 UPDATE enrollment_tokens
    SET uses_left = uses_left - 1
@@ -63,15 +65,18 @@ UPDATE enrollment_tokens
    AND NOT revoked
    AND expires_at > now()
    AND (platform_scope = '' OR platform_scope = $2)
-RETURNING label`
-	var label pgtype.Text
-	if err := s.pool.QueryRow(ctx, q, token, platform).Scan(&label); err != nil {
+RETURNING label, COALESCE(project, '')`
+	var (
+		label   pgtype.Text
+		project string
+	)
+	if err := s.pool.QueryRow(ctx, q, token, platform).Scan(&label, &project); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrTokenInvalid
+			return "", "", ErrTokenInvalid
 		}
-		return "", fmt.Errorf("consume enrollment token: %w", err)
+		return "", "", fmt.Errorf("consume enrollment token: %w", err)
 	}
-	return label.String, nil // NULL label → ""
+	return label.String, project, nil // NULL label → ""
 }
 
 // RevokeToken 吊销一个 token（幂等）：仅当 token 存在且此前未吊销时置 revoked=true。返回是否发生吊销
@@ -88,7 +93,7 @@ func (s *PGStore) RevokeToken(ctx context.Context, token string) (bool, error) {
 // ListTokens 全量列举 enrollment token（console 治理表读路径），按 created_at DESC（最新在前）。token
 // 为 admin 小表（数量有界），全列不分页（proto ListEnrollTokensRequest 无分页字段；design §1）。
 func (s *PGStore) ListTokens(ctx context.Context) ([]EnrollToken, error) {
-	const q = `SELECT token, platform_scope, uses_left, expires_at, label, created_by, created_at, revoked
+	const q = `SELECT token, platform_scope, uses_left, expires_at, label, COALESCE(project, ''), created_by, created_at, revoked
 FROM enrollment_tokens ORDER BY created_at DESC`
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
@@ -111,8 +116,8 @@ FROM enrollment_tokens ORDER BY created_at DESC`
 }
 
 // scanEnrollToken 从一行扫描 EnrollToken（列序须为 token,platform_scope,uses_left,expires_at,label,
-// created_by,created_at,revoked）。platform_scope/label/created_by 可空，NULL 还原空串。复用 pg.go
-// 的 rowScanner，QueryRow/Query 迭代共用同一解码逻辑。
+// project,created_by,created_at,revoked——project 经 SELECT 侧 COALESCE 还原空串）。platform_scope/
+// label/created_by 可空，NULL 还原空串。复用 pg.go 的 rowScanner，QueryRow/Query 迭代共用同一解码逻辑。
 func scanEnrollToken(sc rowScanner) (EnrollToken, error) {
 	var (
 		rec       EnrollToken
@@ -120,7 +125,7 @@ func scanEnrollToken(sc rowScanner) (EnrollToken, error) {
 		label     pgtype.Text
 		createdBy pgtype.Text
 	)
-	if err := sc.Scan(&rec.Token, &scope, &rec.UsesLeft, &rec.ExpiresAt, &label, &createdBy, &rec.CreatedAt, &rec.Revoked); err != nil {
+	if err := sc.Scan(&rec.Token, &scope, &rec.UsesLeft, &rec.ExpiresAt, &label, &rec.Project, &createdBy, &rec.CreatedAt, &rec.Revoked); err != nil {
 		return EnrollToken{}, err
 	}
 	rec.PlatformScope = scope.String

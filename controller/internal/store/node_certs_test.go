@@ -48,7 +48,7 @@ func TestNodeCertsLifecycleIntegration(t *testing.T) {
 	serial1 := uniq("serial")
 	notAfter := time.Now().Add(90 * 24 * time.Hour)
 
-	if err := pg.SetNodeCertFP(ctx, nodeID, "linux", fp1); err != nil {
+	if err := pg.SetNodeCertFP(ctx, nodeID, "linux", fp1, ""); err != nil {
 		t.Fatalf("SetNodeCertFP (enroll bootstrap): %v", err)
 	}
 	if err := pg.InsertNodeCert(ctx, nodeID, serial1, fp1, notAfter); err != nil {

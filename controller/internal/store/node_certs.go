@@ -47,7 +47,9 @@ func (s *PGStore) InsertNodeCert(ctx context.Context, nodeID, serial, certFP str
 // 占位 'enrolled'，反连注册时 UpsertNode 会 ON CONFLICT 覆写 status=online + cert_fp COALESCE
 // 保持同值）；nodes 行已存在（renew/已注册）时仅 DO UPDATE cert_fp，platform 引导值不生效（既有行
 // platform 由 Register 权威管，不被本路径覆写）。platform 仅在「首次为 enroll 节点建行」时消费。
-func (s *PGStore) SetNodeCertFP(ctx context.Context, nodeID, platform, certFP string) error {
+// M15：project 参数在 enroll 建行时落 nodes.project（token 携归属，节点入网即归属）；renew 传空串不改
+// 归属（COALESCE(NULLIF(EXCLUDED.project,''), nodes.project) 对空保现值）——renew 只换证书不迁项目。
+func (s *PGStore) SetNodeCertFP(ctx context.Context, nodeID, platform, certFP, project string) error {
 	id, err := pgUUID(nodeID)
 	if err != nil {
 		return err
@@ -55,10 +57,12 @@ func (s *PGStore) SetNodeCertFP(ctx context.Context, nodeID, platform, certFP st
 	// status='enrolled'：enroll 建行占位态（节点未反连）；fleet 读路径对无活跃会话者一律置 offline
 	// （registry.ListFleet 不信表内 status），故占位值不误导展示。反连注册即被 UpsertNode 覆写。
 	const q = `
-INSERT INTO nodes (id, platform, cert_fp, status)
-VALUES ($1, $2, $3, 'enrolled')
-ON CONFLICT (id) DO UPDATE SET cert_fp = EXCLUDED.cert_fp`
-	if _, err := s.pool.Exec(ctx, q, id, platform, certFP); err != nil {
+INSERT INTO nodes (id, platform, cert_fp, project, status)
+VALUES ($1, $2, $3, NULLIF($4, ''), 'enrolled')
+ON CONFLICT (id) DO UPDATE SET
+	cert_fp = EXCLUDED.cert_fp,
+	project = COALESCE(NULLIF(EXCLUDED.project, ''), nodes.project)`
+	if _, err := s.pool.Exec(ctx, q, id, platform, certFP, project); err != nil {
 		return fmt.Errorf("set node cert_fp: %w", err)
 	}
 	return nil

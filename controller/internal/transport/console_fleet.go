@@ -29,10 +29,15 @@ func (s *ConsoleServiceServer) WatchFleet(
 	// 首帧：全量快照（HEARTBEAT_SNAPSHOT），seq=订阅基线。客户端据此建初始视图，之后按增量事件 seq 单调推进。
 	// ListFleet（M12）：在线会话 + nodes 表 offline 持久身份合并，令 FleetPage 展示 offline 节点可读名/label
 	// （List 仅在线，会话数语义留给 metrics/WatchStatus）。
+	// M15：项目令牌快照仅含本项目节点（filterNodesByProject 集合过滤；全域令牌零成本原样）。
+	snapshot, err := filterNodesByProject(ctx, s.store, s.reg.ListFleet(ctx))
+	if err != nil {
+		return err
+	}
 	if err := stream.Send(&aurav1.FleetEvent{
 		Seq:        snapshotSeq,
 		Type:       aurav1.FleetEventType_FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT,
-		Snapshot:   s.reg.ListFleet(ctx),
+		Snapshot:   snapshot,
 		Recordings: s.fleetRecordings(ctx),
 	}); err != nil {
 		return err
@@ -53,9 +58,15 @@ func (s *ConsoleServiceServer) WatchFleet(
 			return nil
 		case ev := <-events:
 			pe := toProtoFleetEvent(ev)
-			// 增量帧回填覆盖节点的录制占用态（T13）：租约恰随节点事件变化时即时收敛；
-			// 纯 StartTrace/StopTrace（无节点事件）由 30s 心跳快照兜底刷新。
+			// M15：项目令牌只收本项目节点的增量。NODE_REMOVED 放行——删除是收敛信号（客户端 upsert 删
+			// 除无害，看不到的节点删除本就无视图可删），且删后 nodes.project 已不可解析，强判会误吞
+			// 本项目节点的下线通知。ADDED/STATUS_CHANGED 越界即跳过（全域令牌零成本短路）。
 			if n := pe.GetNode(); n != nil {
+				if pe.GetType() != aurav1.FleetEventType_FLEET_EVENT_TYPE_NODE_REMOVED {
+					if err := CheckNodeProjectAccess(ctx, s.store, n.GetNodeId()); err != nil {
+						continue
+					}
+				}
 				pe.Recordings = s.nodeRecording(ctx, n.GetNodeId())
 			}
 			if err := stream.Send(pe); err != nil {
@@ -63,10 +74,14 @@ func (s *ConsoleServiceServer) WatchFleet(
 			}
 		case <-heartbeat.C:
 			// 心跳快照 seq=当前最新（≥此前任何事件 seq），客户端按快照类型整体重建视图并推进基线。
+			snap, err := filterNodesByProject(ctx, s.store, s.reg.ListFleet(ctx)) // M12：含 offline 节点；M15：项目视界过滤
+			if err != nil {
+				return err
+			}
 			if err := stream.Send(&aurav1.FleetEvent{
 				Seq:        s.reg.CurrentSeq(),
 				Type:       aurav1.FleetEventType_FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT,
-				Snapshot:   s.reg.ListFleet(ctx), // M12：含 offline 节点（周期快照兜底 offline 元数据/编辑刷新）
+				Snapshot:   snap,
 				Recordings: s.fleetRecordings(ctx),
 			}); err != nil {
 				return err // 心跳发送失败=流断（含中间层已回收连接的显式暴露）

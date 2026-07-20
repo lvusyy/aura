@@ -93,7 +93,7 @@ func TestEnrollHandlersNilStore(t *testing.T) {
 	} else if n := len(resp.Msg.GetTokens()); n != 0 {
 		t.Errorf("ListEnrollTokens nil store tokens = %d, want 0", n)
 	}
-	if _, err := s.ValidateToken(ctx, "x", "linux"); err == nil {
+	if _, _, err := s.ValidateToken(ctx, "x", "linux"); err == nil {
 		t.Error("ValidateToken nil store 应返回 error")
 	}
 }

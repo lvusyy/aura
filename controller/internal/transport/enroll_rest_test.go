@@ -30,26 +30,27 @@ import (
 
 // fakeEnrollStore 是 enrollStore 的测试替身：注入 ConsumeToken 结果，记录 cert_fp 双写调用供断言。
 type fakeEnrollStore struct {
-	consumeLabel string
-	consumeErr   error
-	setFPErr     error
-	insertErr    error
+	consumeLabel   string
+	consumeProject string // M15：注入 ConsumeToken 回传的 project
+	consumeErr     error
+	setFPErr       error
+	insertErr      error
 
 	setFPCalls  []setFPCall
 	insertCalls []insertCall
 }
 
-type setFPCall struct{ nodeID, platform, fp string }
+type setFPCall struct{ nodeID, platform, fp, project string } // M15：+project
 type insertCall struct {
 	nodeID, serial, fp string
 	notAfter           time.Time
 }
 
-func (f *fakeEnrollStore) ConsumeToken(_ context.Context, _, _ string) (string, error) {
-	return f.consumeLabel, f.consumeErr
+func (f *fakeEnrollStore) ConsumeToken(_ context.Context, _, _ string) (string, string, error) {
+	return f.consumeLabel, f.consumeProject, f.consumeErr
 }
-func (f *fakeEnrollStore) SetNodeCertFP(_ context.Context, nodeID, platform, fp string) error {
-	f.setFPCalls = append(f.setFPCalls, setFPCall{nodeID, platform, fp})
+func (f *fakeEnrollStore) SetNodeCertFP(_ context.Context, nodeID, platform, fp, project string) error {
+	f.setFPCalls = append(f.setFPCalls, setFPCall{nodeID, platform, fp, project})
 	return f.setFPErr
 }
 func (f *fakeEnrollStore) InsertNodeCert(_ context.Context, nodeID, serial, fp string, notAfter time.Time) error {

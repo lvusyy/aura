@@ -116,7 +116,8 @@ RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
 // M12 批D：SELECT 补 runtime_kind/infra_host/attached——基础设施标注恰在节点离线时最需要（定位挂掉的
 // 设备在哪台宿主/什么形态），三列持久化后离线节点经此回填。
 func (s *PGStore) ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error) {
-	const q = `SELECT id, platform, COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, ''), COALESCE(network_zone, ''), COALESCE(runtime_kind, ''), COALESCE(infra_host, ''), COALESCE(attached, ''), COALESCE(node_version, ''), status, last_seen FROM nodes`
+	// M15：SELECT 补 project——项目归属为管理面持久列，在线/离线节点同源回填（registry 合并层透传）。
+	const q = `SELECT id, platform, COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, ''), COALESCE(network_zone, ''), COALESCE(runtime_kind, ''), COALESCE(infra_host, ''), COALESCE(attached, ''), COALESCE(node_version, ''), COALESCE(project, ''), status, last_seen FROM nodes`
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
@@ -130,7 +131,7 @@ func (s *PGStore) ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error) {
 			lastSeen time.Time
 			n        = &aurav1.NodeInfo{}
 		)
-		if err := rows.Scan(&id, &n.Platform, &n.Name, &n.Label, &n.Location, &n.NetworkZone, &n.RuntimeKind, &n.InfraHost, &n.Attached, &n.NodeVersion, &n.Status, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &n.Platform, &n.Name, &n.Label, &n.Location, &n.NetworkZone, &n.RuntimeKind, &n.InfraHost, &n.Attached, &n.NodeVersion, &n.Project, &n.Status, &lastSeen); err != nil {
 			return nil, fmt.Errorf("scan node: %w", err)
 		}
 		n.NodeId = uuidString(id)
@@ -143,15 +144,21 @@ func (s *PGStore) ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error) {
 	return out, nil
 }
 
-// UpdateNodeMeta 更新节点用户元数据 label/location（console 编辑权威路径，UpdateNodeMeta RPC 落）。
+// UpdateNodeMeta 更新节点用户元数据 label/location/project（console 编辑权威路径，UpdateNodeMeta RPC 落）。
 // 返回是否命中行（node_id 不存在返 false，供 handler 区分 not-found）。name/hostname/network_zone/
 // cert_fp 非本路径职责——机器事实/审计由 Register 侧 UpsertNode 独占管，两写方列分离免互抹。
-func (s *PGStore) UpdateNodeMeta(ctx context.Context, nodeID, label, location string) (bool, error) {
+// M15 project 取 presence 语义（proto optional 对位）：nil=不改动（老客户端/项目令牌路径绝不静默清空
+// 归属）；非 nil（含空串=清除归属）即写入——COALESCE($4, project) 对 NULL 保现值、对 '' 如实覆写。
+func (s *PGStore) UpdateNodeMeta(ctx context.Context, nodeID, label, location string, project *string) (bool, error) {
 	id, err := pgUUID(nodeID)
 	if err != nil {
 		return false, err
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE nodes SET label = $2, location = $3 WHERE id = $1`, id, label, location)
+	proj := pgtype.Text{}
+	if project != nil {
+		proj = pgtype.Text{String: *project, Valid: true}
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE nodes SET label = $2, location = $3, project = COALESCE($4, project) WHERE id = $1`, id, label, location, proj)
 	if err != nil {
 		return false, fmt.Errorf("update node meta: %w", err)
 	}
@@ -328,6 +335,10 @@ func (s *PGStore) SeedVMID(ctx context.Context, floor int) error {
 	}
 	return nil
 }
+
+// ErrNoRowsSentinel 是 store 导出的「行不存在」哨兵（= pgx.ErrNoRows 语义），供 store 外的测试替身
+// （如 transport 的 fake ApiTokenSource）合成 not-found 而不直接 import pgx（第三方隔离规约）。
+var ErrNoRowsSentinel = pgx.ErrNoRows
 
 // IsNotFound 判定 store 读错误是否为「行不存在」（pgx.ErrNoRows），供 store 之外的消费方（如
 // provisioner destroy 权威读）免直接依赖 pgx（第三方经窄接口/单点隔离规约）。

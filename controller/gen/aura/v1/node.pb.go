@@ -1331,7 +1331,10 @@ type NodeInfo struct {
 	Attached    string `protobuf:"bytes,16,opt,name=attached,proto3" json:"attached,omitempty"`                          // 该节点驱动/派生的服务（redroid@serial / selkies-desktop@DISPLAY 等；空=自身即设备）
 	// 批E（滚更可见性，additive）：节点二进制版本（Register.node_version=15 落库回填；离线节点经
 	// ListNodes 表分支回填最后已知版本——盘点舰队滚更进度恰需覆盖离线成员）。
-	NodeVersion   string `protobuf:"bytes,17,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"` // 节点二进制版本（CARGO_PKG_VERSION；未滚更/未上报空）
+	NodeVersion string `protobuf:"bytes,17,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"` // 节点二进制版本（CARGO_PKG_VERSION；未滚更/未上报空）
+	// M15（项目隔离，additive）：节点项目归属。console 管理面赋值（UpdateNodeMeta / enroll token 携带），
+	// 非节点自报——区别于 label 的双写方语义，本字段单写方（管理面权威）。空=未归属（仅全域令牌可见可控）。
+	Project       string `protobuf:"bytes,18,opt,name=project,proto3" json:"project,omitempty"` // 项目归属（''=未归属；项目令牌仅见/仅控同值节点）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1481,6 +1484,13 @@ func (x *NodeInfo) GetAttached() string {
 func (x *NodeInfo) GetNodeVersion() string {
 	if x != nil {
 		return x.NodeVersion
+	}
+	return ""
+}
+
+func (x *NodeInfo) GetProject() string {
+	if x != nil {
+		return x.Project
 	}
 	return ""
 }
@@ -2360,7 +2370,7 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"ts_unix_ms\x18\n" +
 	" \x01(\x03R\btsUnixMs\"\x12\n" +
-	"\x10ListNodesRequest\"\x8a\x04\n" +
+	"\x10ListNodesRequest\"\xa4\x04\n" +
 	"\bNodeInfo\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
 	"\bplatform\x18\x02 \x01(\tR\bplatform\x12\x16\n" +
@@ -2383,7 +2393,8 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"infra_host\x18\x0f \x01(\tR\tinfraHost\x12\x1a\n" +
 	"\battached\x18\x10 \x01(\tR\battached\x12!\n" +
-	"\fnode_version\x18\x11 \x01(\tR\vnodeVersion\"<\n" +
+	"\fnode_version\x18\x11 \x01(\tR\vnodeVersion\x12\x18\n" +
+	"\aproject\x18\x12 \x01(\tR\aproject\"<\n" +
 	"\x11ListNodesResponse\x12'\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x11.aura.v1.NodeInfoR\x05nodes\"\xad\x01\n" +
 	"\x13DispatchToolRequest\x12\x17\n" +

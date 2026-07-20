@@ -75,7 +75,7 @@ func (f *fakeStore) ListNodes(_ context.Context) ([]*aurav1.NodeInfo, error) {
 	return out, nil
 }
 
-func (f *fakeStore) UpdateNodeMeta(_ context.Context, nodeID, label, location string) (bool, error) {
+func (f *fakeStore) UpdateNodeMeta(_ context.Context, nodeID, label, location string, project *string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n, ok := f.nodes[nodeID]
@@ -84,6 +84,9 @@ func (f *fakeStore) UpdateNodeMeta(_ context.Context, nodeID, label, location st
 	}
 	n.Label = label
 	n.Location = location
+	if project != nil { // M15：presence 语义——非 nil 才写归属
+		n.Project = *project
+	}
 	return true, nil
 }
 
@@ -396,7 +399,7 @@ func TestRegisterReconnectPreservesConsoleEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first register: %v", err)
 	}
-	if _, err := reg.UpdateNodeMeta(ctx, id, "staging", "rack-9"); err != nil {
+	if _, err := reg.UpdateNodeMeta(ctx, id, "staging", "rack-9", nil); err != nil {
 		t.Fatalf("console edit: %v", err)
 	}
 	// 重连：node_id 非空、自报空 label/location。
@@ -462,7 +465,7 @@ func TestUpdateNodeMetaSyncsSessionAndBroadcasts(t *testing.T) {
 	events, _, cancel := reg.Subscribe()
 	defer cancel()
 
-	updated, err := reg.UpdateNodeMeta(ctx, id, "new-label", "new-loc")
+	updated, err := reg.UpdateNodeMeta(ctx, id, "new-label", "new-loc", nil)
 	if err != nil || !updated {
 		t.Fatalf("UpdateNodeMeta: updated=%v err=%v, want true/nil", updated, err)
 	}
@@ -487,7 +490,7 @@ func TestUpdateNodeMetaSyncsSessionAndBroadcasts(t *testing.T) {
 // TestUpdateNodeMetaNotFound 证 node_id 库中不存在返 (false,nil)（handler 转 NotFound，非静默成功）。
 func TestUpdateNodeMetaNotFound(t *testing.T) {
 	reg := NewRegistry(newFakeStore())
-	updated, err := reg.UpdateNodeMeta(context.Background(), "ghost-id", "x", "y")
+	updated, err := reg.UpdateNodeMeta(context.Background(), "ghost-id", "x", "y", nil)
 	if err != nil || updated {
 		t.Fatalf("ghost update: updated=%v err=%v, want false/nil", updated, err)
 	}
@@ -496,7 +499,7 @@ func TestUpdateNodeMetaNotFound(t *testing.T) {
 // TestUpdateNodeMetaNilStore 证纯内存（store=nil）不支持编辑，返错（handler 转 Unavailable）。
 func TestUpdateNodeMetaNilStore(t *testing.T) {
 	reg := NewRegistry(nil)
-	if _, err := reg.UpdateNodeMeta(context.Background(), "n", "l", "loc"); err == nil {
+	if _, err := reg.UpdateNodeMeta(context.Background(), "n", "l", "loc", nil); err == nil {
 		t.Fatal("nil store UpdateNodeMeta should error (no persistence backend)")
 	}
 }

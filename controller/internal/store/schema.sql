@@ -298,3 +298,39 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
 );
 -- 接入会话表列举按 last_seen DESC（活跃在前）+ 活跃接入计数（last_seen > now()-5min）扫描。
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_last_seen ON agent_sessions (last_seen DESC);
+
+-- ===== M15：API 访问令牌实体化 + 项目隔离 =====
+-- 管控 bearer 令牌从 env 静态三档（批E C1）扩为 DB 实体：名字身份/档位/项目归属/过期/吊销/最近使用。
+-- env 令牌继续有效=全域凭据（additive 零破坏）；两副本共享 PG（Locked-5），任一副本建/吊另一副本即时生效。
+-- 明文只在创建响应出现一次，库存 sha256 hex（高熵随机秘密无需慢哈希；哈希点查天然恒时，无时序侧信道）。
+--   name         : 令牌名（审计身份；tasks.who / 审计日志归因）
+--   secret_hash  : sha256(明文) hex；UNIQUE 隐式索引即鉴权热路径点查（WHERE secret_hash=$1）
+--   secret_hint  : 明文前 12 字符（列表辨识，如 aura_ab12cd3；不足以重建秘密）
+--   scope        : ro | ops | admin（批E C1 分级语义复用，CHECK 收紧字面）
+--   project      : 归属项目（''=全域；项目令牌仅见/仅控 nodes.project 同值节点——M15 唯一隔离规则）
+--   expires_at   : NULL=永不过期（管控令牌长期使用为常态，区别 enrollment_tokens 短时默认）
+--   last_used_at : 最近使用（BearerMiddleware 节流回写 60s 粒度；NULL=从未使用）
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           UUID PRIMARY KEY,
+    name         TEXT NOT NULL,
+    secret_hash  TEXT NOT NULL UNIQUE,
+    secret_hint  TEXT NOT NULL DEFAULT '',
+    scope        TEXT NOT NULL CHECK (scope IN ('ro', 'ops', 'admin')),
+    project      TEXT NOT NULL DEFAULT '',
+    created_by   TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    revoked      BOOLEAN NOT NULL DEFAULT false
+);
+-- 治理表列举按 created_at DESC（最新在前；admin 小表全列不分页，同 enrollment_tokens 先例）。
+CREATE INDEX IF NOT EXISTS idx_api_tokens_created ON api_tokens (created_at DESC);
+
+-- M15 additive：节点项目归属。console 管理面赋值（UpdateNodeMeta / enroll token 携带落地），非节点自报
+-- ——区别于 label 的双写方 COALESCE 纠缠，本列单写方（管理面权威），Register/UpsertNode 不触碰。
+-- NULL/'' 均=未归属（读路径 COALESCE 还原空串；仅全域令牌可见可控）。
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS project TEXT;
+
+-- M15 additive：enroll token 携项目——节点 enroll 即归属（ConsumeToken RETURNING 回传 project，
+-- enroll 端点随 label 同路落 nodes.project）。NULL/'' =不归属。
+ALTER TABLE enrollment_tokens ADD COLUMN IF NOT EXISTS project TEXT;

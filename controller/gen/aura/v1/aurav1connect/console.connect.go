@@ -104,6 +104,15 @@ const (
 	// ConsoleServiceListAgentCallsProcedure is the fully-qualified name of the ConsoleService's
 	// ListAgentCalls RPC.
 	ConsoleServiceListAgentCallsProcedure = "/aura.v1.ConsoleService/ListAgentCalls"
+	// ConsoleServiceCreateApiTokenProcedure is the fully-qualified name of the ConsoleService's
+	// CreateApiToken RPC.
+	ConsoleServiceCreateApiTokenProcedure = "/aura.v1.ConsoleService/CreateApiToken"
+	// ConsoleServiceListApiTokensProcedure is the fully-qualified name of the ConsoleService's
+	// ListApiTokens RPC.
+	ConsoleServiceListApiTokensProcedure = "/aura.v1.ConsoleService/ListApiTokens"
+	// ConsoleServiceRevokeApiTokenProcedure is the fully-qualified name of the ConsoleService's
+	// RevokeApiToken RPC.
+	ConsoleServiceRevokeApiTokenProcedure = "/aura.v1.ConsoleService/RevokeApiToken"
 )
 
 // ConsoleServiceClient is a client for the aura.v1.ConsoleService service.
@@ -173,6 +182,13 @@ type ConsoleServiceClient interface {
 	GetAgentObservability(context.Context, *connect.Request[v1.GetAgentObservabilityRequest]) (*connect.Response[v1.GetAgentObservabilityResponse], error)
 	ListAgentSessions(context.Context, *connect.Request[v1.ListAgentSessionsRequest]) (*connect.Response[v1.ListAgentSessionsResponse], error)
 	ListAgentCalls(context.Context, *connect.Request[v1.ListAgentCallsRequest]) (*connect.Response[v1.ListAgentCallsResponse], error)
+	// ===== API 访问令牌治理（M15，additive）：管控 bearer 令牌实体化 =====
+	// env 静态令牌（AURA_BEARER_TOKEN*）继续有效=全域凭据（零破坏兼容）；本组 RPC 管 DB 实体令牌
+	// （名字身份/档位/项目归属/过期/吊销/最近使用）。仅 admin 档可用；项目 admin 只能治理本项目令牌
+	// （创建强制归本项目 + 列表过滤，transport 层约束）。明文 secret 仅创建响应返回一次，服务端只存哈希。
+	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
+	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
+	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
 }
 
 // NewConsoleServiceClient constructs a client for the aura.v1.ConsoleService service. By default,
@@ -330,6 +346,24 @@ func NewConsoleServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(consoleServiceMethods.ByName("ListAgentCalls")),
 			connect.WithClientOptions(opts...),
 		),
+		createApiToken: connect.NewClient[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse](
+			httpClient,
+			baseURL+ConsoleServiceCreateApiTokenProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("CreateApiToken")),
+			connect.WithClientOptions(opts...),
+		),
+		listApiTokens: connect.NewClient[v1.ListApiTokensRequest, v1.ListApiTokensResponse](
+			httpClient,
+			baseURL+ConsoleServiceListApiTokensProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("ListApiTokens")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeApiToken: connect.NewClient[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse](
+			httpClient,
+			baseURL+ConsoleServiceRevokeApiTokenProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("RevokeApiToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -359,6 +393,9 @@ type consoleServiceClient struct {
 	getAgentObservability *connect.Client[v1.GetAgentObservabilityRequest, v1.GetAgentObservabilityResponse]
 	listAgentSessions     *connect.Client[v1.ListAgentSessionsRequest, v1.ListAgentSessionsResponse]
 	listAgentCalls        *connect.Client[v1.ListAgentCallsRequest, v1.ListAgentCallsResponse]
+	createApiToken        *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
+	listApiTokens         *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
+	revokeApiToken        *connect.Client[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse]
 }
 
 // GetDashboard calls aura.v1.ConsoleService.GetDashboard.
@@ -481,6 +518,21 @@ func (c *consoleServiceClient) ListAgentCalls(ctx context.Context, req *connect.
 	return c.listAgentCalls.CallUnary(ctx, req)
 }
 
+// CreateApiToken calls aura.v1.ConsoleService.CreateApiToken.
+func (c *consoleServiceClient) CreateApiToken(ctx context.Context, req *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error) {
+	return c.createApiToken.CallUnary(ctx, req)
+}
+
+// ListApiTokens calls aura.v1.ConsoleService.ListApiTokens.
+func (c *consoleServiceClient) ListApiTokens(ctx context.Context, req *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error) {
+	return c.listApiTokens.CallUnary(ctx, req)
+}
+
+// RevokeApiToken calls aura.v1.ConsoleService.RevokeApiToken.
+func (c *consoleServiceClient) RevokeApiToken(ctx context.Context, req *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error) {
+	return c.revokeApiToken.CallUnary(ctx, req)
+}
+
 // ConsoleServiceHandler is an implementation of the aura.v1.ConsoleService service.
 type ConsoleServiceHandler interface {
 	// 聚合摘要：舰队 / 任务 / 编排 / 录制的计数总览（Dashboard 首屏一次拉取）。
@@ -548,6 +600,13 @@ type ConsoleServiceHandler interface {
 	GetAgentObservability(context.Context, *connect.Request[v1.GetAgentObservabilityRequest]) (*connect.Response[v1.GetAgentObservabilityResponse], error)
 	ListAgentSessions(context.Context, *connect.Request[v1.ListAgentSessionsRequest]) (*connect.Response[v1.ListAgentSessionsResponse], error)
 	ListAgentCalls(context.Context, *connect.Request[v1.ListAgentCallsRequest]) (*connect.Response[v1.ListAgentCallsResponse], error)
+	// ===== API 访问令牌治理（M15，additive）：管控 bearer 令牌实体化 =====
+	// env 静态令牌（AURA_BEARER_TOKEN*）继续有效=全域凭据（零破坏兼容）；本组 RPC 管 DB 实体令牌
+	// （名字身份/档位/项目归属/过期/吊销/最近使用）。仅 admin 档可用；项目 admin 只能治理本项目令牌
+	// （创建强制归本项目 + 列表过滤，transport 层约束）。明文 secret 仅创建响应返回一次，服务端只存哈希。
+	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
+	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
+	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
 }
 
 // NewConsoleServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -701,6 +760,24 @@ func NewConsoleServiceHandler(svc ConsoleServiceHandler, opts ...connect.Handler
 		connect.WithSchema(consoleServiceMethods.ByName("ListAgentCalls")),
 		connect.WithHandlerOptions(opts...),
 	)
+	consoleServiceCreateApiTokenHandler := connect.NewUnaryHandler(
+		ConsoleServiceCreateApiTokenProcedure,
+		svc.CreateApiToken,
+		connect.WithSchema(consoleServiceMethods.ByName("CreateApiToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceListApiTokensHandler := connect.NewUnaryHandler(
+		ConsoleServiceListApiTokensProcedure,
+		svc.ListApiTokens,
+		connect.WithSchema(consoleServiceMethods.ByName("ListApiTokens")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceRevokeApiTokenHandler := connect.NewUnaryHandler(
+		ConsoleServiceRevokeApiTokenProcedure,
+		svc.RevokeApiToken,
+		connect.WithSchema(consoleServiceMethods.ByName("RevokeApiToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aura.v1.ConsoleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ConsoleServiceGetDashboardProcedure:
@@ -751,6 +828,12 @@ func NewConsoleServiceHandler(svc ConsoleServiceHandler, opts ...connect.Handler
 			consoleServiceListAgentSessionsHandler.ServeHTTP(w, r)
 		case ConsoleServiceListAgentCallsProcedure:
 			consoleServiceListAgentCallsHandler.ServeHTTP(w, r)
+		case ConsoleServiceCreateApiTokenProcedure:
+			consoleServiceCreateApiTokenHandler.ServeHTTP(w, r)
+		case ConsoleServiceListApiTokensProcedure:
+			consoleServiceListApiTokensHandler.ServeHTTP(w, r)
+		case ConsoleServiceRevokeApiTokenProcedure:
+			consoleServiceRevokeApiTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -854,4 +937,16 @@ func (UnimplementedConsoleServiceHandler) ListAgentSessions(context.Context, *co
 
 func (UnimplementedConsoleServiceHandler) ListAgentCalls(context.Context, *connect.Request[v1.ListAgentCallsRequest]) (*connect.Response[v1.ListAgentCallsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.ListAgentCalls is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.CreateApiToken is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.ListApiTokens is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.RevokeApiToken is not implemented"))
 }

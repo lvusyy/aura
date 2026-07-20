@@ -565,7 +565,7 @@ func TestNodeMetadataIntegration(t *testing.T) {
 	}
 
 	// —— console 编辑 label/location（编辑权威路径）——
-	updated, err := pg.UpdateNodeMeta(ctx, nodeID, "staging", "rack-9")
+	updated, err := pg.UpdateNodeMeta(ctx, nodeID, "staging", "rack-9", nil)
 	if err != nil || !updated {
 		t.Fatalf("UpdateNodeMeta: updated=%v err=%v, want true/nil", updated, err)
 	}
@@ -626,7 +626,7 @@ func TestNodeMetadataIntegration(t *testing.T) {
 	}
 
 	// —— UpdateNodeMeta 不存在节点返 false（handler 转 NotFound）——
-	ghost, err := pg.UpdateNodeMeta(ctx, uuid.NewString(), "x", "y")
+	ghost, err := pg.UpdateNodeMeta(ctx, uuid.NewString(), "x", "y", nil)
 	if err != nil || ghost {
 		t.Fatalf("ghost UpdateNodeMeta: updated=%v err=%v, want false/nil", ghost, err)
 	}

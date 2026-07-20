@@ -12,6 +12,7 @@ function errText(e: unknown): string {
 interface MetaForm {
   label: string;
   location: string;
+  project: string;
 }
 
 // EditNodeMetaModal：编辑节点 label/location（nodes 表持久，TASK-005 UpdateNodeMeta RPC）。
@@ -32,7 +33,7 @@ export function EditNodeMetaModal({
   // 打开或切换目标节点时以当前值回填表单（Modal 不销毁，需显式同步）。
   useEffect(() => {
     if (open && node) {
-      form.setFieldsValue({ label: node.label, location: node.location });
+      form.setFieldsValue({ label: node.label, location: node.location, project: node.project });
     }
   }, [open, node, form]);
 
@@ -52,6 +53,9 @@ export function EditNodeMetaModal({
         nodeId: node.nodeId,
         label: v.label?.trim() ?? "",
         location: v.location?.trim() ?? "",
+        // M15：project 为 optional（presence 语义），编辑面总是写入归属（含空=清除）。项目令牌改归属
+        // 会被后端拒（PermissionDenied），错误经 message.error 呈现。
+        project: v.project?.trim() ?? "",
       });
       if (!res.updated) {
         message.warning("节点不存在或未更新");
@@ -89,6 +93,13 @@ export function EditNodeMetaModal({
         </Form.Item>
         <Form.Item name="location" label="位置">
           <Input placeholder="位置维度（如 SH-IDC）" allowClear maxLength={128} />
+        </Form.Item>
+        <Form.Item
+          name="project"
+          label="项目"
+          extra="节点归属项目（多租户隔离）。留空=未归属（仅全域令牌可访问）。仅全域管理员可修改归属。"
+        >
+          <Input placeholder="team-a（留空为未归属）" allowClear maxLength={128} />
         </Form.Item>
       </Form>
     </Modal>

@@ -41,6 +41,7 @@ interface EnrollForm {
   platformScope: string;
   label: string;
   ttlSecs: number;
+  project: string;
 }
 
 // tokenState：令牌派生状态（批E B12 治理表）：已吊销 > 已过期 > 已用尽 > 有效。
@@ -121,6 +122,13 @@ function EnrollTokenPanel({ active }: { active: boolean }) {
       key: "scope",
       width: 90,
       render: (v: string) => v || "不限",
+    },
+    {
+      title: "项目",
+      dataIndex: "project",
+      key: "project",
+      width: 100,
+      render: (v: string) => (v ? <Tag color="purple">{v}</Tag> : <Text type="secondary">全域</Text>),
     },
     { title: "剩余次数", dataIndex: "usesLeft", key: "uses", width: 90 },
     { title: "过期时间", key: "expiry", width: 170, render: (_, r) => fmtExpiry(r.expiresAtMs) },
@@ -231,6 +239,7 @@ export function AddDeviceModal({ open, onClose }: { open: boolean; onClose: () =
         ttlSecs: BigInt(v.ttlSecs ?? 0),
         uses: 0, // 服务端默认 1 次（限次准入）
         label: v.label?.trim() ?? "",
+        project: v.project?.trim() ?? "", // M15：节点 enroll 即归属项目（项目令牌生成时后端强制本项目）
         who: "console",
       });
       setResult(res);
@@ -257,6 +266,9 @@ export function AddDeviceModal({ open, onClose }: { open: boolean; onClose: () =
         </Form.Item>
         <Form.Item name="label" label="标签（可选）">
           <Input placeholder="辨识用途，如 工位A-桌面" allowClear maxLength={128} />
+        </Form.Item>
+        <Form.Item name="project" label="项目（可选）" extra="填写后该设备接入即归属此项目（多租户隔离）；留空为未归属。">
+          <Input placeholder="team-a（留空为未归属）" allowClear maxLength={128} />
         </Form.Item>
         <Form.Item name="ttlSecs" label="有效期">
           <Select options={TTL_OPTIONS} />

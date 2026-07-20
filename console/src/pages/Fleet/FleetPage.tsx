@@ -39,6 +39,7 @@ import {
   HddOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
+  KeyOutlined,
   LinkOutlined,
   LinuxOutlined,
   PlusOutlined,
@@ -638,7 +639,8 @@ const NodeCard = memo(function NodeCard({
             </Typography.Text>
           ) : null}
         </Space>
-        {/* 用途/位置（sub-goal 3）：label=用途主显（放大醒目），未设显引导「点编辑添加」；location 副显。 */}
+        {/* 用途/位置（sub-goal 3）：label=用途主显（放大醒目），未设显引导「点编辑添加」；location 副显。
+            M15：项目归属标签（多租户隔离，非空才显）。 */}
         <Space size={[6, 4]} wrap>
           {node.label ? (
             <Tag color="blue" style={{ fontSize: 13, padding: "2px 8px" }}>
@@ -649,6 +651,11 @@ const NodeCard = memo(function NodeCard({
               未设置用途 · 点编辑添加
             </Typography.Link>
           )}
+          {node.project ? (
+            <Tag color="purple" icon={<KeyOutlined />}>
+              {node.project}
+            </Tag>
+          ) : null}
           {node.location ? <Tag icon={<EnvironmentOutlined />}>{node.location}</Tag> : null}
         </Space>
         {/* UUID 降为可复制副标题（可读名已上位标题，用途已上位）。 */}

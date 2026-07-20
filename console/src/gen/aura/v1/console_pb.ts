@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aura/v1/console.proto.
  */
 export const file_aura_v1_console: GenFile = /*@__PURE__*/
-  fileDesc("ChVhdXJhL3YxL2NvbnNvbGUucHJvdG8SB2F1cmEudjEiFQoTR2V0RGFzaGJvYXJkUmVxdWVzdCKAAgoUR2V0RGFzaGJvYXJkUmVzcG9uc2USEwoLbm9kZXNfdG90YWwYASABKAUSFAoMbm9kZXNfb25saW5lGAIgASgFEhcKD25vZGVzX3VuaGVhbHRoeRgDIAEoBRIVCg1ub2Rlc19vZmZsaW5lGAQgASgFEhMKC3Rhc2tzX3RvdGFsGAUgASgDEhUKDXRhc2tzX3J1bm5pbmcYBiABKAMSFwoPdGFza3Nfc3VjY2VlZGVkGAcgASgDEhQKDHRhc2tzX2ZhaWxlZBgIIAEoAxIcChRvcmNoZXN0cmF0aW9uc190b3RhbBgJIAEoAxIUCgx0cmFjZXNfdG90YWwYCiABKAMiZAoQTGlzdFRhc2tzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAMSEgoKcGFnZV90b2tlbhgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhgKEG9yY2hlc3RyYXRpb25faWQYBCABKAkiUQoRTGlzdFRhc2tzUmVzcG9uc2USIwoFdGFza3MYASADKAsyFC5hdXJhLnYxLlRhc2tTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoLVGFza1N1bW1hcnkSDwoHdGFza19pZBgBIAEoCRIPCgdub2RlX2lkGAIgASgJEgwKBHRvb2wYAyABKAkSDgoGc3RhdHVzGAQgASgJEgsKA3dobxgFIAEoCRISCgpjcmVhdGVkX21zGAYgASgDEhgKEG9yY2hlc3RyYXRpb25faWQYByABKAkiOgoRTGlzdFRyYWNlc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkiVAoSTGlzdFRyYWNlc1Jlc3BvbnNlEiUKBnRyYWNlcxgBIAMoCzIVLmF1cmEudjEuVHJhY2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoMVHJhY2VTdW1tYXJ5EhAKCHRyYWNlX2lkGAEgASgJEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKc3RlcF9jb3VudBgEIAEoAxILCgN3aG8YBSABKAkSEgoKc3RhcnRlZF9tcxgGIAEoAxIOCgZzdGF0dXMYByABKAkiIQoSR2V0QXJ0aWZhY3RSZXF1ZXN0EgsKA2tleRgBIAEoCSI5ChNHZXRBcnRpZmFjdFJlc3BvbnNlEgwKBGRhdGEYASABKAwSFAoMY29udGVudF90eXBlGAIgASgJIicKFEdldFF1ZXVlRGVwdGhSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiJgoVR2V0UXVldWVEZXB0aFJlc3BvbnNlEg0KBWRlcHRoGAEgASgFIoEBChdSdW5PcmNoZXN0cmF0aW9uUmVxdWVzdBIMCgR0b29sGAEgASgJEhEKCWpzb25fYXJncxgCIAEoDBIQCghub2RlX2lkcxgDIAMoCRIRCgllbnZfZ3JvdXAYBCABKAkSEwoLZGVhZGxpbmVfbXMYBSABKAMSCwoDd2hvGAYgASgJIpgBChhSdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSDQoFdG90YWwYAyABKAUSDgoGcGFzc2VkGAQgASgFEg4KBmZhaWxlZBgFIAEoBRIjCgdwZXJfZW52GAYgAygLMhIuYXVyYS52MS5FbnZSZXN1bHQiaAoJRW52UmVzdWx0Eg8KB25vZGVfaWQYASABKAkSDwoHdGFza19pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBISCgpsYXRlbmN5X21zGAUgASgDIjMKF0dldE9yY2hlc3RyYXRpb25SZXF1ZXN0EhgKEG9yY2hlc3RyYXRpb25faWQYASABKAkiYgoYR2V0T3JjaGVzdHJhdGlvblJlc3BvbnNlEjQKDW9yY2hlc3RyYXRpb24YASABKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhAKCHRhc2tfaWRzGAIgAygJIkIKGUxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkibAoaTGlzdE9yY2hlc3RyYXRpb25zUmVzcG9uc2USNQoOb3JjaGVzdHJhdGlvbnMYASADKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKwAQoUT3JjaGVzdHJhdGlvblN1bW1hcnkSGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIMCgR0b29sGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgV0b3RhbBgEIAEoBRIOCgZwYXNzZWQYBSABKAUSDgoGZmFpbGVkGAYgASgFEgsKA3dobxgHIAEoCRISCgpzdGFydGVkX21zGAggASgDEhAKCHRyYWNlX2lkGAkgASgJIhMKEVdhdGNoRmxlZXRSZXF1ZXN0IrIBCgpGbGVldEV2ZW50EgsKA3NlcRgBIAEoAxIlCgR0eXBlGAIgASgOMhcuYXVyYS52MS5GbGVldEV2ZW50VHlwZRIfCgRub2RlGAMgASgLMhEuYXVyYS52MS5Ob2RlSW5mbxIjCghzbmFwc2hvdBgEIAMoCzIRLmF1cmEudjEuTm9kZUluZm8SKgoKcmVjb3JkaW5ncxgFIAMoCzIWLmF1cmEudjEuTm9kZVJlY29yZGluZyKFAQoTU3VibWl0RnVzaW9uUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg4KBnRhcmdldBgCIAEoCRIVCg1pb3VfdGhyZXNob2xkGAMgASgBEhQKDGZvcmNlX3Zpc2lvbhgEIAEoCBITCgtkZWFkbGluZV9tcxgFIAEoAxILCgN3aG8YBiABKAkiJgoUU3VibWl0RnVzaW9uUmVzcG9uc2USDgoGam9iX2lkGAEgASgJIigKFkdldEZ1c2lvblJlc3VsdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJIrkBChdHZXRGdXNpb25SZXN1bHRSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSFgoOdmlzaW9uX2ludm9rZWQYAiABKAgSFQoNaW91X3RocmVzaG9sZBgDIAEoARInCghlbGVtZW50cxgEIAMoCzIVLmF1cmEudjEuRnVzZWRFbGVtZW50EhIKCnJlc3VsdF9rZXkYBSABKAkSEAoIc2NyZWVuX3cYBiABKAUSEAoIc2NyZWVuX2gYByABKAUibwoMRnVzZWRFbGVtZW50Eg4KBnNvdXJjZRgBIAEoCRIOCgZib3VuZHMYAiADKAUSDAoEcm9sZRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB2NhcHRpb24YBSABKAkSEgoKY29uZmlkZW5jZRgGIAEoASJdChVSZWFkTm9kZVNjcmVlblJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCglqc29uX2FyZ3MYAiABKAwSEwoLZGVhZGxpbmVfbXMYAyABKAMSCwoDd2hvGAQgASgJIi8KFlJlYWROb2RlU2NyZWVuUmVzcG9uc2USFQoNanNvbl9lbnZlbG9wZRgBIAEoDCI/Cg1Ob2RlUmVjb3JkaW5nEg8KB25vZGVfaWQYASABKAkSCwoDd2hvGAIgASgJEhAKCHRyYWNlX2lkGAMgASgJInAKGkdlbmVyYXRlRW5yb2xsVG9rZW5SZXF1ZXN0EhYKDnBsYXRmb3JtX3Njb3BlGAEgASgJEhAKCHR0bF9zZWNzGAIgASgDEgwKBHVzZXMYAyABKAUSDQoFbGFiZWwYBCABKAkSCwoDd2hvGAUgASgJIlwKG0dlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIVCg1leHBpcmVzX2F0X21zGAIgASgDEhcKD2luc3RhbGxfY29tbWFuZBgDIAEoCSI2ChhSZXZva2VFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIiwKGVJldm9rZUVucm9sbFRva2VuUmVzcG9uc2USDwoHcmV2b2tlZBgBIAEoCCI2ChhSb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIloKGVJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSFQoNZXhwaXJlc19hdF9tcxgCIAEoAxIXCg9pbnN0YWxsX2NvbW1hbmQYAyABKAkiGQoXTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QiRAoYTGlzdEVucm9sbFRva2Vuc1Jlc3BvbnNlEigKBnRva2VucxgBIAMoCzIYLmF1cmEudjEuRW5yb2xsVG9rZW5JbmZvInMKD0Vucm9sbFRva2VuSW5mbxINCgV0b2tlbhgBIAEoCRIWCg5wbGF0Zm9ybV9zY29wZRgCIAEoCRIRCgl1c2VzX2xlZnQYAyABKAUSFQoNZXhwaXJlc19hdF9tcxgEIAEoAxIPCgdyZXZva2VkGAUgASgIIkkKFVVwZGF0ZU5vZGVNZXRhUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhAKCGxvY2F0aW9uGAMgASgJIikKFlVwZGF0ZU5vZGVNZXRhUmVzcG9uc2USDwoHdXBkYXRlZBgBIAEoCCIkChFEZWxldGVOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIiUKEkRlbGV0ZU5vZGVSZXNwb25zZRIPCgdkZWxldGVkGAEgASgIIj4KFUxpc3RSZWNvcmRpbmdzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAUSEgoKcGFnZV90b2tlbhgCIAEoCSJZChZMaXN0UmVjb3JkaW5nc1Jlc3BvbnNlEiYKCnJlY29yZGluZ3MYASADKAsyEi5hdXJhLnYxLlJlY29yZGluZxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkidAoJUmVjb3JkaW5nEgsKA2tleRgBIAEoCRIPCgdub2RlX2lkGAIgASgJEhIKCnNpemVfYnl0ZXMYAyABKAMSEgoKY3JlYXRlZF9tcxgEIAEoAxIPCgd0YXNrX2lkGAUgASgJEhAKCHRyYWNlX2lkGAYgASgJIigKFVJldm9rZU5vZGVDZXJ0UmVxdWVzdBIPCgdub2RlX2lkGAEgASgJIikKFlJldm9rZU5vZGVDZXJ0UmVzcG9uc2USDwoHcmV2b2tlZBgBIAEoCCIhCg5HZXRUYXNrUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJInMKD0dldFRhc2tSZXNwb25zZRIiCgR0YXNrGAEgASgLMhQuYXVyYS52MS5UYXNrU3VtbWFyeRIVCg1qc29uX2VudmVsb3BlGAIgASgMEhAKCHRyYWNlX2lkGAMgASgJEhMKC2ZpbmlzaGVkX21zGAQgASgDIjQKHEdldEFnZW50T2JzZXJ2YWJpbGl0eVJlcXVlc3QSFAoMd2luZG93X2hvdXJzGAEgASgDIqMBCh1HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXNwb25zZRIXCg9hY3RpdmVfc2Vzc2lvbnMYASABKAUSEwoLY2FsbHNfdG90YWwYAiABKAMSFAoMY2FsbHNfZmFpbGVkGAMgASgDEhcKD3A5NV9kdXJhdGlvbl9tcxgEIAEoAxIlCgl0b3BfdG9vbHMYBSADKAsyEi5hdXJhLnYxLlRvb2xDb3VudCIoCglUb29sQ291bnQSDAoEdG9vbBgBIAEoCRINCgVjb3VudBgCIAEoAyIrChhMaXN0QWdlbnRTZXNzaW9uc1JlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSJEChlMaXN0QWdlbnRTZXNzaW9uc1Jlc3BvbnNlEicKCHNlc3Npb25zGAEgAygLMhUuYXVyYS52MS5BZ2VudFNlc3Npb24iyAEKDEFnZW50U2Vzc2lvbhIPCgdub2RlX2lkGAEgASgJEgwKBHBlZXIYAiABKAkSEwoLY2xpZW50X25hbWUYAyABKAkSFgoOY2xpZW50X3ZlcnNpb24YBCABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgFIAEoCRIRCgl0cmFuc3BvcnQYBiABKAkSFQoNZmlyc3Rfc2Vlbl9tcxgHIAEoAxIUCgxsYXN0X3NlZW5fbXMYCCABKAMSEgoKY2FsbF9jb3VudBgJIAEoAyJdChVMaXN0QWdlbnRDYWxsc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkSDwoHbm9kZV9pZBgDIAEoCRIMCgR0b29sGAQgASgJIlQKFkxpc3RBZ2VudENhbGxzUmVzcG9uc2USIQoFY2FsbHMYASADKAsyEi5hdXJhLnYxLkFnZW50Q2FsbBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkirAEKCUFnZW50Q2FsbBIPCgdub2RlX2lkGAEgASgJEgwKBHBlZXIYAiABKAkSDgoGbWV0aG9kGAMgASgJEgwKBHRvb2wYBCABKAkSEwoLY2xpZW50X25hbWUYBSABKAkSEwoLZHVyYXRpb25fbXMYBiABKAMSCgoCb2sYByABKAgSEQoJdHJhbnNwb3J0GAggASgJEg0KBXRzX21zGAkgASgDEgoKAmlkGAogASgDKsQBCg5GbGVldEV2ZW50VHlwZRIgChxGTEVFVF9FVkVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASHwobRkxFRVRfRVZFTlRfVFlQRV9OT0RFX0FEREVEEAESIQodRkxFRVRfRVZFTlRfVFlQRV9OT0RFX1JFTU9WRUQQAhIjCh9GTEVFVF9FVkVOVF9UWVBFX1NUQVRVU19DSEFOR0VEEAMSJwojRkxFRVRfRVZFTlRfVFlQRV9IRUFSVEJFQVRfU05BUFNIT1QQBDLSDwoOQ29uc29sZVNlcnZpY2USSwoMR2V0RGFzaGJvYXJkEhwuYXVyYS52MS5HZXREYXNoYm9hcmRSZXF1ZXN0Gh0uYXVyYS52MS5HZXREYXNoYm9hcmRSZXNwb25zZRJCCglMaXN0VGFza3MSGS5hdXJhLnYxLkxpc3RUYXNrc1JlcXVlc3QaGi5hdXJhLnYxLkxpc3RUYXNrc1Jlc3BvbnNlEkUKCkxpc3RUcmFjZXMSGi5hdXJhLnYxLkxpc3RUcmFjZXNSZXF1ZXN0GhsuYXVyYS52MS5MaXN0VHJhY2VzUmVzcG9uc2USSAoLR2V0QXJ0aWZhY3QSGy5hdXJhLnYxLkdldEFydGlmYWN0UmVxdWVzdBocLmF1cmEudjEuR2V0QXJ0aWZhY3RSZXNwb25zZRJOCg1HZXRRdWV1ZURlcHRoEh0uYXVyYS52MS5HZXRRdWV1ZURlcHRoUmVxdWVzdBoeLmF1cmEudjEuR2V0UXVldWVEZXB0aFJlc3BvbnNlElcKEFJ1bk9yY2hlc3RyYXRpb24SIC5hdXJhLnYxLlJ1bk9yY2hlc3RyYXRpb25SZXF1ZXN0GiEuYXVyYS52MS5SdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USVwoQR2V0T3JjaGVzdHJhdGlvbhIgLmF1cmEudjEuR2V0T3JjaGVzdHJhdGlvblJlcXVlc3QaIS5hdXJhLnYxLkdldE9yY2hlc3RyYXRpb25SZXNwb25zZRJdChJMaXN0T3JjaGVzdHJhdGlvbnMSIi5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QaIy5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1Jlc3BvbnNlEj8KCldhdGNoRmxlZXQSGi5hdXJhLnYxLldhdGNoRmxlZXRSZXF1ZXN0GhMuYXVyYS52MS5GbGVldEV2ZW50MAESSwoMU3VibWl0RnVzaW9uEhwuYXVyYS52MS5TdWJtaXRGdXNpb25SZXF1ZXN0Gh0uYXVyYS52MS5TdWJtaXRGdXNpb25SZXNwb25zZRJUCg9HZXRGdXNpb25SZXN1bHQSHy5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlcXVlc3QaIC5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlc3BvbnNlElEKDlJlYWROb2RlU2NyZWVuEh4uYXVyYS52MS5SZWFkTm9kZVNjcmVlblJlcXVlc3QaHy5hdXJhLnYxLlJlYWROb2RlU2NyZWVuUmVzcG9uc2USYAoTR2VuZXJhdGVFbnJvbGxUb2tlbhIjLmF1cmEudjEuR2VuZXJhdGVFbnJvbGxUb2tlblJlcXVlc3QaJC5hdXJhLnYxLkdlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRJaChFSZXZva2VFbnJvbGxUb2tlbhIhLmF1cmEudjEuUmV2b2tlRW5yb2xsVG9rZW5SZXF1ZXN0GiIuYXVyYS52MS5SZXZva2VFbnJvbGxUb2tlblJlc3BvbnNlEloKEVJvdGF0ZUVucm9sbFRva2VuEiEuYXVyYS52MS5Sb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QaIi5hdXJhLnYxLlJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USVwoQTGlzdEVucm9sbFRva2VucxIgLmF1cmEudjEuTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QaIS5hdXJhLnYxLkxpc3RFbnJvbGxUb2tlbnNSZXNwb25zZRJRCg5VcGRhdGVOb2RlTWV0YRIeLmF1cmEudjEuVXBkYXRlTm9kZU1ldGFSZXF1ZXN0Gh8uYXVyYS52MS5VcGRhdGVOb2RlTWV0YVJlc3BvbnNlEkUKCkRlbGV0ZU5vZGUSGi5hdXJhLnYxLkRlbGV0ZU5vZGVSZXF1ZXN0GhsuYXVyYS52MS5EZWxldGVOb2RlUmVzcG9uc2USUQoOTGlzdFJlY29yZGluZ3MSHi5hdXJhLnYxLkxpc3RSZWNvcmRpbmdzUmVxdWVzdBofLmF1cmEudjEuTGlzdFJlY29yZGluZ3NSZXNwb25zZRJRCg5SZXZva2VOb2RlQ2VydBIeLmF1cmEudjEuUmV2b2tlTm9kZUNlcnRSZXF1ZXN0Gh8uYXVyYS52MS5SZXZva2VOb2RlQ2VydFJlc3BvbnNlEjwKB0dldFRhc2sSFy5hdXJhLnYxLkdldFRhc2tSZXF1ZXN0GhguYXVyYS52MS5HZXRUYXNrUmVzcG9uc2USZgoVR2V0QWdlbnRPYnNlcnZhYmlsaXR5EiUuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0GiYuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXNwb25zZRJaChFMaXN0QWdlbnRTZXNzaW9ucxIhLmF1cmEudjEuTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0GiIuYXVyYS52MS5MaXN0QWdlbnRTZXNzaW9uc1Jlc3BvbnNlElEKDkxpc3RBZ2VudENhbGxzEh4uYXVyYS52MS5MaXN0QWdlbnRDYWxsc1JlcXVlc3QaHy5hdXJhLnYxLkxpc3RBZ2VudENhbGxzUmVzcG9uc2VCL1otZ2l0aHViLmNvbS9hdXJhL2NvbnRyb2xsZXIvZ2VuL2F1cmEvdjE7YXVyYXYxYgZwcm90bzM", [file_aura_v1_node]);
+  fileDesc("ChVhdXJhL3YxL2NvbnNvbGUucHJvdG8SB2F1cmEudjEiFQoTR2V0RGFzaGJvYXJkUmVxdWVzdCKAAgoUR2V0RGFzaGJvYXJkUmVzcG9uc2USEwoLbm9kZXNfdG90YWwYASABKAUSFAoMbm9kZXNfb25saW5lGAIgASgFEhcKD25vZGVzX3VuaGVhbHRoeRgDIAEoBRIVCg1ub2Rlc19vZmZsaW5lGAQgASgFEhMKC3Rhc2tzX3RvdGFsGAUgASgDEhUKDXRhc2tzX3J1bm5pbmcYBiABKAMSFwoPdGFza3Nfc3VjY2VlZGVkGAcgASgDEhQKDHRhc2tzX2ZhaWxlZBgIIAEoAxIcChRvcmNoZXN0cmF0aW9uc190b3RhbBgJIAEoAxIUCgx0cmFjZXNfdG90YWwYCiABKAMiZAoQTGlzdFRhc2tzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAMSEgoKcGFnZV90b2tlbhgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhgKEG9yY2hlc3RyYXRpb25faWQYBCABKAkiUQoRTGlzdFRhc2tzUmVzcG9uc2USIwoFdGFza3MYASADKAsyFC5hdXJhLnYxLlRhc2tTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoLVGFza1N1bW1hcnkSDwoHdGFza19pZBgBIAEoCRIPCgdub2RlX2lkGAIgASgJEgwKBHRvb2wYAyABKAkSDgoGc3RhdHVzGAQgASgJEgsKA3dobxgFIAEoCRISCgpjcmVhdGVkX21zGAYgASgDEhgKEG9yY2hlc3RyYXRpb25faWQYByABKAkiOgoRTGlzdFRyYWNlc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkiVAoSTGlzdFRyYWNlc1Jlc3BvbnNlEiUKBnRyYWNlcxgBIAMoCzIVLmF1cmEudjEuVHJhY2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoMVHJhY2VTdW1tYXJ5EhAKCHRyYWNlX2lkGAEgASgJEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKc3RlcF9jb3VudBgEIAEoAxILCgN3aG8YBSABKAkSEgoKc3RhcnRlZF9tcxgGIAEoAxIOCgZzdGF0dXMYByABKAkiIQoSR2V0QXJ0aWZhY3RSZXF1ZXN0EgsKA2tleRgBIAEoCSI5ChNHZXRBcnRpZmFjdFJlc3BvbnNlEgwKBGRhdGEYASABKAwSFAoMY29udGVudF90eXBlGAIgASgJIicKFEdldFF1ZXVlRGVwdGhSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiJgoVR2V0UXVldWVEZXB0aFJlc3BvbnNlEg0KBWRlcHRoGAEgASgFIoEBChdSdW5PcmNoZXN0cmF0aW9uUmVxdWVzdBIMCgR0b29sGAEgASgJEhEKCWpzb25fYXJncxgCIAEoDBIQCghub2RlX2lkcxgDIAMoCRIRCgllbnZfZ3JvdXAYBCABKAkSEwoLZGVhZGxpbmVfbXMYBSABKAMSCwoDd2hvGAYgASgJIpgBChhSdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSDQoFdG90YWwYAyABKAUSDgoGcGFzc2VkGAQgASgFEg4KBmZhaWxlZBgFIAEoBRIjCgdwZXJfZW52GAYgAygLMhIuYXVyYS52MS5FbnZSZXN1bHQiaAoJRW52UmVzdWx0Eg8KB25vZGVfaWQYASABKAkSDwoHdGFza19pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBISCgpsYXRlbmN5X21zGAUgASgDIjMKF0dldE9yY2hlc3RyYXRpb25SZXF1ZXN0EhgKEG9yY2hlc3RyYXRpb25faWQYASABKAkiYgoYR2V0T3JjaGVzdHJhdGlvblJlc3BvbnNlEjQKDW9yY2hlc3RyYXRpb24YASABKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhAKCHRhc2tfaWRzGAIgAygJIkIKGUxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkibAoaTGlzdE9yY2hlc3RyYXRpb25zUmVzcG9uc2USNQoOb3JjaGVzdHJhdGlvbnMYASADKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKwAQoUT3JjaGVzdHJhdGlvblN1bW1hcnkSGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIMCgR0b29sGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgV0b3RhbBgEIAEoBRIOCgZwYXNzZWQYBSABKAUSDgoGZmFpbGVkGAYgASgFEgsKA3dobxgHIAEoCRISCgpzdGFydGVkX21zGAggASgDEhAKCHRyYWNlX2lkGAkgASgJIhMKEVdhdGNoRmxlZXRSZXF1ZXN0IrIBCgpGbGVldEV2ZW50EgsKA3NlcRgBIAEoAxIlCgR0eXBlGAIgASgOMhcuYXVyYS52MS5GbGVldEV2ZW50VHlwZRIfCgRub2RlGAMgASgLMhEuYXVyYS52MS5Ob2RlSW5mbxIjCghzbmFwc2hvdBgEIAMoCzIRLmF1cmEudjEuTm9kZUluZm8SKgoKcmVjb3JkaW5ncxgFIAMoCzIWLmF1cmEudjEuTm9kZVJlY29yZGluZyKFAQoTU3VibWl0RnVzaW9uUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg4KBnRhcmdldBgCIAEoCRIVCg1pb3VfdGhyZXNob2xkGAMgASgBEhQKDGZvcmNlX3Zpc2lvbhgEIAEoCBITCgtkZWFkbGluZV9tcxgFIAEoAxILCgN3aG8YBiABKAkiJgoUU3VibWl0RnVzaW9uUmVzcG9uc2USDgoGam9iX2lkGAEgASgJIigKFkdldEZ1c2lvblJlc3VsdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJIrkBChdHZXRGdXNpb25SZXN1bHRSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSFgoOdmlzaW9uX2ludm9rZWQYAiABKAgSFQoNaW91X3RocmVzaG9sZBgDIAEoARInCghlbGVtZW50cxgEIAMoCzIVLmF1cmEudjEuRnVzZWRFbGVtZW50EhIKCnJlc3VsdF9rZXkYBSABKAkSEAoIc2NyZWVuX3cYBiABKAUSEAoIc2NyZWVuX2gYByABKAUibwoMRnVzZWRFbGVtZW50Eg4KBnNvdXJjZRgBIAEoCRIOCgZib3VuZHMYAiADKAUSDAoEcm9sZRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB2NhcHRpb24YBSABKAkSEgoKY29uZmlkZW5jZRgGIAEoASJdChVSZWFkTm9kZVNjcmVlblJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCglqc29uX2FyZ3MYAiABKAwSEwoLZGVhZGxpbmVfbXMYAyABKAMSCwoDd2hvGAQgASgJIi8KFlJlYWROb2RlU2NyZWVuUmVzcG9uc2USFQoNanNvbl9lbnZlbG9wZRgBIAEoDCI/Cg1Ob2RlUmVjb3JkaW5nEg8KB25vZGVfaWQYASABKAkSCwoDd2hvGAIgASgJEhAKCHRyYWNlX2lkGAMgASgJIoEBChpHZW5lcmF0ZUVucm9sbFRva2VuUmVxdWVzdBIWCg5wbGF0Zm9ybV9zY29wZRgBIAEoCRIQCgh0dGxfc2VjcxgCIAEoAxIMCgR1c2VzGAMgASgFEg0KBWxhYmVsGAQgASgJEgsKA3dobxgFIAEoCRIPCgdwcm9qZWN0GAYgASgJIlwKG0dlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIVCg1leHBpcmVzX2F0X21zGAIgASgDEhcKD2luc3RhbGxfY29tbWFuZBgDIAEoCSI2ChhSZXZva2VFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIiwKGVJldm9rZUVucm9sbFRva2VuUmVzcG9uc2USDwoHcmV2b2tlZBgBIAEoCCI2ChhSb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIloKGVJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSFQoNZXhwaXJlc19hdF9tcxgCIAEoAxIXCg9pbnN0YWxsX2NvbW1hbmQYAyABKAkiGQoXTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QiRAoYTGlzdEVucm9sbFRva2Vuc1Jlc3BvbnNlEigKBnRva2VucxgBIAMoCzIYLmF1cmEudjEuRW5yb2xsVG9rZW5JbmZvIoQBCg9FbnJvbGxUb2tlbkluZm8SDQoFdG9rZW4YASABKAkSFgoOcGxhdGZvcm1fc2NvcGUYAiABKAkSEQoJdXNlc19sZWZ0GAMgASgFEhUKDWV4cGlyZXNfYXRfbXMYBCABKAMSDwoHcmV2b2tlZBgFIAEoCBIPCgdwcm9qZWN0GAYgASgJImsKFVVwZGF0ZU5vZGVNZXRhUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhAKCGxvY2F0aW9uGAMgASgJEhQKB3Byb2plY3QYBCABKAlIAIgBAUIKCghfcHJvamVjdCIpChZVcGRhdGVOb2RlTWV0YVJlc3BvbnNlEg8KB3VwZGF0ZWQYASABKAgiJAoRRGVsZXRlTm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIlChJEZWxldGVOb2RlUmVzcG9uc2USDwoHZGVsZXRlZBgBIAEoCCI+ChVMaXN0UmVjb3JkaW5nc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEhIKCnBhZ2VfdG9rZW4YAiABKAkiWQoWTGlzdFJlY29yZGluZ3NSZXNwb25zZRImCgpyZWNvcmRpbmdzGAEgAygLMhIuYXVyYS52MS5SZWNvcmRpbmcSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJInQKCVJlY29yZGluZxILCgNrZXkYASABKAkSDwoHbm9kZV9pZBgCIAEoCRISCgpzaXplX2J5dGVzGAMgASgDEhIKCmNyZWF0ZWRfbXMYBCABKAMSDwoHdGFza19pZBgFIAEoCRIQCgh0cmFjZV9pZBgGIAEoCSIoChVSZXZva2VOb2RlQ2VydFJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIpChZSZXZva2VOb2RlQ2VydFJlc3BvbnNlEg8KB3Jldm9rZWQYASABKAgiIQoOR2V0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCSJzCg9HZXRUYXNrUmVzcG9uc2USIgoEdGFzaxgBIAEoCzIULmF1cmEudjEuVGFza1N1bW1hcnkSFQoNanNvbl9lbnZlbG9wZRgCIAEoDBIQCgh0cmFjZV9pZBgDIAEoCRITCgtmaW5pc2hlZF9tcxgEIAEoAyI0ChxHZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0EhQKDHdpbmRvd19ob3VycxgBIAEoAyKjAQodR2V0QWdlbnRPYnNlcnZhYmlsaXR5UmVzcG9uc2USFwoPYWN0aXZlX3Nlc3Npb25zGAEgASgFEhMKC2NhbGxzX3RvdGFsGAIgASgDEhQKDGNhbGxzX2ZhaWxlZBgDIAEoAxIXCg9wOTVfZHVyYXRpb25fbXMYBCABKAMSJQoJdG9wX3Rvb2xzGAUgAygLMhIuYXVyYS52MS5Ub29sQ291bnQiKAoJVG9vbENvdW50EgwKBHRvb2wYASABKAkSDQoFY291bnQYAiABKAMiKwoYTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiRAoZTGlzdEFnZW50U2Vzc2lvbnNSZXNwb25zZRInCghzZXNzaW9ucxgBIAMoCzIVLmF1cmEudjEuQWdlbnRTZXNzaW9uIsgBCgxBZ2VudFNlc3Npb24SDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEhMKC2NsaWVudF9uYW1lGAMgASgJEhYKDmNsaWVudF92ZXJzaW9uGAQgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBSABKAkSEQoJdHJhbnNwb3J0GAYgASgJEhUKDWZpcnN0X3NlZW5fbXMYByABKAMSFAoMbGFzdF9zZWVuX21zGAggASgDEhIKCmNhbGxfY291bnQYCSABKAMiXQoVTGlzdEFnZW50Q2FsbHNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoAxISCgpwYWdlX3Rva2VuGAIgASgJEg8KB25vZGVfaWQYAyABKAkSDAoEdG9vbBgEIAEoCSJUChZMaXN0QWdlbnRDYWxsc1Jlc3BvbnNlEiEKBWNhbGxzGAEgAygLMhIuYXVyYS52MS5BZ2VudENhbGwSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIqwBCglBZ2VudENhbGwSDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEg4KBm1ldGhvZBgDIAEoCRIMCgR0b29sGAQgASgJEhMKC2NsaWVudF9uYW1lGAUgASgJEhMKC2R1cmF0aW9uX21zGAYgASgDEgoKAm9rGAcgASgIEhEKCXRyYW5zcG9ydBgIIAEoCRINCgV0c19tcxgJIAEoAxIKCgJpZBgKIAEoAyJkChVDcmVhdGVBcGlUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCRINCgVzY29wZRgCIAEoCRIPCgdwcm9qZWN0GAMgASgJEhAKCHR0bF9zZWNzGAQgASgDEgsKA3dobxgFIAEoCSJZChZDcmVhdGVBcGlUb2tlblJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBnNlY3JldBgCIAEoCRIjCgRpbmZvGAMgASgLMhUuYXVyYS52MS5BcGlUb2tlbkluZm8iFgoUTGlzdEFwaVRva2Vuc1JlcXVlc3QiPgoVTGlzdEFwaVRva2Vuc1Jlc3BvbnNlEiUKBnRva2VucxgBIAMoCzIVLmF1cmEudjEuQXBpVG9rZW5JbmZvIsMBCgxBcGlUb2tlbkluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVzY29wZRgDIAEoCRIPCgdwcm9qZWN0GAQgASgJEhMKC3NlY3JldF9oaW50GAUgASgJEhIKCmNyZWF0ZWRfbXMYBiABKAMSFQoNZXhwaXJlc19hdF9tcxgHIAEoAxIUCgxsYXN0X3VzZWRfbXMYCCABKAMSDwoHcmV2b2tlZBgJIAEoCBISCgpjcmVhdGVkX2J5GAogASgJIjAKFVJldm9rZUFwaVRva2VuUmVxdWVzdBIKCgJpZBgBIAEoCRILCgN3aG8YAiABKAkiKQoWUmV2b2tlQXBpVG9rZW5SZXNwb25zZRIPCgdyZXZva2VkGAEgASgIKsQBCg5GbGVldEV2ZW50VHlwZRIgChxGTEVFVF9FVkVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASHwobRkxFRVRfRVZFTlRfVFlQRV9OT0RFX0FEREVEEAESIQodRkxFRVRfRVZFTlRfVFlQRV9OT0RFX1JFTU9WRUQQAhIjCh9GTEVFVF9FVkVOVF9UWVBFX1NUQVRVU19DSEFOR0VEEAMSJwojRkxFRVRfRVZFTlRfVFlQRV9IRUFSVEJFQVRfU05BUFNIT1QQBDLIEQoOQ29uc29sZVNlcnZpY2USSwoMR2V0RGFzaGJvYXJkEhwuYXVyYS52MS5HZXREYXNoYm9hcmRSZXF1ZXN0Gh0uYXVyYS52MS5HZXREYXNoYm9hcmRSZXNwb25zZRJCCglMaXN0VGFza3MSGS5hdXJhLnYxLkxpc3RUYXNrc1JlcXVlc3QaGi5hdXJhLnYxLkxpc3RUYXNrc1Jlc3BvbnNlEkUKCkxpc3RUcmFjZXMSGi5hdXJhLnYxLkxpc3RUcmFjZXNSZXF1ZXN0GhsuYXVyYS52MS5MaXN0VHJhY2VzUmVzcG9uc2USSAoLR2V0QXJ0aWZhY3QSGy5hdXJhLnYxLkdldEFydGlmYWN0UmVxdWVzdBocLmF1cmEudjEuR2V0QXJ0aWZhY3RSZXNwb25zZRJOCg1HZXRRdWV1ZURlcHRoEh0uYXVyYS52MS5HZXRRdWV1ZURlcHRoUmVxdWVzdBoeLmF1cmEudjEuR2V0UXVldWVEZXB0aFJlc3BvbnNlElcKEFJ1bk9yY2hlc3RyYXRpb24SIC5hdXJhLnYxLlJ1bk9yY2hlc3RyYXRpb25SZXF1ZXN0GiEuYXVyYS52MS5SdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USVwoQR2V0T3JjaGVzdHJhdGlvbhIgLmF1cmEudjEuR2V0T3JjaGVzdHJhdGlvblJlcXVlc3QaIS5hdXJhLnYxLkdldE9yY2hlc3RyYXRpb25SZXNwb25zZRJdChJMaXN0T3JjaGVzdHJhdGlvbnMSIi5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QaIy5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1Jlc3BvbnNlEj8KCldhdGNoRmxlZXQSGi5hdXJhLnYxLldhdGNoRmxlZXRSZXF1ZXN0GhMuYXVyYS52MS5GbGVldEV2ZW50MAESSwoMU3VibWl0RnVzaW9uEhwuYXVyYS52MS5TdWJtaXRGdXNpb25SZXF1ZXN0Gh0uYXVyYS52MS5TdWJtaXRGdXNpb25SZXNwb25zZRJUCg9HZXRGdXNpb25SZXN1bHQSHy5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlcXVlc3QaIC5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlc3BvbnNlElEKDlJlYWROb2RlU2NyZWVuEh4uYXVyYS52MS5SZWFkTm9kZVNjcmVlblJlcXVlc3QaHy5hdXJhLnYxLlJlYWROb2RlU2NyZWVuUmVzcG9uc2USYAoTR2VuZXJhdGVFbnJvbGxUb2tlbhIjLmF1cmEudjEuR2VuZXJhdGVFbnJvbGxUb2tlblJlcXVlc3QaJC5hdXJhLnYxLkdlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRJaChFSZXZva2VFbnJvbGxUb2tlbhIhLmF1cmEudjEuUmV2b2tlRW5yb2xsVG9rZW5SZXF1ZXN0GiIuYXVyYS52MS5SZXZva2VFbnJvbGxUb2tlblJlc3BvbnNlEloKEVJvdGF0ZUVucm9sbFRva2VuEiEuYXVyYS52MS5Sb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QaIi5hdXJhLnYxLlJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USVwoQTGlzdEVucm9sbFRva2VucxIgLmF1cmEudjEuTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QaIS5hdXJhLnYxLkxpc3RFbnJvbGxUb2tlbnNSZXNwb25zZRJRCg5VcGRhdGVOb2RlTWV0YRIeLmF1cmEudjEuVXBkYXRlTm9kZU1ldGFSZXF1ZXN0Gh8uYXVyYS52MS5VcGRhdGVOb2RlTWV0YVJlc3BvbnNlEkUKCkRlbGV0ZU5vZGUSGi5hdXJhLnYxLkRlbGV0ZU5vZGVSZXF1ZXN0GhsuYXVyYS52MS5EZWxldGVOb2RlUmVzcG9uc2USUQoOTGlzdFJlY29yZGluZ3MSHi5hdXJhLnYxLkxpc3RSZWNvcmRpbmdzUmVxdWVzdBofLmF1cmEudjEuTGlzdFJlY29yZGluZ3NSZXNwb25zZRJRCg5SZXZva2VOb2RlQ2VydBIeLmF1cmEudjEuUmV2b2tlTm9kZUNlcnRSZXF1ZXN0Gh8uYXVyYS52MS5SZXZva2VOb2RlQ2VydFJlc3BvbnNlEjwKB0dldFRhc2sSFy5hdXJhLnYxLkdldFRhc2tSZXF1ZXN0GhguYXVyYS52MS5HZXRUYXNrUmVzcG9uc2USZgoVR2V0QWdlbnRPYnNlcnZhYmlsaXR5EiUuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0GiYuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXNwb25zZRJaChFMaXN0QWdlbnRTZXNzaW9ucxIhLmF1cmEudjEuTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0GiIuYXVyYS52MS5MaXN0QWdlbnRTZXNzaW9uc1Jlc3BvbnNlElEKDkxpc3RBZ2VudENhbGxzEh4uYXVyYS52MS5MaXN0QWdlbnRDYWxsc1JlcXVlc3QaHy5hdXJhLnYxLkxpc3RBZ2VudENhbGxzUmVzcG9uc2USUQoOQ3JlYXRlQXBpVG9rZW4SHi5hdXJhLnYxLkNyZWF0ZUFwaVRva2VuUmVxdWVzdBofLmF1cmEudjEuQ3JlYXRlQXBpVG9rZW5SZXNwb25zZRJOCg1MaXN0QXBpVG9rZW5zEh0uYXVyYS52MS5MaXN0QXBpVG9rZW5zUmVxdWVzdBoeLmF1cmEudjEuTGlzdEFwaVRva2Vuc1Jlc3BvbnNlElEKDlJldm9rZUFwaVRva2VuEh4uYXVyYS52MS5SZXZva2VBcGlUb2tlblJlcXVlc3QaHy5hdXJhLnYxLlJldm9rZUFwaVRva2VuUmVzcG9uc2VCL1otZ2l0aHViLmNvbS9hdXJhL2NvbnRyb2xsZXIvZ2VuL2F1cmEvdjE7YXVyYXYxYgZwcm90bzM", [file_aura_v1_node]);
 
 /**
  * @generated from message aura.v1.GetDashboardRequest
@@ -1161,6 +1161,13 @@ export type GenerateEnrollTokenRequest = Message<"aura.v1.GenerateEnrollTokenReq
    * @generated from field: string who = 5;
    */
   who: string;
+
+  /**
+   * M15：节点入网即归属的项目（空=不归属；项目令牌生成时强制=本项目）
+   *
+   * @generated from field: string project = 6;
+   */
+  project: string;
 };
 
 /**
@@ -1383,6 +1390,13 @@ export type EnrollTokenInfo = Message<"aura.v1.EnrollTokenInfo"> & {
    * @generated from field: bool revoked = 5;
    */
   revoked: boolean;
+
+  /**
+   * M15：该 token enroll 的节点归属项目（空=不归属）
+   *
+   * @generated from field: string project = 6;
+   */
+  project: string;
 };
 
 /**
@@ -1393,7 +1407,7 @@ export const EnrollTokenInfoSchema: GenMessage<EnrollTokenInfo> = /*@__PURE__*/
   messageDesc(file_aura_v1_console, 38);
 
 /**
- * 编辑节点元数据（label/location 存 nodes 表持久；name 由节点自报不经此编辑）。
+ * 编辑节点元数据（label/location/project 存 nodes 表持久；name 由节点自报不经此编辑）。
  *
  * @generated from message aura.v1.UpdateNodeMetaRequest
  */
@@ -1418,6 +1432,15 @@ export type UpdateNodeMetaRequest = Message<"aura.v1.UpdateNodeMetaRequest"> & {
    * @generated from field: string location = 3;
    */
   location: string;
+
+  /**
+   * M15：项目归属（管理面权威单写方）。optional 显式 presence：未携带=不改动（老 console/旧客户端
+   * 兼容，绝不静默清空归属）；携带（含空串=清除归属）即写入。项目令牌不可经此改归属——改归属即
+   * 越权迁移节点，transport 层限全域令牌。
+   *
+   * @generated from field: optional string project = 4;
+   */
+  project?: string | undefined;
 };
 
 /**
@@ -2054,6 +2077,252 @@ export const AgentCallSchema: GenMessage<AgentCall> = /*@__PURE__*/
   messageDesc(file_aura_v1_console, 58);
 
 /**
+ * 创建 API 令牌。scope 必填三档之一；ttl_secs=0 即永不过期（管控令牌长期使用为常态，区别于 enroll
+ * token 的短时默认）；name 必填非空（审计身份，tasks.who / 审计日志归因）。
+ *
+ * @generated from message aura.v1.CreateApiTokenRequest
+ */
+export type CreateApiTokenRequest = Message<"aura.v1.CreateApiTokenRequest"> & {
+  /**
+   * 令牌名（审计身份，必填非空）
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * 档位 ro|ops|admin
+   *
+   * @generated from field: string scope = 2;
+   */
+  scope: string;
+
+  /**
+   * 归属项目（空=全域；项目 admin 创建时强制=本项目）
+   *
+   * @generated from field: string project = 3;
+   */
+  project: string;
+
+  /**
+   * 有效期秒（0=永不过期）
+   *
+   * @generated from field: int64 ttl_secs = 4;
+   */
+  ttlSecs: bigint;
+
+  /**
+   * 审计：创建方标识
+   *
+   * @generated from field: string who = 5;
+   */
+  who: string;
+};
+
+/**
+ * Describes the message aura.v1.CreateApiTokenRequest.
+ * Use `create(CreateApiTokenRequestSchema)` to create a new message.
+ */
+export const CreateApiTokenRequestSchema: GenMessage<CreateApiTokenRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 59);
+
+/**
+ * @generated from message aura.v1.CreateApiTokenResponse
+ */
+export type CreateApiTokenResponse = Message<"aura.v1.CreateApiTokenResponse"> & {
+  /**
+   * 令牌 UUID（治理句柄，吊销用）
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 令牌明文（仅此一次返回；服务端只存哈希，丢失须重建）
+   *
+   * @generated from field: string secret = 2;
+   */
+  secret: string;
+
+  /**
+   * 创建后的状态投影
+   *
+   * @generated from field: aura.v1.ApiTokenInfo info = 3;
+   */
+  info?: ApiTokenInfo | undefined;
+};
+
+/**
+ * Describes the message aura.v1.CreateApiTokenResponse.
+ * Use `create(CreateApiTokenResponseSchema)` to create a new message.
+ */
+export const CreateApiTokenResponseSchema: GenMessage<CreateApiTokenResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 60);
+
+/**
+ * 列举 API 令牌（治理表；admin 小表全列不分页，同 ListEnrollTokens 契约）。项目 admin 仅见本项目令牌。
+ *
+ * @generated from message aura.v1.ListApiTokensRequest
+ */
+export type ListApiTokensRequest = Message<"aura.v1.ListApiTokensRequest"> & {
+};
+
+/**
+ * Describes the message aura.v1.ListApiTokensRequest.
+ * Use `create(ListApiTokensRequestSchema)` to create a new message.
+ */
+export const ListApiTokensRequestSchema: GenMessage<ListApiTokensRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 61);
+
+/**
+ * @generated from message aura.v1.ListApiTokensResponse
+ */
+export type ListApiTokensResponse = Message<"aura.v1.ListApiTokensResponse"> & {
+  /**
+   * @generated from field: repeated aura.v1.ApiTokenInfo tokens = 1;
+   */
+  tokens: ApiTokenInfo[];
+};
+
+/**
+ * Describes the message aura.v1.ListApiTokensResponse.
+ * Use `create(ListApiTokensResponseSchema)` to create a new message.
+ */
+export const ListApiTokensResponseSchema: GenMessage<ListApiTokensResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 62);
+
+/**
+ * API 令牌状态投影（治理表行；不含 secret/哈希）。
+ *
+ * @generated from message aura.v1.ApiTokenInfo
+ */
+export type ApiTokenInfo = Message<"aura.v1.ApiTokenInfo"> & {
+  /**
+   * 令牌 UUID
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 令牌名（审计身份）
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * 档位 ro|ops|admin
+   *
+   * @generated from field: string scope = 3;
+   */
+  scope: string;
+
+  /**
+   * 归属项目（空=全域）
+   *
+   * @generated from field: string project = 4;
+   */
+  project: string;
+
+  /**
+   * 明文前缀提示（辨识用，如 aura_ab12cd3…）
+   *
+   * @generated from field: string secret_hint = 5;
+   */
+  secretHint: string;
+
+  /**
+   * 创建时刻（毫秒）
+   *
+   * @generated from field: int64 created_ms = 6;
+   */
+  createdMs: bigint;
+
+  /**
+   * 过期时刻（毫秒；0=永不过期）
+   *
+   * @generated from field: int64 expires_at_ms = 7;
+   */
+  expiresAtMs: bigint;
+
+  /**
+   * 最近使用时刻（毫秒；0=从未使用，60s 粒度节流回写）
+   *
+   * @generated from field: int64 last_used_ms = 8;
+   */
+  lastUsedMs: bigint;
+
+  /**
+   * 是否已吊销
+   *
+   * @generated from field: bool revoked = 9;
+   */
+  revoked: boolean;
+
+  /**
+   * 创建方标识（审计）
+   *
+   * @generated from field: string created_by = 10;
+   */
+  createdBy: string;
+};
+
+/**
+ * Describes the message aura.v1.ApiTokenInfo.
+ * Use `create(ApiTokenInfoSchema)` to create a new message.
+ */
+export const ApiTokenInfoSchema: GenMessage<ApiTokenInfo> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 63);
+
+/**
+ * 吊销 API 令牌（立即失效：BearerMiddleware 查验 WHERE NOT revoked）。
+ *
+ * @generated from message aura.v1.RevokeApiTokenRequest
+ */
+export type RevokeApiTokenRequest = Message<"aura.v1.RevokeApiTokenRequest"> & {
+  /**
+   * 待吊销令牌 UUID
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 审计：吊销方标识
+   *
+   * @generated from field: string who = 2;
+   */
+  who: string;
+};
+
+/**
+ * Describes the message aura.v1.RevokeApiTokenRequest.
+ * Use `create(RevokeApiTokenRequestSchema)` to create a new message.
+ */
+export const RevokeApiTokenRequestSchema: GenMessage<RevokeApiTokenRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 64);
+
+/**
+ * @generated from message aura.v1.RevokeApiTokenResponse
+ */
+export type RevokeApiTokenResponse = Message<"aura.v1.RevokeApiTokenResponse"> & {
+  /**
+   * 是否成功吊销（不存在/已吊销则 false）
+   *
+   * @generated from field: bool revoked = 1;
+   */
+  revoked: boolean;
+};
+
+/**
+ * Describes the message aura.v1.RevokeApiTokenResponse.
+ * Use `create(RevokeApiTokenResponseSchema)` to create a new message.
+ */
+export const RevokeApiTokenResponseSchema: GenMessage<RevokeApiTokenResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 65);
+
+/**
  * 舰队事件类型。增量事件（NODE_ADDED/REMOVED/STATUS_CHANGED）携单节点 node；
  * HEARTBEAT_SNAPSHOT 携全量 snapshot（首帧 + 周期重同步）。
  *
@@ -2362,6 +2631,35 @@ export const ConsoleService: GenService<{
     methodKind: "unary";
     input: typeof ListAgentCallsRequestSchema;
     output: typeof ListAgentCallsResponseSchema;
+  },
+  /**
+   * ===== API 访问令牌治理（M15，additive）：管控 bearer 令牌实体化 =====
+   * env 静态令牌（AURA_BEARER_TOKEN*）继续有效=全域凭据（零破坏兼容）；本组 RPC 管 DB 实体令牌
+   * （名字身份/档位/项目归属/过期/吊销/最近使用）。仅 admin 档可用；项目 admin 只能治理本项目令牌
+   * （创建强制归本项目 + 列表过滤，transport 层约束）。明文 secret 仅创建响应返回一次，服务端只存哈希。
+   *
+   * @generated from rpc aura.v1.ConsoleService.CreateApiToken
+   */
+  createApiToken: {
+    methodKind: "unary";
+    input: typeof CreateApiTokenRequestSchema;
+    output: typeof CreateApiTokenResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.ListApiTokens
+   */
+  listApiTokens: {
+    methodKind: "unary";
+    input: typeof ListApiTokensRequestSchema;
+    output: typeof ListApiTokensResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.RevokeApiToken
+   */
+  revokeApiToken: {
+    methodKind: "unary";
+    input: typeof RevokeApiTokenRequestSchema;
+    output: typeof RevokeApiTokenResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_aura_v1_console, 0);

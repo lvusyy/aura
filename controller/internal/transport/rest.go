@@ -2,13 +2,16 @@ package transport
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -27,22 +30,57 @@ type ControllerAdminServer struct {
 	gateway     *gateway.Gateway
 	scheduler   *scheduler.Scheduler
 	provisioner provisioner.EnvProvider // 可为 nil（未配置任何 provider 时环境接口返回 Unavailable）
+	pg          *store.PGStore          // 可为 nil（M15 项目隔离判据源；nil=节点视同未归属，见 CheckNodeProjectAccess）
 }
 
 // NewControllerAdminServer 构造管理面服务。prov 是 EnvProvider（PVE 或 K8s，单选装配），
 // 可为 nil（未配置任何 provider；main.go 保持接口为 nil 而非 typed-nil 以令下方 nil 判断生效）。
 // sched 承接 M6 录制会话租约（StartTrace/StopTrace），与 gateway 直接持有各自所需组件的惯例一致。
-func NewControllerAdminServer(reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider) *ControllerAdminServer {
-	return &ControllerAdminServer{registry: reg, gateway: gw, scheduler: sched, provisioner: prov}
+// pg 供 M15 项目隔离判据（nodes.project 解析 + 列表视界过滤），可为 nil。
+func NewControllerAdminServer(reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider, pg *store.PGStore) *ControllerAdminServer {
+	return &ControllerAdminServer{registry: reg, gateway: gw, scheduler: sched, provisioner: prov, pg: pg}
 }
 
-// ListNodes 返回所有在线节点及其 online/unhealthy 状态。
+// ListNodes 返回所有在线节点及其 online/unhealthy 状态。M15：项目令牌仅见本项目节点（按
+// nodes.project 集合过滤；全域令牌零成本全量）。
 func (s *ControllerAdminServer) ListNodes(
-	_ context.Context,
+	ctx context.Context,
 	_ *connect.Request[aurav1.ListNodesRequest],
 ) (*connect.Response[aurav1.ListNodesResponse], error) {
 	nodes := s.registry.List()
+	nodes, err := filterNodesByProject(ctx, s.pg, nodes)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&aurav1.ListNodesResponse{Nodes: nodes}), nil
+}
+
+// filterNodesByProject 按令牌项目视界过滤 NodeInfo 集（M15）：全域令牌原样返回（零 DB 成本）；项目
+// 令牌以 ProjectNodeIDs 集合取交（registry 会话不携 project——归属是管理面持久列非节点自报，故按
+// 库侧集合过滤而非读 NodeInfo 字段，在线/离线路径同一判据）。解析失败 fail-closed 报错。
+func filterNodesByProject(ctx context.Context, pg *store.PGStore, nodes []*aurav1.NodeInfo) ([]*aurav1.NodeInfo, error) {
+	tok := IdentityFromContext(ctx)
+	if tok.Project == "" {
+		return nodes, nil
+	}
+	if pg == nil {
+		return nil, nil // 无持久层即无归属节点：项目令牌视界为空集（不变量：无 PG 即无 DB 项目令牌）
+	}
+	ids, err := pg.ProjectNodeIDs(ctx, tok.Project)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve project nodes: %w", err))
+	}
+	allowed := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	out := make([]*aurav1.NodeInfo, 0, len(nodes))
+	for _, n := range nodes {
+		if _, ok := allowed[n.GetNodeId()]; ok {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 // DispatchTool 经控制面转发工具调用到指定节点。
@@ -56,6 +94,13 @@ func (s *ControllerAdminServer) DispatchTool(
 ) (*connect.Response[aurav1.DispatchToolResponse], error) {
 	if err := CheckDispatchScope(ctx, req.Msg.GetTool()); err != nil {
 		return nil, err
+	}
+	// M15 项目隔离 + 审计归因：越界节点拒派发；who 未填时以令牌身份归因（tasks.who 落 DB 令牌名）。
+	if err := CheckNodeProjectAccess(ctx, s.pg, req.Msg.GetNodeId()); err != nil {
+		return nil, err
+	}
+	if id := IdentityFromContext(ctx); req.Msg.GetWho() == "" && id.Name != "" {
+		req.Msg.Who = id.Name
 	}
 	auditDispatch(ctx, "DispatchTool", req.Msg.GetWho(), req.Msg.GetNodeId(), req.Msg.GetTool(), len(req.Msg.GetJsonArgs()))
 	env := s.gateway.Dispatch(ctx, req.Msg)
@@ -102,9 +147,13 @@ func (s *ControllerAdminServer) DestroyEnvironment(
 // StartTrace 开始录制会话：对目标节点建立 per-node 独占租约并返回新 trace_id（TASK-002 真实现）。
 // node 已被其他会话录制中 → CodeResourceExhausted（E_BUSY 语义，per-node 独占）。经 BearerMiddleware 鉴权。
 func (s *ControllerAdminServer) StartTrace(
-	_ context.Context,
+	ctx context.Context,
 	req *connect.Request[aurav1.StartTraceRequest],
 ) (*connect.Response[aurav1.StartTraceResponse], error) {
+	// M15：录制租约同为节点寻址操作，项目令牌越界即拒（StopTrace 以 trace_id 随机句柄自证持有，不重检）。
+	if err := CheckNodeProjectAccess(ctx, s.pg, req.Msg.GetNodeId()); err != nil {
+		return nil, err
+	}
 	traceID, err := s.scheduler.StartTrace(req.Msg.GetNodeId(), req.Msg.GetWho())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeResourceExhausted, err)
@@ -236,7 +285,16 @@ func SingleToken(token string) TokenScopes {
 	return TokenScopes{token: ScopeAdmin}
 }
 
-// scopeKeyT 是请求 ctx 的 scope 注入键（unexported 空结构防跨包碰撞，同 peerCertFPKey 纪律）。
+// TokenIdentity 是一次请求的令牌身份（M15）：审计名 + 档位 + 项目视界。middleware 注入 ctx，全部
+// 检查点（dispatch 档位门控 / 项目隔离 / 审计归因）统一从 ctx 取。零值（未注入：内部调用/测试裸
+// ctx）视同全域 admin——与批E「空 scope 视同 admin」兼容语义一脉相承。
+type TokenIdentity struct {
+	Name    string // 审计名（env 令牌 "env:<scope>"；DB 令牌为其 name）
+	Scope   string // ro | ops | admin（空=admin 兼容）
+	Project string // 项目视界（''=全域；非空=仅见/仅控 nodes.project 同值节点，M15 唯一隔离规则）
+}
+
+// scopeKeyT 是请求 ctx 的身份注入键（unexported 空结构防跨包碰撞，同 peerCertFPKey 纪律）。
 type scopeKeyT struct{}
 
 var scopeKey = scopeKeyT{}
@@ -244,8 +302,18 @@ var scopeKey = scopeKeyT{}
 // ScopeFromContext 取回 middleware 注入的令牌作用域；未注入（内部调用/测试裸 ctx）返回空串——
 // 检查侧把空 scope 视同 admin（兼容：单 token 部署与既有测试零变化）。
 func ScopeFromContext(ctx context.Context) string {
-	s, _ := ctx.Value(scopeKey).(string)
-	return s
+	return IdentityFromContext(ctx).Scope
+}
+
+// IdentityFromContext 取回 middleware 注入的完整令牌身份（M15）；未注入返回零值（=全域 admin 兼容）。
+func IdentityFromContext(ctx context.Context) TokenIdentity {
+	id, _ := ctx.Value(scopeKey).(TokenIdentity)
+	return id
+}
+
+// WithIdentity 把令牌身份注入 ctx（测试构造 + stream 桥类自持鉴权面复用；生产主路径经 BearerMiddlewareDB）。
+func WithIdentity(ctx context.Context, id TokenIdentity) context.Context {
+	return context.WithValue(ctx, scopeKey, id)
 }
 
 // CheckDispatchScope 按令牌作用域门控一次工具派发（DispatchTool/RunOrchestration 入口调用）：
@@ -274,14 +342,31 @@ func auditDispatch(ctx context.Context, entry, who, nodeID, tool string, argsByt
 		"args_bytes", argsBytes, "scope", ScopeFromContext(ctx))
 }
 
-// BearerMiddleware 校验 Authorization: Bearer <token>，不匹配返回 401；命中即把该 token 的作用域
-// 档位注入请求 ctx（批E C1 分级）。用于 :18080 REST 端口（该端口不做 mTLS，凭 bearer token 鉴权）。
-// 未配置任何 token（空映射）时一律拒绝（fail closed），避免误开无鉴权入口。逐 token 常量时间比较
-// （映射至多 4 词条，遍历成本可忽略；不以 map 查找短路，防时序侧信道）。
+// ApiTokenSource 是 BearerMiddlewareDB 的 DB 实体令牌查验窄接口（M15；*store.PGStore 实现）。nil=
+// 未启用（无 PG 部署 env-only，行为与批E 完全一致）。**typed-nil 警戒**（arch spec）：装配方（main.go）
+// 必须仅在 PG 在位时才赋非 nil 接口值，绝不把具体类型 nil 指针经接口中转。
+type ApiTokenSource interface {
+	LookupApiToken(ctx context.Context, secretHash string) (store.ApiToken, error)
+	TouchApiToken(ctx context.Context, id string) error
+}
+
+// BearerMiddleware 校验 Authorization: Bearer <token>（env 静态映射 only 形态；既有调用面/测试零变化）。
+// M15 后为 BearerMiddlewareDB 的无 DB 源便捷包装。
 func BearerMiddleware(scopes TokenScopes, next http.Handler) http.Handler {
+	return BearerMiddlewareDB(scopes, nil, next)
+}
+
+// BearerMiddlewareDB 校验 Authorization: Bearer <token>，不匹配返回 401；命中即把令牌身份（M15
+// TokenIdentity：审计名/档位/项目视界）注入请求 ctx。用于 :18080 REST 端口（该端口不做 mTLS，凭
+// bearer token 鉴权）。匹配序：env 静态映射恒时比较优先（批E 语义原样，env 令牌恒全域）；未命中且
+// tokens 非 nil 时按 sha256(明文) 点查 DB 实体令牌（有效性判据收敛在 SQL：未吊销未过期）。env 映射
+// 空且无 DB 源时一律拒绝（fail closed），避免误开无鉴权入口。逐 env token 常量时间比较（映射至多
+// 4 词条，遍历成本可忽略；不以 map 查找短路，防时序侧信道；DB 路径以哈希点查天然恒时）。
+// DB 命中后 best-effort 异步节流回写 last_used（独立短超时 ctx，绝不阻塞/阻断鉴权）。
+func BearerMiddlewareDB(scopes TokenScopes, tokens ApiTokenSource, next http.Handler) http.Handler {
 	const prefix = "Bearer "
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(scopes) == 0 {
+		if len(scopes) == 0 && tokens == nil {
 			observability.IncAuthFailure("bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -299,11 +384,65 @@ func BearerMiddleware(scopes TokenScopes, next http.Handler) http.Handler {
 				matched = scope
 			}
 		}
-		if matched == "" {
+		var identity TokenIdentity
+		switch {
+		case matched != "":
+			identity = TokenIdentity{Name: "env:" + matched, Scope: matched}
+		case tokens != nil:
+			sum := sha256.Sum256(got)
+			rec, err := tokens.LookupApiToken(r.Context(), hex.EncodeToString(sum[:]))
+			if err != nil {
+				if store.IsNotFound(err) {
+					observability.IncAuthFailure("bearer")
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				// DB 故障与「令牌无效」诚实区分：503 供运维定位，仍 fail-closed 不放行。
+				slog.Warn("api token lookup failed", "err", err)
+				observability.IncAuthFailure("bearer")
+				http.Error(w, "auth backend unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			identity = TokenIdentity{Name: rec.Name, Scope: rec.Scope, Project: rec.Project}
+			go func(id string) {
+				tctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				if terr := tokens.TouchApiToken(tctx, id); terr != nil {
+					slog.Debug("api token touch failed", "err", terr)
+				}
+			}(rec.ID)
+		default:
 			observability.IncAuthFailure("bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), scopeKey, matched)))
+		next.ServeHTTP(w, r.WithContext(WithIdentity(r.Context(), identity)))
 	})
+}
+
+// CheckNodeProjectAccess 按令牌项目视界门控一次节点寻址操作（M15 唯一隔离规则：token.project ∈
+// {全域, node.project}）。全域令牌（含 env/内部路径零值身份）零成本短路不触 DB；项目令牌解析
+// nodes.project 判定，解析失败 fail-closed（宁拒不越界；全域已短路故仅项目令牌受影响）。拒绝以
+// CodePermissionDenied 返回（权限语义；内网管控面不做存在性隐藏，简单诚实优先）。pg nil（无持久层）
+// 时节点视同未归属——与「无 PG 即无 DB 项目令牌」不变量自洽，env 全域令牌行为零变化。
+func CheckNodeProjectAccess(ctx context.Context, pg *store.PGStore, nodeID string) error {
+	tok := IdentityFromContext(ctx)
+	if tok.Project == "" {
+		return nil
+	}
+	nodeProject := ""
+	if pg != nil {
+		p, err := pg.NodeProject(ctx, nodeID)
+		if err != nil {
+			slog.Warn("resolve node project failed", "node_id", nodeID, "err", err)
+			return connect.NewError(connect.CodePermissionDenied,
+				errors.New("cannot verify node project for this token"))
+		}
+		nodeProject = p
+	}
+	if tok.Project != nodeProject {
+		return connect.NewError(connect.CodePermissionDenied,
+			fmt.Errorf("token project %q does not cover this node", tok.Project))
+	}
+	return nil
 }

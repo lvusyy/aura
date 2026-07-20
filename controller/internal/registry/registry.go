@@ -32,8 +32,9 @@ type Store interface {
 	UpsertNode(ctx context.Context, node *aurav1.NodeInfo, hostname, networkZone, certFP string) (*aurav1.NodeInfo, error)
 	// ListNodes 读全部持久节点身份为 NodeInfo（offline 展示源，ListFleet 合并底本）。
 	ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error)
-	// UpdateNodeMeta 更新节点 label/location（console 编辑权威路径），返回是否命中行。
-	UpdateNodeMeta(ctx context.Context, nodeID, label, location string) (bool, error)
+	// UpdateNodeMeta 更新节点 label/location/project（console 编辑权威路径），返回是否命中行。
+	// M15：project 取 presence 语义（*string；nil=不改归属）。
+	UpdateNodeMeta(ctx context.Context, nodeID, label, location string, project *string) (bool, error)
 	// ReapOfflineNodes 删除 last_seen < before 且不在 protected（当前活跃会话）集合的节点身份台账，返回被删
 	// 节点 ID（舰队治理自动遗忘长期离线僵尸，M12-P1）。protected 排除令长驻在线节点绝不被误删（last_seen 仅
 	// Register 刷新，长会话可 stale——活跃会话才是「在线」权威信号）。
@@ -559,11 +560,14 @@ func (r *NodeRegistry) ListFleet(ctx context.Context) []*aurav1.NodeInfo {
 // 事件令 console 实时刷新（M8 FleetEvent 先例）。返回是否命中（node_id 库中不存在返 false，供 handler
 // 区分 not-found）。store 为 nil（纯内存）时不支持编辑（返错，handler 转 Unavailable）。离线节点（无
 // 会话）仅落库，实时刷新靠 WatchFleet 周期快照兜底（≤30s）——编辑离线节点非时敏，前端亦可乐观更新。
-func (r *NodeRegistry) UpdateNodeMeta(ctx context.Context, nodeID, label, location string) (bool, error) {
+// M15：project 取 presence 语义（*string，proto optional 对位）——nil=不改归属，非 nil（含空串=清除）
+// 即写入。归属是持久列，在线会话缓存不承载 project（fleet 帧按库侧集合过滤，见 filterNodesByProject），
+// 故命中在线节点时仅同步 label/location 缓存、project 只落库不进会话缓存。
+func (r *NodeRegistry) UpdateNodeMeta(ctx context.Context, nodeID, label, location string, project *string) (bool, error) {
 	if r.store == nil {
 		return false, errors.New("node metadata store not configured")
 	}
-	updated, err := r.store.UpdateNodeMeta(ctx, nodeID, label, location)
+	updated, err := r.store.UpdateNodeMeta(ctx, nodeID, label, location, project)
 	if err != nil || !updated {
 		return updated, err
 	}

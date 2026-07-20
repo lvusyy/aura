@@ -27,10 +27,23 @@ func (s *ConsoleServiceServer) UpdateNodeMeta(
 		// 未配 scheduler 惯例）。
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("node metadata store not configured"))
 	}
-	// registry.UpdateNodeMeta：落库 label/location（store.UpdateNodeMeta）+ 同步在线会话缓存 + 广播
+	// M15 项目隔离：项目令牌只能编辑本项目节点，且**不得改归属**（迁移节点跨项目是越权）。全域令牌可
+	// 改任意节点归属（proto project 为 optional：未携带=不动归属，携带即写）。先校验节点归属再看改归属请求。
+	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
+		return nil, err
+	}
+	var project *string
+	if req.Msg.Project != nil {
+		if IdentityFromContext(ctx).Project != "" {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				errors.New("project-scoped token cannot change a node's project assignment"))
+		}
+		project = req.Msg.Project
+	}
+	// registry.UpdateNodeMeta：落库 label/location/project（store.UpdateNodeMeta）+ 同步在线会话缓存 + 广播
 	// FleetEvent（在线节点即时刷新，离线节点靠 WatchFleet 周期快照兜底）。label/location 与 name/hostname/
 	// network_zone/cert_fp（Register 侧写）列分离，两写方零互抹。
-	updated, err := s.reg.UpdateNodeMeta(ctx, nodeID, req.Msg.GetLabel(), req.Msg.GetLocation())
+	updated, err := s.reg.UpdateNodeMeta(ctx, nodeID, req.Msg.GetLabel(), req.Msg.GetLocation(), project)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("update node meta: %w", err))
 	}
@@ -54,6 +67,10 @@ func (s *ConsoleServiceServer) DeleteNode(
 	nodeID := req.Msg.GetNodeId()
 	if nodeID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
+	}
+	// M15：项目令牌只能删本项目节点（越界 403，先于 offline 守卫——权限判定不依赖在线态）。
+	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
+		return nil, err
 	}
 	// offline 守卫（安全核心）：活跃会话在册=在线，拒删（防误删活跃节点）。先于 store 判空——「拒删在线」
 	// 与持久化后端无关，是最优先的安全语义。
@@ -92,6 +109,10 @@ func (s *ConsoleServiceServer) RevokeNodeCert(
 	nodeID := req.Msg.GetNodeId()
 	if nodeID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
+	}
+	// M15：项目令牌只能吊销本项目节点证书（越界 403）。
+	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
+		return nil, err
 	}
 	if s.store == nil {
 		// 纯内存运行（未配 PG）：无持久证书台账后端，吊销不可用（降级 Unavailable，同 UpdateNodeMeta/DeleteNode 惯例）。

@@ -39,8 +39,8 @@ type certSigner interface {
 // 具体 *store.PGStore（需真 PG）解耦——单测注入 fake 覆盖 token 有效/无效与双写断言。*store.PGStore
 // 实现本接口（ConsumeToken/SetNodeCertFP/InsertNodeCert 三方法签名一致）。
 type enrollStore interface {
-	ConsumeToken(ctx context.Context, token, platform string) (string, error)
-	SetNodeCertFP(ctx context.Context, nodeID, platform, certFP string) error
+	ConsumeToken(ctx context.Context, token, platform string) (label, project string, err error) // M15：+project 回传
+	SetNodeCertFP(ctx context.Context, nodeID, platform, certFP, project string) error            // M15：+project 建行落库
 	InsertNodeCert(ctx context.Context, nodeID, serial, certFP string, notAfter time.Time) error
 }
 
@@ -109,7 +109,9 @@ func (s *EnrollServer) EnrollHandler() http.Handler {
 
 		// 1) 验 token（原子消费 + 平台匹配，design §2.3/§3.1 step4）。label 承接留待 register 落库
 		//    （install command 已带 --label → Register 自报 → nodes.label，既有路径覆盖），此处不重复写。
-		if _, err := s.store.ConsumeToken(r.Context(), req.Token, req.Platform); err != nil {
+		//    M15：project 由 token 携带（项目令牌生成时强制本项目），SetNodeCertFP 建行即落 nodes.project。
+		_, tokenProject, err := s.store.ConsumeToken(r.Context(), req.Token, req.Platform)
+		if err != nil {
 			if errors.Is(err, store.ErrTokenInvalid) {
 				http.Error(w, "enrollment token invalid, expired, exhausted, or platform-mismatched", http.StatusUnauthorized)
 				return
@@ -132,7 +134,7 @@ func (s *EnrollServer) EnrollHandler() http.Handler {
 
 		// 4) cert_fp 双写（design §8）：nodes.cert_fp（当前生效指纹，enroll 建行）+ node_certs 台账
 		//    （全量，含 serial/not_after 供续签扫描 + 吊销校验）。任一失败 → 500（token 已烧，罕见 DB 故障）。
-		if err := s.store.SetNodeCertFP(r.Context(), nodeID, req.Platform, signed.CertFP); err != nil {
+		if err := s.store.SetNodeCertFP(r.Context(), nodeID, req.Platform, signed.CertFP, tokenProject); err != nil {
 			slog.Error("enroll: set node cert_fp failed", "node_id", nodeID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -201,7 +203,7 @@ func (s *EnrollServer) RenewHandler() http.Handler {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		if err := s.store.SetNodeCertFP(r.Context(), nodeID, req.Platform, signed.CertFP); err != nil {
+		if err := s.store.SetNodeCertFP(r.Context(), nodeID, req.Platform, signed.CertFP, ""); err != nil { // M15：renew 传空 project 不改归属
 			slog.Error("renew: set node cert_fp failed", "node_id", nodeID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return

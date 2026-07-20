@@ -239,6 +239,9 @@ message NodeInfo {
   // 批E（滚更可见性，additive）：节点二进制版本（Register.node_version=15 落库回填；离线节点经
   // ListNodes 表分支回填最后已知版本——盘点舰队滚更进度恰需覆盖离线成员）。
   string node_version = 17;       // 节点二进制版本（CARGO_PKG_VERSION；未滚更/未上报空）
+  // M15（项目隔离，additive）：节点项目归属。console 管理面赋值（UpdateNodeMeta / enroll token 携带），
+  // 非节点自报——区别于 label 的双写方语义，本字段单写方（管理面权威）。空=未归属（仅全域令牌可见可控）。
+  string project = 18;            // 项目归属（''=未归属；项目令牌仅见/仅控同值节点）
 }
 
 message ListNodesResponse {

@@ -39,7 +39,7 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertToken: %v", err)
 	}
-	label, err := pg.ConsumeToken(ctx, tok, "linux")
+	label, _, err := pg.ConsumeToken(ctx, tok, "linux")
 	if err != nil {
 		t.Fatalf("ConsumeToken #1: %v", err)
 	}
@@ -53,10 +53,10 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 	if got.UsesLeft != 1 {
 		t.Errorf("uses_left after 1 consume = %d, want 1", got.UsesLeft)
 	}
-	if _, err := pg.ConsumeToken(ctx, tok, "linux"); err != nil {
+	if _, _, err := pg.ConsumeToken(ctx, tok, "linux"); err != nil {
 		t.Fatalf("ConsumeToken #2: %v", err)
 	}
-	if _, err := pg.ConsumeToken(ctx, tok, "linux"); !errors.Is(err, ErrTokenInvalid) {
+	if _, _, err := pg.ConsumeToken(ctx, tok, "linux"); !errors.Is(err, ErrTokenInvalid) {
 		t.Errorf("ConsumeToken #3 (exhausted) err = %v, want ErrTokenInvalid", err)
 	}
 
@@ -67,7 +67,7 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertToken expired: %v", err)
 	}
-	if _, err := pg.ConsumeToken(ctx, expired, "linux"); !errors.Is(err, ErrTokenInvalid) {
+	if _, _, err := pg.ConsumeToken(ctx, expired, "linux"); !errors.Is(err, ErrTokenInvalid) {
 		t.Errorf("ConsumeToken expired err = %v, want ErrTokenInvalid", err)
 	}
 
@@ -78,10 +78,10 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertToken scoped: %v", err)
 	}
-	if _, err := pg.ConsumeToken(ctx, scoped, "linux"); !errors.Is(err, ErrTokenInvalid) {
+	if _, _, err := pg.ConsumeToken(ctx, scoped, "linux"); !errors.Is(err, ErrTokenInvalid) {
 		t.Errorf("ConsumeToken platform mismatch err = %v, want ErrTokenInvalid", err)
 	}
-	if _, err := pg.ConsumeToken(ctx, scoped, "windows"); err != nil {
+	if _, _, err := pg.ConsumeToken(ctx, scoped, "windows"); err != nil {
 		t.Errorf("ConsumeToken platform match err = %v, want nil", err)
 	}
 
@@ -99,7 +99,7 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 	if again, _ := pg.RevokeToken(ctx, revoked); again {
 		t.Error("RevokeToken 幂等：二次吊销应返回 false")
 	}
-	if _, err := pg.ConsumeToken(ctx, revoked, "linux"); !errors.Is(err, ErrTokenInvalid) {
+	if _, _, err := pg.ConsumeToken(ctx, revoked, "linux"); !errors.Is(err, ErrTokenInvalid) {
 		t.Errorf("ConsumeToken revoked err = %v, want ErrTokenInvalid", err)
 	}
 
@@ -117,7 +117,7 @@ func TestEnrollmentTokenLifecycleIntegration(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := pg.ConsumeToken(ctx, race, "linux"); err == nil {
+			if _, _, err := pg.ConsumeToken(ctx, race, "linux"); err == nil {
 				atomic.AddInt64(&success, 1)
 			}
 		}()

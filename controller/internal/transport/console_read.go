@@ -26,6 +26,10 @@ func (s *ConsoleServiceServer) ReadNodeScreen(
 	if s.sched == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("scheduler not configured"))
 	}
+	// M15：读节点屏幕同为节点寻址，项目令牌越界即拒。
+	if err := CheckNodeProjectAccess(ctx, s.store, req.Msg.GetNodeId()); err != nil {
+		return nil, err
+	}
 	resp, code, err := s.sched.DispatchReadOnly(ctx, req.Msg.GetNodeId(), readScreenTool, req.Msg.GetJsonArgs(), req.Msg.GetDeadlineMs(), req.Msg.GetWho())
 	if code != "" {
 		return connect.NewResponse(&aurav1.ReadNodeScreenResponse{JsonEnvelope: synthReadErrorEnvelope(code, err)}), nil
