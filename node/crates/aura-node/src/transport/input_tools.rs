@@ -12,7 +12,8 @@ use super::AuraTools;
 /// click 入参：P0 契约 coordinate:[x,y]，可选按键（缺省 left）。
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ClickParams {
-    /// 点击坐标 [x,y]（原生像素）。
+    /// 点击坐标 [x,y]，取自最近一次 screenshot 返回图上量取的像素（display 空间）。
+    /// 节点按该截图的 scale 自动回映射到原生像素——直接用截图坐标，切勿手动乘 scale。
     pub coordinate: [i32; 2],
     /// 鼠标按键：left/right/middle，缺省 left。
     #[serde(default)]
@@ -36,7 +37,7 @@ pub struct KeyParams {
 /// scroll 入参：坐标 + 方向 + 步进量。
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScrollParams {
-    /// 滚动锚点坐标 [x,y]。
+    /// 滚动锚点坐标 [x,y]，display 空间（取截图上量取的像素，节点自动回映射，勿手动乘 scale）。
     pub coordinate: [i32; 2],
     /// 方向：up/down/left/right，缺省 down。
     #[serde(default)]
@@ -49,16 +50,16 @@ pub struct ScrollParams {
 /// drag 入参：起点 + 终点。
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DragParams {
-    /// 起点坐标 [x,y]。
+    /// 起点坐标 [x,y]，display 空间（取截图上量取的像素，节点自动回映射，勿手动乘 scale）。
     pub from: [i32; 2],
-    /// 终点坐标 [x,y]。
+    /// 终点坐标 [x,y]，display 空间（取截图上量取的像素，节点自动回映射，勿手动乘 scale）。
     pub to: [i32; 2],
 }
 
 /// move_mouse 入参。
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct MoveMouseParams {
-    /// 目标坐标 [x,y]。
+    /// 目标坐标 [x,y]，display 空间（取截图上量取的像素，节点自动回映射，勿手动乘 scale）。
     pub coordinate: [i32; 2],
 }
 
@@ -76,7 +77,7 @@ impl AuraTools {
     /// MCP 注解：destructiveHint=true（注入点击事件，改变目标环境）。
     /// coordinate 为 display 空间坐标，执行前经 to_native 按当前 scale 回映射到原生像素。
     #[tool(
-        description = "Click the mouse at coordinate [x,y]",
+        description = "Click the mouse at coordinate [x,y] in screenshot (display) pixel space. Use coordinates read directly off the latest screenshot; the node auto-maps them to native pixels — do not pre-multiply by scale.",
         annotations(destructive_hint = true)
     )]
     async fn click(&self, Parameters(p): Parameters<ClickParams>) -> Json<Envelope<Ack>> {
@@ -118,7 +119,7 @@ impl AuraTools {
     /// MCP 注解：destructiveHint=true（注入滚动事件，改变目标环境）。
     /// coordinate 为 display 空间锚点，执行前经 to_native 回映射到原生像素。
     #[tool(
-        description = "Scroll at a coordinate with direction and amount",
+        description = "Scroll at a coordinate (screenshot/display pixel space) with direction and amount. Coordinates come straight from the latest screenshot; the node maps them to native pixels.",
         annotations(destructive_hint = true)
     )]
     async fn scroll(&self, Parameters(p): Parameters<ScrollParams>) -> Json<Envelope<Ack>> {
@@ -138,7 +139,7 @@ impl AuraTools {
     /// MCP 注解：destructiveHint=true（注入拖拽事件，改变目标环境）。
     /// from/to 均为 display 空间坐标，执行前各自经 to_native 回映射到原生像素。
     #[tool(
-        description = "Drag from one coordinate to another",
+        description = "Drag from one coordinate to another (screenshot/display pixel space). Coordinates come straight from the latest screenshot; the node maps them to native pixels.",
         annotations(destructive_hint = true)
     )]
     async fn drag(&self, Parameters(p): Parameters<DragParams>) -> Json<Envelope<Ack>> {
@@ -152,7 +153,7 @@ impl AuraTools {
     /// MCP 注解：destructiveHint=true（移动光标，改变目标环境状态）。
     /// coordinate 为 display 空间坐标，执行前经 to_native 回映射到原生像素。
     #[tool(
-        description = "Move the mouse to coordinate [x,y]",
+        description = "Move the mouse to coordinate [x,y] in screenshot (display) pixel space. Coordinates come straight from the latest screenshot; the node maps them to native pixels.",
         annotations(destructive_hint = true)
     )]
     async fn move_mouse(

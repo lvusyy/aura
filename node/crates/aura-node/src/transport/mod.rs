@@ -117,6 +117,28 @@ impl AuraTools {
         f64::from_bits(self.current_scale.load(Ordering::Relaxed))
     }
 
+    /// 关停前 flush 在录会话（M16 T1.4 优雅退出）：遍历 recordings 逐个 finalize，避免 SIGTERM
+    /// 硬退出丢失半成品视频。best-effort——单会话失败仅告警不阻断其余；表空时零成本（绝大多数
+    /// 节点无在录会话，快路径直接返回）。
+    pub(crate) async fn flush_recordings_on_shutdown(&self) {
+        let rec_ids: Vec<String> = {
+            let guard = self
+                .recordings
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.keys().cloned().collect()
+        };
+        if rec_ids.is_empty() {
+            return;
+        }
+        tracing::info!(count = rec_ids.len(), "flushing active recordings before shutdown");
+        for rec_id in rec_ids {
+            if !self.stop_recording_impl(rec_id.clone()).await.ok {
+                tracing::warn!(rec_id, "recording flush on shutdown failed");
+            }
+        }
+    }
+
     /// display 空间坐标 → 原生像素坐标（按当前 scale 回映射）。
     /// 模型按 display（缩放后）坐标操作，input 执行前须回映射到原生像素。
     pub(crate) fn to_native(&self, x: i32, y: i32) -> Coordinate {

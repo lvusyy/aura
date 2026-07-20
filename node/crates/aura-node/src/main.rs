@@ -221,13 +221,61 @@ async fn main() -> Result<()> {
         });
     }
 
-    match cli.transport {
-        TransportCmd::Stdio => transport::mcp_stdio::serve(tools).await,
-        TransportCmd::Http { bind } => transport::mcp_http::serve(tools, bind, activity_sink).await,
-        // enroll/renew 已在 driver 装配前短路返回（feature enroll）；此处不可达，仅为 match 穷尽。
-        #[cfg(feature = "enroll")]
-        TransportCmd::Enroll(_) | TransportCmd::Renew(_) => {
-            unreachable!("enroll/renew handled before driver setup")
+    // 优雅退出（M16 T1.4）：装 SIGTERM/SIGINT（Windows Ctrl-C/Ctrl-Break）handler。容器内
+    // aura-node 常为 PID1，无 handler 时对 SIGTERM 免疫（内核不为 PID1 投默认处置）→ 只能 SIGKILL
+    // 硬杀（selkies 实测 kill 无效、pod 不优雅停止），亦阻塞 self-update 自重启。收到信号即 flush
+    // 在录会话后干净退出（退出码 0）；serve 正常返回（如 stdio 客户端断开）时行为与既往一致。
+    let shutdown_tools = tools.clone();
+    let serve = async move {
+        match cli.transport {
+            TransportCmd::Stdio => transport::mcp_stdio::serve(tools).await,
+            TransportCmd::Http { bind } => {
+                transport::mcp_http::serve(tools, bind, activity_sink).await
+            }
+            // enroll/renew 已在 driver 装配前短路返回（feature enroll）；此处不可达，仅为 match 穷尽。
+            #[cfg(feature = "enroll")]
+            TransportCmd::Enroll(_) | TransportCmd::Renew(_) => {
+                unreachable!("enroll/renew handled before driver setup")
+            }
         }
+    };
+    tokio::select! {
+        r = serve => r,
+        _ = shutdown_signal() => {
+            tracing::info!("shutdown signal received; flushing recordings and exiting cleanly");
+            shutdown_tools.flush_recordings_on_shutdown().await;
+            Ok(())
+        }
+    }
+}
+
+/// 关停信号：Unix SIGTERM/SIGINT，Windows Ctrl-C/Ctrl-Break。任一到达即 resolve，交主循环
+/// select! 触发优雅退出。容器内 PID1 对默认信号处置免疫，须显式装 handler 才能 `kill`/`docker stop`
+/// 优雅停止（M16 T1.4）。handler 安装失败属进程级致命配置错误，直接 panic 于启动期暴露而非静默降级。
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        let mut interrupt = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+        tokio::select! {
+            _ = term.recv() => tracing::info!("received SIGTERM"),
+            _ = interrupt.recv() => tracing::info!("received SIGINT"),
+        }
+    }
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows;
+        let mut ctrl_c = windows::ctrl_c().expect("install Ctrl-C handler");
+        let mut ctrl_break = windows::ctrl_break().expect("install Ctrl-Break handler");
+        tokio::select! {
+            _ = ctrl_c.recv() => tracing::info!("received Ctrl-C"),
+            _ = ctrl_break.recv() => tracing::info!("received Ctrl-Break"),
+        }
+    }
+    // 其余平台（理论上不达）：永挂，退化为无信号优雅退出（serve 仍可正常返回）。
+    #[cfg(not(any(unix, windows)))]
+    {
+        std::future::pending::<()>().await;
     }
 }

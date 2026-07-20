@@ -14,7 +14,10 @@ aura-capability = { workspace = true }
 aura-platform = { workspace = true }
 # MCP SDK：churn 快，精确锁 =2.1.0（stdio + Streamable HTTP server + 宏 + schemars）
 rmcp = { version = "=2.1.0", features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
-tokio = { workspace = true }
+# signal feature：优雅退出装 SIGTERM/SIGINT（Windows Ctrl-C/Ctrl-Break）handler（M16 T1.4）——
+# 容器内 aura-node 常为 PID1，无 handler 时对 SIGTERM 免疫（内核不为 PID1 投默认处置），
+# 只能 SIGKILL 硬杀，亦阻塞 self-update 自重启。workspace 基础 features 之上追加（Cargo 合并）。
+tokio = { workspace = true, features = ["signal"] }
 axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 anyhow = { workspace = true }

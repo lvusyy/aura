@@ -68,3 +68,58 @@ jobs:
       # xvfb 提供虚拟显示器供图形相关单测；-a 自动挑 display 号。
       - name: Test
         run: xvfb-run -a cargo test -p aura-node --features grpc,enroll,otel
+
+  # 端到端回归（M16 T1.1/T1.2）：起真 controller + 真 aura-node，经 mTLS 反连 + REST 管理面跑完整链路。
+  # 独立 job——重（构建两二进制 + PG service + xvfb 桌面），失败不掩盖单元 job 的快速反馈。
+  e2e:
+    name: e2e (controller + node)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: aura
+          POSTGRES_USER: aura
+          POSTGRES_PASSWORD: aura
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U aura -d aura"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      # 系统依赖：node 图形/反连构建链（同 node job）+ e2e 桌面（xvfb 虚拟屏 + openbox WM + xterm，
+      # UI 闭环场景需真窗口管理器给 xterm 焦点与 geometry）。
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libxdo-dev libx11-dev libxi-dev libxtst-dev \
+            libxrandr-dev libxfixes-dev libxcb-shm0-dev libxcb-randr0-dev \
+            libdbus-1-dev libgbm-dev xvfb openbox xterm x11-utils
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: controller/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      # 生产 feature 集：enroll（换证子命令）+ grpc（反连）+ otel。release 构建供 e2e 起真节点。
+      - name: Build aura-node
+        working-directory: node
+        run: cargo build --release -p aura-node --features grpc,enroll,otel
+      # 虚拟桌面：Xvfb 建 :99 屏 + openbox 供窗口管理（xterm 焦点/geometry）；DISPLAY 传给 e2e。
+      - name: Start virtual desktop
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 -ac >/tmp/xvfb.log 2>&1 &
+          for i in $(seq 1 20); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
+          DISPLAY=:99 openbox >/tmp/openbox.log 2>&1 &
+          sleep 1
+      - name: Run e2e suite
+        working-directory: controller
+        env:
+          DISPLAY: ":99"
+          AURA_E2E_PG_DSN: "postgres://aura:aura@127.0.0.1:5432/aura?sslmode=disable"
+          AURA_E2E_NODE_BIN: "${{ github.workspace }}/node/target/release/aura-node"
+        run: go test -tags e2e -v -timeout 8m ./e2e/...
