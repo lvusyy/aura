@@ -226,7 +226,13 @@ async fn dispatch_run_command(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let p: RunCommandParams = parse_or_return!(json_args);
     encode(
         &tools
-            .guard(tools.driver.run_command(p.cmd, p.args, p.timeout_ms, p.cwd))
+            .guard(tools.driver.run_command(
+                p.cmd,
+                p.args,
+                p.timeout_ms,
+                p.cwd,
+                p.detach.unwrap_or(false),
+            ))
             .await,
     )
 }

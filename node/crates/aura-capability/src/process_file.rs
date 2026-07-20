@@ -24,11 +24,14 @@ pub trait ProcessFileDriver: Send + Sync {
     async fn file_pull(&self, remote_path: String) -> Result<FileResult, CapError>;
 
     /// 执行命令并等待结束（可选超时与工作目录）。
+    /// detach=true 时仅启动不等待：立即返回 pid，不采集输出、忽略 timeout_ms——
+    /// 用于拉起 GUI 应用等常驻程序（等待语义下超时会连被测窗口一起 kill）。
     async fn run_command(
         &self,
         cmd: String,
         args: Vec<String>,
         timeout_ms: Option<u64>,
         cwd: Option<String>,
+        detach: bool,
     ) -> Result<CmdResult, CapError>;
 }

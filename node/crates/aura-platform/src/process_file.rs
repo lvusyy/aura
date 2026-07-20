@@ -151,7 +151,36 @@ impl ProcessFileDriver for PlatformDriver {
         args: Vec<String>,
         timeout_ms: Option<u64>,
         cwd: Option<String>,
+        detach: bool,
     ) -> Result<CmdResult, CapError> {
+        if detach {
+            // detach 语义：仅启动不等待，供拉起 GUI 应用等常驻程序——等待语义下超时
+            // 会经 kill_on_drop 连被测窗口一起结束，UI 自动化闭环无法开场。
+            // 输出定向 null：piped 无人消费时管道写满会阻塞子进程。
+            let mut command = tokio::process::Command::new(&cmd);
+            command
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            // 独立进程组：不随节点进程组信号连带退出（Windows 无进程组概念，天然独立）。
+            #[cfg(unix)]
+            command.process_group(0);
+            if let Some(dir) = cwd.as_ref() {
+                command.current_dir(dir);
+            }
+            let child = command
+                .spawn()
+                .map_err(|e| CapError::ProcessError(format!("spawn '{cmd}' failed: {e}")))?;
+            let pid = child.id().unwrap_or(0);
+            // 不持有句柄：子进程退出后由 tokio 后台 reap，不留 zombie。
+            return Ok(CmdResult {
+                exit_code: 0,
+                stdout: format!("detached pid={pid}"),
+                stderr: String::new(),
+            });
+        }
+
         let mut command = tokio::process::Command::new(&cmd);
         command
             .args(&args)
@@ -250,7 +279,10 @@ mod tests {
     async fn run_command_echo_returns_stdout() {
         let driver = PlatformDriver::new();
         let (cmd, args) = echo_cmd();
-        let res = driver.run_command(cmd, args, Some(5000), None).await.unwrap();
+        let res = driver
+            .run_command(cmd, args, Some(5000), None, false)
+            .await
+            .unwrap();
         assert_eq!(res.exit_code, 0);
         assert!(res.stdout.contains("hello"), "stdout was: {:?}", res.stdout);
     }
@@ -259,7 +291,10 @@ mod tests {
     async fn run_command_reports_nonzero_exit() {
         let driver = PlatformDriver::new();
         let (cmd, args) = exit3_cmd();
-        let res = driver.run_command(cmd, args, Some(5000), None).await.unwrap();
+        let res = driver
+            .run_command(cmd, args, Some(5000), None, false)
+            .await
+            .unwrap();
         assert_eq!(res.exit_code, 3);
     }
 
@@ -268,13 +303,36 @@ mod tests {
         let driver = PlatformDriver::new();
         let (cmd, args) = sleep_cmd();
         let err = driver
-            .run_command(cmd, args, Some(200), None)
+            .run_command(cmd, args, Some(200), None, false)
             .await
             .unwrap_err();
         assert_eq!(err.code(), "E_PROCESS_FAILED");
         assert!(
             err.to_string().contains("timed out"),
             "err was: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_command_detach_returns_immediately() {
+        let driver = PlatformDriver::new();
+        // 长睡命令 + 200ms 超时：detach 语义须立即返回且不受 timeout_ms 影响
+        //（等待语义下同参数是超时错误）；子进程数秒后自行退出，不留残留。
+        let (cmd, args) = sleep_cmd();
+        let started = std::time::Instant::now();
+        let res = driver
+            .run_command(cmd, args, Some(200), None, true)
+            .await
+            .unwrap();
+        assert_eq!(res.exit_code, 0);
+        assert!(
+            res.stdout.contains("detached pid="),
+            "stdout was: {:?}",
+            res.stdout
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "detach must not wait for child exit"
         );
     }
 

@@ -51,6 +51,10 @@ pub struct RunCommandParams {
     /// 工作目录（可选）。
     #[serde(default)]
     pub cwd: Option<String>,
+    /// 后台启动（可选，默认 false）：true 时仅启动进程立即返回 pid，不等待退出、
+    /// 不采集输出、忽略 timeout_ms——用于拉起 GUI 应用等常驻程序（桌面平台专属）。
+    #[serde(default)]
+    pub detach: Option<bool>,
 }
 
 #[tool_router(router = proc_router, vis = "pub(crate)")]
@@ -114,7 +118,7 @@ impl AuraTools {
     /// MCP 注解：destructiveHint=true 且 _meta.requiresUserInteraction=true
     /// （可执行任意命令；强制人工确认，run_command 需显式授权 scope，M2 补 RBAC）。
     #[tool(
-        description = "Run a command and wait for it to finish",
+        description = "Run a command and wait for it to finish. Set detach=true to launch a GUI or long-running app in the background: returns immediately with its pid, output not captured (desktop platforms only)",
         annotations(destructive_hint = true),
         meta = crate::transport::requires_user_interaction_meta()
     )]
@@ -123,8 +127,14 @@ impl AuraTools {
         Parameters(p): Parameters<RunCommandParams>,
     ) -> Json<Envelope<CmdResult>> {
         Json(
-            self.guard(self.driver.run_command(p.cmd, p.args, p.timeout_ms, p.cwd))
-                .await,
+            self.guard(self.driver.run_command(
+                p.cmd,
+                p.args,
+                p.timeout_ms,
+                p.cwd,
+                p.detach.unwrap_or(false),
+            ))
+            .await,
         )
     }
 }

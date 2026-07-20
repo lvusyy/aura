@@ -954,6 +954,7 @@ impl ProcessFileDriver for IosDriver {
         _args: Vec<String>,
         _timeout_ms: Option<u64>,
         _cwd: Option<String>,
+        _detach: bool,
     ) -> Result<CmdResult, CapError> {
         Err(CapError::Unsupported(RUN_COMMAND_UNSUPPORTED.to_string()))
     }
@@ -1721,7 +1722,10 @@ mod contract_matrix {
         );
         // run_command（无设备 shell）
         assert_eq!(
-            d.run_command("id".to_string(), vec![], None, None).await.unwrap_err().code(),
+            d.run_command("id".to_string(), vec![], None, None, false)
+                .await
+                .unwrap_err()
+                .code(),
             "E_UNSUPPORTED"
         );
         // record 域：start_recording / stop_recording（WDA 无原生录屏 defer）

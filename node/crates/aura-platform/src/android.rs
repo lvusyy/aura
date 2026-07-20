@@ -1212,7 +1212,14 @@ impl ProcessFileDriver for AndroidDriver {
         args: Vec<String>,
         timeout_ms: Option<u64>,
         cwd: Option<String>,
+        detach: bool,
     ) -> Result<CmdResult, CapError> {
+        // adb shell 无宿主进程句柄语义，detach 不支持——明确拒绝勿静默降级为等待。
+        if detach {
+            return Err(CapError::InvalidArg(
+                "detach is not supported for device shell run_command".to_string(),
+            ));
+        }
         // 设备语义：`adb -s <serial> shell [cd <cwd> &&] <cmd> <args...>`（D4，非宿主 shell）。
         let argv = run_command_argv(&cmd, &args, cwd.as_deref());
         let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
