@@ -13,6 +13,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use aura_platform::{build_driver, DriverKind};
 
+mod service;
 mod transport;
 
 use transport::AuraTools;
@@ -87,6 +88,9 @@ enum TransportCmd {
     /// 证书续签（M12，feature enroll）：现 per-node 证书 mTLS → /v1/renew 换新。一次性子命令，跑完即退。
     #[cfg(feature = "enroll")]
     Renew(transport::enroll::RenewArgs),
+    /// 服务生命周期管理（M16 T1.5，非门控）：查状态 / 重启（跨平台统一入口 + self-update 后验证）。
+    /// 一次性子命令，跑完即退（不启动 driver/反连服务面）。安装归 install.sh/install.ps1 单一源，不重复。
+    Service(service::ServiceArgs),
 }
 
 /// 构造 OTLP tracing 层（仅 `--features otel`）。
@@ -151,6 +155,11 @@ async fn main() -> Result<()> {
     subscriber.init();
 
     let cli = Cli::parse();
+
+    // M16 T1.5 service 子命令（非门控）：查状态 / 重启，不需 driver/反连服务面，driver 装配前短路跑完即退。
+    if let TransportCmd::Service(ref args) = cli.transport {
+        return service::run(args.clone());
+    }
 
     // M12 一次性子命令（feature enroll，TASK-006）：enroll/renew 换证不需 driver/反连服务面，在 driver/
     // tools 装配前短路跑完即退——避免为一次性换证起完整节点运行时。ref 借用后 clone 参数，不消费 cli.transport
@@ -237,6 +246,8 @@ async fn main() -> Result<()> {
             TransportCmd::Enroll(_) | TransportCmd::Renew(_) => {
                 unreachable!("enroll/renew handled before driver setup")
             }
+            // service 已在 driver 装配前短路返回；此处不可达，仅为 match 穷尽。
+            TransportCmd::Service(_) => unreachable!("service handled before driver setup"),
         }
     };
     tokio::select! {
