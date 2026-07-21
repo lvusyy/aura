@@ -262,13 +262,20 @@ func (s *NodeSession) SelfUpdate(ctx context.Context, req *aurav1.SelfUpdate) (*
 		return nil, err
 	}
 
-	select {
-	case resp := <-ch:
-		return resp, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-s.done:
-		return nil, ErrNodeGone
+	for {
+		select {
+		case resp := <-ch:
+			// 晚到串扰防护：结果帧无关联 id，仅 version 回声可辨——上一轮超时后节点补发的旧回执
+			// 与本请求版本不符即丢弃续等，防止旧结果冒充本轮答复（单槽跨请求残留唯一入口）。
+			if resp.GetVersion() != req.GetVersion() {
+				continue
+			}
+			return resp, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-s.done:
+			return nil, ErrNodeGone
+		}
 	}
 }
 

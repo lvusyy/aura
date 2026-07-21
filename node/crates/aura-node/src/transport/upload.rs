@@ -61,17 +61,17 @@ pub async fn get_file(presigned_url: &str, dest: &Path, local_addr: Option<IpAdd
     let client: Client<_, Full<Bytes>> =
         Client::builder(TokioExecutor::new()).build(local_bound_connector(local_addr));
 
-    // 头与体两段同伞硬超时：对象存储半途挂起时快速失败（download 腿无重试，失败上抛 SelfUpdateResult）。
-    let resp = tokio::time::timeout(GET_TIMEOUT, client.request(req))
-        .await
-        .map_err(|_| anyhow!("presigned GET timed out after {}s", GET_TIMEOUT.as_secs()))?
-        .context("send GET request")?;
-    let status = resp.status();
-    let body = tokio::time::timeout(GET_TIMEOUT, resp.into_body().collect())
-        .await
-        .map_err(|_| anyhow!("presigned GET body timed out after {}s", GET_TIMEOUT.as_secs()))?
-        .context("read GET body")?
-        .to_bytes();
+    // 建连→响应头→完整体单伞硬超时：头/体各套 300s 会叠加至 600s，越过控制面 330s 等待窗——单伞
+    // 保证节点侧先于控制面兜底判死，不出现「控制面已报失败、节点稍后仍换刀」的状态分裂（对象存储
+    // 半途挂起同样快速失败；download 腿无重试，失败上抛 SelfUpdateResult）。
+    let (status, body) = tokio::time::timeout(GET_TIMEOUT, async {
+        let resp = client.request(req).await.context("send GET request")?;
+        let status = resp.status();
+        let body = resp.into_body().collect().await.context("read GET body")?.to_bytes();
+        Ok::<_, anyhow::Error>((status, body))
+    })
+    .await
+    .map_err(|_| anyhow!("presigned GET timed out after {}s", GET_TIMEOUT.as_secs()))??;
     if !status.is_success() {
         return Err(anyhow!("presigned GET failed: HTTP {}", status.as_u16()));
     }

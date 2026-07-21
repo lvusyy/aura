@@ -5,7 +5,7 @@
 //! rename，规避跨文件系统 EXDEV；旧二进制留 `.old` 自愈位）→ 回 `SelfUpdateResult` → flush 录制 →
 //! 重启：Unix `exec` 自替换（同 PID，不依赖 supervisor——覆盖 systemd/launchd/容器 PID1/裸 setsid
 //! 全形态）；Windows 运行中 exe 不可覆盖但可 rename，detached PowerShell helper 等本进程退出后按
-//! action 路径发现计划任务拉起（无任务则直接拉新二进制兜底）。
+//! action 路径/参数匹配发现计划任务拉起（无任务或拉起未见进程则直接拉新二进制兜底）。
 //!
 //! 失败纪律：换刀前任何失败不动现网二进制（staging 自清）；换刀中途失败 rename 回滚 `.old`。
 //! 回滚无专用机制：向旧版本 rollout 即回滚（同一通道）。
@@ -253,10 +253,13 @@ fn restart(ctx: &UpdateContext) -> ! {
 
 /// Windows 重启 helper：detached PowerShell（-EncodedCommand 绕多层引号转义）——
 /// ① Wait-Process 等本进程真正退出（rename 舞步已完成，退出即释放任务槽）；
-/// ② 按 action 可执行路径匹配发现承载本节点的计划任务（生产任务名不可知——AuraNode/AuraNodeE2E
-///    等历史名并存，按路径发现零配置），Start-ScheduledTask 拉起（保持 supervisor 所有权，避免
-///    孤儿进程与开机双实例）；
-/// ③ 无匹配任务（手工/开发形态）Start-Process 直接拉新二进制兜底（原参数逐字重放）。
+/// ② 按 action 匹配发现承载本节点的计划任务（生产任务名不可知——AuraNode/AuraNodeE2E 等历史名
+///    并存，按路径发现零配置）：Execute 直指 exe，或 install.ps1 的 cmd 包装形态
+///    （`-Execute 'cmd' -Argument '/c "<exe>" ... > log'`——exe 只出现在 Arguments 里）两者皆认；
+///    等任务离开 Running（本进程刚退，任务态可能未刷新；Running 时 Start-ScheduledTask 会被
+///    MultipleInstances 缺省策略静默忽略）再拉起（保持 supervisor 所有权，避免孤儿进程与开机双实例）；
+/// ③ 拉起后核验进程现身；未现身（无匹配任务/任务拉起失败）Start-Process 直接拉新二进制兜底
+///    （原参数逐字重放；含空格参数预包双引号——ArgumentList 拼接不自动加引号）。
 #[cfg(windows)]
 fn spawn_windows_relauncher(ctx: &UpdateContext) {
     use base64::Engine as _;
@@ -264,10 +267,21 @@ fn spawn_windows_relauncher(ctx: &UpdateContext) {
 
     let pid = std::process::id();
     let exe = ps_quote(&ctx.exe.to_string_lossy());
+    // 进程名（无扩展名，Get-Process 口径）：核验重启是否成活的判据。
+    let proc_name = ps_quote(&ctx.exe.file_stem().unwrap_or_default().to_string_lossy());
     let args_list = ctx
         .args
         .iter()
-        .map(|a| ps_quote(&a.to_string_lossy()))
+        .map(|a| {
+            let a = a.to_string_lossy();
+            // Start-Process -ArgumentList 用空格拼接且不加引号：含空格参数（--label "My PC"）须
+            // 预包双引号，否则命令行被错误切分。
+            if a.contains(' ') {
+                ps_quote(&format!("\"{a}\""))
+            } else {
+                ps_quote(&a)
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let fallback = if args_list.is_empty() {
@@ -279,8 +293,13 @@ fn spawn_windows_relauncher(ctx: &UpdateContext) {
         "$ErrorActionPreference='SilentlyContinue'; \
          Wait-Process -Id {pid} -Timeout 120; Start-Sleep -Seconds 1; \
          $exe = {exe}; \
-         $t = Get-ScheduledTask | Where-Object {{ $_.Actions | Where-Object {{ $_.Execute -and ($_.Execute.Trim('\"') -ieq $exe) }} }} | Select-Object -First 1; \
-         if ($t) {{ Start-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath }} else {{ {fallback} }}"
+         $t = Get-ScheduledTask | Where-Object {{ $_.Actions | Where-Object {{ ($_.Execute -and ($_.Execute.Trim('\"') -ieq $exe)) -or ($_.Arguments -and ($_.Arguments.IndexOf($exe, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)) }} }} | Select-Object -First 1; \
+         if ($t) {{ \
+           for ($i=0; $i -lt 20 -and ((Get-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath).State -eq 'Running'); $i++) {{ Start-Sleep -Milliseconds 500 }}; \
+           Start-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath; \
+           for ($i=0; $i -lt 20 -and -not (Get-Process -Name {proc_name} -ErrorAction SilentlyContinue); $i++) {{ Start-Sleep -Milliseconds 500 }} \
+         }}; \
+         if (-not (Get-Process -Name {proc_name} -ErrorAction SilentlyContinue)) {{ {fallback} }}"
     );
     let utf16: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);

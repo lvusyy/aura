@@ -592,3 +592,46 @@ func TestSelfUpdateNodeGone(t *testing.T) {
 		t.Fatalf("want ErrNodeGone after session close, got %v", err)
 	}
 }
+
+// TestSelfUpdateVersionEcho 验证晚到旧回执被丢弃：结果帧无关联 id，仅按 version 回声配对——
+// 上一轮超时后节点补发的旧版本结果不得唤醒本轮等待方（单槽跨请求串扰防护）。
+func TestSelfUpdateVersionEcho(t *testing.T) {
+	s := NewSession("n1", "linux", nil, "", 4)
+	defer s.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan *aurav1.SelfUpdateResult, 1)
+	go func() {
+		resp, err := s.SelfUpdate(ctx, &aurav1.SelfUpdate{Version: "0.3.1"})
+		if err != nil {
+			t.Errorf("self-update: %v", err)
+			return
+		}
+		done <- resp
+	}()
+	deadline := time.Now().Add(time.Second)
+	for len(s.sendCh) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// 旧版本晚到回执：必须被丢弃（等待方不被唤醒）。
+	s.DeliverSelfUpdateResult(&aurav1.SelfUpdateResult{Version: "0.3.0", Ok: true})
+	select {
+	case r := <-done:
+		t.Fatalf("stale-version result must not resolve the waiter, got %v", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// 本轮版本回执：正常唤醒。
+	s.DeliverSelfUpdateResult(&aurav1.SelfUpdateResult{Version: "0.3.1", Ok: true})
+	select {
+	case r := <-done:
+		if !r.GetOk() || r.GetVersion() != "0.3.1" {
+			t.Fatalf("unexpected result: %v", r)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("matching result did not resolve the waiter")
+	}
+}
