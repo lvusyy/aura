@@ -86,6 +86,15 @@ func (f *fakeAdminClient) GetTrace(ctx context.Context, req *connect.Request[aur
 	return connect.NewResponse(resp), nil
 }
 
+// M16 self-update 管理面桩（回放引擎单测不触发，返回空即可满足接口）。
+func (f *fakeAdminClient) ListReleases(ctx context.Context, req *connect.Request[aurav1.ListReleasesRequest]) (*connect.Response[aurav1.ListReleasesResponse], error) {
+	return connect.NewResponse(&aurav1.ListReleasesResponse{}), nil
+}
+
+func (f *fakeAdminClient) SelfUpdateNode(ctx context.Context, req *connect.Request[aurav1.SelfUpdateNodeRequest]) (*connect.Response[aurav1.SelfUpdateNodeResponse], error) {
+	return connect.NewResponse(&aurav1.SelfUpdateNodeResponse{}), nil
+}
+
 // TestFetchTraceStepsPagination 覆盖 GetTrace 分页循环：翻页至空 token 聚全步序（保序）+ 源节点/平台回填。
 func TestFetchTraceStepsPagination(t *testing.T) {
 	mk := func(seqs ...int64) []*aurav1.TraceStep {

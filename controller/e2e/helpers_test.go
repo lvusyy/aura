@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 
 	aurav1 "github.com/aura/controller/gen/aura/v1"
+	"github.com/aura/controller/gen/aura/v1/aurav1connect"
 )
 
 // gatewayPost 向 M14 网关 POST 一段 JSON-RPC（agent 单一入口 /v1/mcp/<node_id>），返回状态码 + 响应体。
@@ -148,9 +150,16 @@ func (h *harness) enrollNode(t *testing.T, dataDir, token, platform string) stri
 // startNode 起长驻反连节点（mTLS 反连 grpcAddr + 本地 MCP /mcp）；返回 stop 优雅关停 + MCP bind 地址。
 func (h *harness) startNode(t *testing.T, dataDir, driver string) (stop func(), mcpBind string) {
 	t.Helper()
+	return h.startNodeBin(t, h.nodeBin, dataDir, driver)
+}
+
+// startNodeBin 同 startNode 但显式指定二进制路径——self-update 场景⑥须跑「拷贝」二进制（换刀会改写
+// 自身文件，绝不动共享的 AURA_E2E_NODE_BIN 构建产物）。
+func (h *harness) startNodeBin(t *testing.T, bin, dataDir, driver string) (stop func(), mcpBind string) {
+	t.Helper()
 	mcpPort := freePort()
 	mcpBind = bindAddr(mcpPort)
-	cmd := exec.Command(h.nodeBin,
+	cmd := exec.Command(bin,
 		"--driver", driver,
 		"--controller", h.grpcAddr,
 		"--tls-domain", "aura-controller",
@@ -176,6 +185,54 @@ func (h *harness) startNode(t *testing.T, dataDir, driver string) (stop func(), 
 		}
 	}
 	return stop, mcpBind
+}
+
+// adminClient 构造带 admin bearer 的 ControllerAdmin 客户端（M16 self-update 场景用）。
+// 独立 http.Client：SelfUpdateNode 服务端同步等节点下载+校验+换刀（awaitTimeout 330s），
+// 共享 h.httpClient 的 20s Timeout 会把长等待腰斩。
+func (h *harness) adminClient() aurav1connect.ControllerAdminClient {
+	transport, _ := h.httpClient.Transport.(*http.Transport)
+	return aurav1connect.NewControllerAdminClient(
+		&http.Client{Timeout: 360 * time.Second, Transport: transport},
+		h.restBase,
+		connect.WithInterceptors(bearerInterceptor(h.adminToken)),
+	)
+}
+
+// nodeInfo 经 ListNodes 取指定节点快照；不在册返回 nil。
+func (h *harness) nodeInfo(t *testing.T, client aurav1connect.ControllerAdminClient, nodeID string) *aurav1.NodeInfo {
+	t.Helper()
+	resp, err := client.ListNodes(context.Background(), connect.NewRequest(&aurav1.ListNodesRequest{}))
+	if err != nil {
+		t.Fatalf("ListNodes: %v", err)
+	}
+	for _, n := range resp.Msg.GetNodes() {
+		if n.GetNodeId() == nodeID {
+			return n
+		}
+	}
+	return nil
+}
+
+// uploadRelease 经 REST POST /v1/releases 上传一个制品（M16 场景⑥；admin bearer）。
+func (h *harness) uploadRelease(t *testing.T, platform, version string, body []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost,
+		h.restBase+"/v1/releases?platform="+platform+"&version="+version, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build release upload: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+h.adminToken)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("release upload: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("release upload %s/%s: HTTP %d: %s", platform, version, resp.StatusCode, truncate(string(raw), 300))
+	}
 }
 
 // waitNodeInFleet 反复开 WatchFleet 读首帧快照，直到 nodeID 现身或超时（反连注册有延迟）。

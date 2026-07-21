@@ -62,6 +62,17 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	// M16 e2e MinIO（self-update 场景⑥选装）：AURA_E2E_MINIO_* 就位则映射为 controller 进程的
+	// AURA_MINIO_*（startController 的子进程继承本进程 env）。未配则该场景自 skip、其余场景照跑。
+	// PUBLIC 端点即内部端点：单机 e2e 节点可达面与控制面同一 localhost；节点下载腿 http-only，
+	// e2e MinIO 须为明文 http（dev 缺省形态）。
+	if ep := os.Getenv("AURA_E2E_MINIO_ENDPOINT"); ep != "" {
+		os.Setenv("AURA_MINIO_ENDPOINT", ep)
+		os.Setenv("AURA_MINIO_PUBLIC_ENDPOINT", ep)
+		os.Setenv("AURA_MINIO_ACCESS_KEY", os.Getenv("AURA_E2E_MINIO_ACCESS_KEY"))
+		os.Setenv("AURA_MINIO_SECRET_KEY", os.Getenv("AURA_E2E_MINIO_SECRET_KEY"))
+	}
+
 	tmp, err := os.MkdirTemp("", "aura-e2e-")
 	if err != nil {
 		fatal("mktemp", err)

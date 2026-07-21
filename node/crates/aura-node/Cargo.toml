@@ -52,6 +52,10 @@ http-body-util = { version = "0.1", optional = true }
 # gethostname() 返宿主名——非机器指纹（PVE clone machine-id 禁用），允许辨识；趋同时 label 由用户区分。
 gethostname = { version = "1", optional = true }
 
+# M16 self-update：staged 制品 sha256 强校验（随 grpc feature 入树）。0.10 与 Cargo.lock 既有传递
+# 依赖统一（零新版本入树，同 base64 先例）。
+sha2 = { version = "0.10", optional = true }
+
 # 可观测 OTLP（M3，otel feature 门控）：opentelemetry 生态 + tracing 桥接。AURA_OTLP_ENDPOINT 未配则
 # 不装 OTLP 层（零开销降级仅 stderr，M1/M2 行为不变）；otel feature 未开则零依赖入树。
 # 版本经三平台构建机 cargo add 解析（勿手写占位——sync 会盖回）。grpc-tonic 传输干跑验证复用工作区
@@ -79,7 +83,7 @@ tonic-prost-build = "0.14"
 
 [features]
 default = []
-grpc = ["dep:tonic", "dep:prost", "dep:tonic-prost", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:gethostname"]
+grpc = ["dep:tonic", "dep:prost", "dep:tonic-prost", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:gethostname", "dep:sha2"]
 # M12 设备接入（TASK-006）：enroll/renew 一次性子命令 + rcgen CSR + reqwest HTTPS 换证。与 grpc 正交
 # （生产节点两 feature 并开：enroll 换 per-node 证书 → grpc 以之反连）；未启用则零依赖入树，M1/M2 行为不变。
 enroll = ["dep:rcgen", "dep:reqwest", "dep:gethostname"]

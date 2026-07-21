@@ -79,10 +79,23 @@ func run(argv []string) error {
 		return cmdTrace(ctx, client, args[1:])
 	case "replay":
 		return cmdReplay(ctx, client, args[1:])
+	case "release":
+		// M16：upload 走 raw REST（流式字节不过 connect 消息上限），list 走 ControllerAdmin RPC。
+		return cmdRelease(ctx, client, args[1:], restConfig{httpClient: httpClient, server: *server, token: *token})
+	case "rollout":
+		return cmdRollout(ctx, client, args[1:])
 	default:
 		printUsage(root)
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+// restConfig 承载 raw REST 端点调用所需参数（M16 release upload：连 connect client 同一 server/token，
+// 但直发 HTTP 而非 RPC）。
+type restConfig struct {
+	httpClient *http.Client
+	server     string
+	token      string
 }
 
 // newHTTPClient 构造带 TLS 配置的 http.Client（connect unary 载体）。
@@ -131,6 +144,9 @@ Commands:
   artifact get <key> [--out FILE]                                     download an artifact via presigned URL
   trace start <node-id> [--who W] | trace stop <trace-id>             start/stop a recording lease (trace)
   replay <trace-id> [--node <id>] [--platform <p>] [--deadline-ms N]  replay a recorded trace against a target
+  release upload --platform P --version V <file>                      upload a node release artifact (admin)
+  release list                                                        list registered release artifacts
+  rollout --version V [--nodes id1,id2|--all] [--timeout-s N]         serial fleet self-update (canary-first, admin)
 
 Global flags (must precede the command):
 `)

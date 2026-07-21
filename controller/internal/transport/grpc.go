@@ -398,6 +398,8 @@ func (s *NodeControlServer) Connect(
 	sess.Attached = reg.GetAttached()
 	// 批E：节点二进制版本回填会话（滚更可见性；持久面同上由 UpsertNode 落库）。
 	sess.NodeVersion = reg.GetNodeVersion()
+	// M16：二进制宿主平台回填会话（SelfUpdateNode 制品选型判据；持久面同上由 UpsertNode 落库）。
+	sess.HostPlatform = reg.GetHostPlatform()
 	sess.SetMeta(eff.GetLabel(), eff.GetLocation())
 	s.registry.Add(sess)
 	defer func() {
@@ -456,6 +458,13 @@ func (s *NodeControlServer) Connect(
 			// M14：MCP 网关代理响应——依 request_id 路由回网关等待方（哑管道，不解释 body）。
 			sess.Touch()
 			sess.DeliverMcpResponse(frame.GetMcpProxyResponse())
+		case frame.GetSelfUpdateResult() != nil:
+			// M16：self-update 结果回执——路由回 SelfUpdateNode 等待方。ok=true 意味着节点已换刀、
+			// 随即重启（本流将断，重注册走新流）；失败时现网二进制未动，错误上抛调用方。
+			sess.Touch()
+			sur := frame.GetSelfUpdateResult()
+			slog.Info("node self-update result", "node_id", nodeID, "version", sur.GetVersion(), "ok", sur.GetOk(), "err", sur.GetError())
+			sess.DeliverSelfUpdateResult(sur)
 		case frame.GetUploadComplete() != nil:
 			// 大产物旁路上传完成回执（G-5）：记审计并 resolve 等待中的 GrantAndAwait。产物本体已经
 			// 预签名 PUT 落对象存储，经 resource_link / auractl artifact get 取回；此处不再搬运字节

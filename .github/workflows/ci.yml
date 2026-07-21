@@ -116,10 +116,21 @@ jobs:
           for i in $(seq 1 20); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.5; done
           DISPLAY=:99 openbox >/tmp/openbox.log 2>&1 &
           sleep 1
+      # M16 场景⑥ MinIO（self-update 制品存储）：services 键不支持 command 覆写而 minio 镜像需
+      # `server /data`，故 docker run 起临时实例；健康探针等就绪。
+      - name: Start MinIO
+        run: |
+          docker run -d --name e2e-minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=aura -e MINIO_ROOT_PASSWORD=aura-e2e-minio \
+            minio/minio server /data
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null && break; sleep 1; done
       - name: Run e2e suite
         working-directory: controller
         env:
           DISPLAY: ":99"
           AURA_E2E_PG_DSN: "postgres://aura:aura@127.0.0.1:5432/aura?sslmode=disable"
           AURA_E2E_NODE_BIN: "${{ github.workspace }}/node/target/release/aura-node"
-        run: go test -tags e2e -v -timeout 8m ./e2e/...
+          AURA_E2E_MINIO_ENDPOINT: "127.0.0.1:9000"
+          AURA_E2E_MINIO_ACCESS_KEY: "aura"
+          AURA_E2E_MINIO_SECRET_KEY: "aura-e2e-minio"
+        run: go test -tags e2e -v -timeout 10m ./e2e/...

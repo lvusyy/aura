@@ -334,3 +334,23 @@ ALTER TABLE nodes ADD COLUMN IF NOT EXISTS project TEXT;
 -- M15 additive：enroll token 携项目——节点 enroll 即归属（ConsumeToken RETURNING 回传 project，
 -- enroll 端点随 label 同路落 nodes.project）。NULL/'' =不归属。
 ALTER TABLE enrollment_tokens ADD COLUMN IF NOT EXISTS project TEXT;
+
+-- ===== M16：节点 self-update（舰队滚更自动化）=====
+
+-- M16 additive：节点二进制宿主平台（Register.host_platform 落库；platform 列是设备类——android 节点的
+-- 二进制实际跑在 linux-x86_64 宿主，发布制品选型必须按二进制平台）。同 node_version 持久语义：rollout
+-- 规划与漂移视图需覆盖离线成员。词表 {OS}-{ARCH}（linux-x86_64 / windows-x86_64 / macos-aarch64）。
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS host_platform TEXT;
+
+-- 发布制品登记（制品本体在对象存储 releases/<platform>/<version>/ 键下，本表只存元数据）。
+-- 同 (platform, version) 重复上传为覆盖语义（修正坏制品），sha256/size/created_at 随之更新。
+--   platform : 二进制宿主平台（与 nodes.host_platform 同词表）
+--   sha256   : 制品 sha256 hex 小写（上传时服务端计算；节点下载后强校验）
+CREATE TABLE IF NOT EXISTS releases (
+    platform   TEXT NOT NULL,
+    version    TEXT NOT NULL,
+    sha256     TEXT NOT NULL,
+    size       BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (platform, version)
+);

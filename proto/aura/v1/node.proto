@@ -36,6 +36,11 @@ service ControllerAdmin {
   rpc StartTrace(StartTraceRequest) returns (StartTraceResponse);
   rpc StopTrace(StopTraceRequest) returns (StopTraceResponse);
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // M16 节点 self-update 管理面（additive）。制品上传走 REST POST /v1/releases（流式字节不过 connect
+  // 消息上限）；本面只承载元数据列举与滚更触发。SelfUpdateNode 同步等待节点 SelfUpdateResult
+  //（staged=已换刀待重启），版本收敛由调用方（auractl rollout）轮询 ListNodes.node_version 确认。
+  rpc ListReleases(ListReleasesRequest) returns (ListReleasesResponse);
+  rpc SelfUpdateNode(SelfUpdateNodeRequest) returns (SelfUpdateNodeResponse);
 }
 
 // ===== 反连双向流消息 =====
@@ -50,6 +55,7 @@ message NodeToController {
     UploadFailed upload_failed = 5;      // M10：旁路上传失败即时通知（additive，UploadComplete 对偶帧）
     AgentActivity agent_activity = 6;    // M13：直连 MCP agent 活动批量上报（additive；观测帧，不影响工具执行链）
     McpProxyResponse mcp_proxy_response = 7;  // M14：MCP 网关代理响应（additive，request_id 关联 McpProxyRequest）
+    SelfUpdateResult self_update_result = 8;  // M16：self-update 结果回执（additive，SelfUpdate 对偶帧；重启前发出）
   }
 }
 
@@ -60,6 +66,7 @@ message ControllerToNode {
     ToolRequest tool_request = 2;
     UploadUrlGrant upload_url_grant = 3;  // M3：大产物旁路上传预签名 URL 授权（additive）
     McpProxyRequest mcp_proxy_request = 4;  // M14：控制面 MCP 网关代理请求（additive；未滚更节点安全忽略未知帧，网关侧超时可辨）
+    SelfUpdate self_update = 5;             // M16：节点 self-update 指令（additive；未滚更节点安全忽略，rollout 侧超时可辨）
   }
 }
 
@@ -111,6 +118,10 @@ message Register {
   // auractl stderr 可见，无法从 console/API 盘点舰队滚更进度；随 Register 落 nodes 表（离线也可查
   // 最后已知版本，同 runtime_kind 持久语义）。
   string node_version = 15;   // 节点二进制版本（aura-node CARGO_PKG_VERSION；未滚更节点空）
+  // M16（self-update，additive）：二进制宿主平台。platform=2 是设备类（android 节点的二进制实际跑在
+  // linux-x86_64 宿主上），发布制品选型必须按二进制平台——std::env::consts {OS}-{ARCH} 编译期定值，
+  // 与 releases.platform 词表同源（linux-x86_64 / windows-x86_64 / macos-aarch64）。
+  string host_platform = 16;  // 二进制宿主平台（未滚更节点空 → rollout 明确跳过并提示手工滚一次）
 }
 
 // 注册确认。控制面回传最终 node_id（首次注册时为新分配的 UUID）。
@@ -165,6 +176,32 @@ message UploadComplete {
 message UploadFailed {
   string key = 1;    // 对象存储键（回声授权中的 key）
   string error = 2;  // 节点侧失败原因（诊断文本，anyhow cause 链单行展开）
+}
+
+// ===== 节点 self-update（M16，additive）=====
+//
+// 舰队滚更自动化：auractl rollout → ControllerAdmin.SelfUpdateNode → 本帧对经反连流送达节点 →
+// 节点下载（presigned GET，按 network_zone 端点签发同上传腿）→ sha256 校验 → staging sanity（--version）
+// → 原子换刀（运行中二进制 rename .old → 新二进制就位）→ 回 SelfUpdateResult → 重启：
+// Unix 直接 exec 自替换（同 PID，不依赖 supervisor——覆盖 systemd/launchd/容器 PID1/裸 setsid 全形态）；
+// Windows 运行中 exe 不可覆盖但可 rename，detached helper 等进程退出后经计划任务拉起新版本。
+// 回滚 = 向旧版本 rollout（同一机制，零专用帧）；.old 仅作换刀中途失败的本地自愈位。
+// 失败路径不砖机：staging 校验失败不动现网二进制，错误经 SelfUpdateResult 上报。
+
+// 控制面 → 节点：self-update 指令。
+message SelfUpdate {
+  string version = 1;  // 目标版本（releases 表登记值；结果帧回声关联）
+  string url = 2;      // 新二进制 presigned GET URL（按节点 network_zone 可达端点签发，有限期）
+  string sha256 = 3;   // 新二进制 sha256（hex 小写；下载后强校验，失配即弃）
+  int64 size = 4;      // 新二进制字节数（下载完整性预检）
+}
+
+// 节点 → 控制面：self-update 结果回执（重启前发出；ok=true 后节点随即重启重注册）。
+// 帧 best-effort：节点在回执送达前崩溃/断流时，控制面等待方兜底超时独立生效（两案纵深）。
+message SelfUpdateResult {
+  string version = 1;  // 回声指令中的目标版本
+  bool ok = 2;         // true=已换刀待重启；false=失败（现网二进制未动）
+  string error = 3;    // 失败原因（诊断文本，anyhow cause 链单行展开；ok=true 时空）
 }
 
 // ===== 直连 MCP agent 活动观测（M13，additive）=====
@@ -242,6 +279,9 @@ message NodeInfo {
   // M15（项目隔离，additive）：节点项目归属。console 管理面赋值（UpdateNodeMeta / enroll token 携带），
   // 非节点自报——区别于 label 的双写方语义，本字段单写方（管理面权威）。空=未归属（仅全域令牌可见可控）。
   string project = 18;            // 项目归属（''=未归属；项目令牌仅见/仅控同值节点）
+  // M16（self-update，additive）：二进制宿主平台（Register.host_platform=16 落库回填；离线节点经表分支
+  // 回填最后已知值——rollout 规划与漂移视图需覆盖离线成员，同 runtime_kind 持久语义）。
+  string host_platform = 19;      // 二进制宿主平台（linux-x86_64 等；未滚更/未上报空）
 }
 
 message ListNodesResponse {
@@ -279,6 +319,35 @@ message DestroyEnvironmentRequest {
 
 message DestroyEnvironmentResponse {
   bool destroyed = 1;
+}
+
+// ===== 节点 self-update 管理面（M16，additive）=====
+
+message ListReleasesRequest {}
+
+// 一条发布制品元数据（releases 表投影；制品本体在对象存储 releases/<platform>/<version>/ 键下）。
+message Release {
+  string platform = 1;       // 二进制宿主平台（linux-x86_64 / windows-x86_64 / macos-aarch64，与 Register.host_platform 同词表）
+  string version = 2;        // 版本（同平台唯一）
+  string sha256 = 3;         // 制品 sha256（hex 小写，上传时服务端计算）
+  int64 size = 4;            // 制品字节数
+  int64 created_at_ms = 5;   // 登记时刻（毫秒）
+}
+
+message ListReleasesResponse {
+  repeated Release releases = 1;
+}
+
+// 触发单节点 self-update：按节点 host_platform+version 定位制品 → 按其 network_zone 签发 presigned GET
+// → 下发 SelfUpdate 帧 → 同步等待 SelfUpdateResult。admin 档令牌 + 项目隔离门控。
+message SelfUpdateNodeRequest {
+  string node_id = 1;
+  string version = 2;
+}
+
+message SelfUpdateNodeResponse {
+  bool staged = 1;      // true=节点已换刀待重启（版本收敛经 ListNodes.node_version 轮询确认）
+  string message = 2;   // 诊断信息（staged=false 时为节点/控制面侧失败原因）
 }
 
 // ===== 录制回放管理面（M6，additive）=====

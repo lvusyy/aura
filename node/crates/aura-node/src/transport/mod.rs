@@ -44,6 +44,11 @@ pub mod tool_dispatch;
 #[cfg(feature = "grpc")]
 pub mod upload;
 
+// M16 节点 self-update（feature grpc 门控）：SelfUpdate 帧处理——staging 下载/sha256 校验/原子换刀/
+// 平台各异重启（Unix exec 自替换、Windows 计划任务 helper）。
+#[cfg(feature = "grpc")]
+pub mod self_update;
+
 /// 设备接入 enroll/renew 客户端（feature enroll 门控，M12 TASK-006）：一次性 CLI 生成密钥对+CSR
 /// （私钥不离节点）换 per-node 证书。rcgen 产 CSR + reqwest HTTPS 换证，随 enroll feature 入树。
 /// 与 grpc 正交（enroll 是反连前置的 bootstrap；grpc 是换证后的反连服务面）——生产节点两 feature 并开。

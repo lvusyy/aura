@@ -77,9 +77,11 @@ func (s *PGStore) UpsertNode(ctx context.Context, node *aurav1.NodeInfo, hostnam
 	// 离线时最需要（挂了才要找它在哪），离线节点经 ListNodes 表分支回填。
 	// 批E：node_version 节点自报机器事实——EXCLUDED 优先（滚更后新版本即真值），空报 COALESCE 保留
 	// 现值（未滚更节点不抹既有版本记录），同 runtime_kind 语义。
+	// M16：host_platform 节点自报机器事实——EXCLUDED 优先 + 空报 COALESCE 保留，同 node_version 语义
+	// （二进制平台随部署迁移可变，如同一 node_id 迁到别架构宿主）。
 	const q = `
-INSERT INTO nodes (id, platform, name, hostname, label, location, network_zone, cert_fp, runtime_kind, infra_host, attached, node_version, last_seen, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13)
+INSERT INTO nodes (id, platform, name, hostname, label, location, network_zone, cert_fp, runtime_kind, infra_host, attached, node_version, host_platform, last_seen, status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14)
 ON CONFLICT (id) DO UPDATE SET
 	platform     = EXCLUDED.platform,
 	name         = COALESCE(NULLIF(EXCLUDED.name, ''), nodes.name),
@@ -91,6 +93,7 @@ ON CONFLICT (id) DO UPDATE SET
 	infra_host   = COALESCE(NULLIF(EXCLUDED.infra_host, ''), nodes.infra_host),
 	attached     = COALESCE(NULLIF(EXCLUDED.attached, ''), nodes.attached),
 	node_version = COALESCE(NULLIF(EXCLUDED.node_version, ''), nodes.node_version),
+	host_platform = COALESCE(NULLIF(EXCLUDED.host_platform, ''), nodes.host_platform),
 	last_seen    = now(),
 	status       = EXCLUDED.status
 RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
@@ -100,7 +103,7 @@ RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
 		Status:   node.GetStatus(),
 	}
 	if err := s.pool.QueryRow(ctx, q, id, node.GetPlatform(), node.GetName(), hostname, node.GetLabel(), node.GetLocation(), networkZone, certFP,
-		node.GetRuntimeKind(), node.GetInfraHost(), node.GetAttached(), node.GetNodeVersion(), node.GetStatus()).
+		node.GetRuntimeKind(), node.GetInfraHost(), node.GetAttached(), node.GetNodeVersion(), node.GetHostPlatform(), node.GetStatus()).
 		Scan(&eff.Name, &eff.Label, &eff.Location); err != nil {
 		return nil, fmt.Errorf("upsert node: %w", err)
 	}
@@ -117,7 +120,7 @@ RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
 // 设备在哪台宿主/什么形态），三列持久化后离线节点经此回填。
 func (s *PGStore) ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error) {
 	// M15：SELECT 补 project——项目归属为管理面持久列，在线/离线节点同源回填（registry 合并层透传）。
-	const q = `SELECT id, platform, COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, ''), COALESCE(network_zone, ''), COALESCE(runtime_kind, ''), COALESCE(infra_host, ''), COALESCE(attached, ''), COALESCE(node_version, ''), COALESCE(project, ''), status, last_seen FROM nodes`
+	const q = `SELECT id, platform, COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, ''), COALESCE(network_zone, ''), COALESCE(runtime_kind, ''), COALESCE(infra_host, ''), COALESCE(attached, ''), COALESCE(node_version, ''), COALESCE(host_platform, ''), COALESCE(project, ''), status, last_seen FROM nodes`
 	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
@@ -131,7 +134,7 @@ func (s *PGStore) ListNodes(ctx context.Context) ([]*aurav1.NodeInfo, error) {
 			lastSeen time.Time
 			n        = &aurav1.NodeInfo{}
 		)
-		if err := rows.Scan(&id, &n.Platform, &n.Name, &n.Label, &n.Location, &n.NetworkZone, &n.RuntimeKind, &n.InfraHost, &n.Attached, &n.NodeVersion, &n.Project, &n.Status, &lastSeen); err != nil {
+		if err := rows.Scan(&id, &n.Platform, &n.Name, &n.Label, &n.Location, &n.NetworkZone, &n.RuntimeKind, &n.InfraHost, &n.Attached, &n.NodeVersion, &n.HostPlatform, &n.Project, &n.Status, &lastSeen); err != nil {
 			return nil, fmt.Errorf("scan node: %w", err)
 		}
 		n.NodeId = uuidString(id)

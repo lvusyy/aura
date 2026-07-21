@@ -317,3 +317,61 @@ export function useDashboard(refreshMs = 5000): DashboardState {
 
   return { data, error };
 }
+
+/** platform → 该平台最新发布版本（M16 版本漂移视图；releases 按 created_at DESC，取每平台首条即最新）。 */
+export type LatestReleaseMap = ReadonlyMap<string, string>;
+
+/**
+ * useLatestReleases：拉 ListReleases 构造 host_platform → 最新版本映射，供 FleetPage 版本漂移高亮
+ * （节点 node_version ≠ 本平台最新发布即「有更新」）。低频 unary（refreshMs 默认 30s——发布是运维显式
+ * 低频操作，不需秒级）。未配 releases 域（无 MinIO/PG）时 RPC 报 Unavailable，静默降级为空映射（漂移
+ * 视图不显，不打扰）。
+ */
+export function useLatestReleases(refreshMs = 30000): LatestReleaseMap {
+  const [map, setMap] = useState<LatestReleaseMap>(new Map());
+
+  useEffect(() => {
+    const ac = new AbortController();
+    const load = async () => {
+      try {
+        const resp = await adminClient.listReleases({}, { signal: ac.signal });
+        // releases 已按 created_at DESC 返回：首见平台即其最新版本（上传序≈发布序，语义版本比较是
+        // 过度设计——运维显式上传的目标版本就是权威「最新」）。
+        const next = new Map<string, string>();
+        for (const r of resp.releases) {
+          if (!next.has(r.platform)) {
+            next.set(r.platform, r.version);
+          }
+        }
+        setMap((prev) => (sameMap(prev, next) ? prev : next));
+      } catch (err) {
+        if (ac.signal.aborted || isAbortError(err)) {
+          return;
+        }
+        // 未配 releases 域 / 无权限：静默空映射（漂移视图为增益面，缺失不打扰主流程）。
+        setMap((prev) => (prev.size === 0 ? prev : new Map()));
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), refreshMs);
+    return () => {
+      ac.abort();
+      clearInterval(timer);
+    };
+  }, [refreshMs]);
+
+  return map;
+}
+
+/** 两个 string→string 映射内容等价（变更门控：内容未变保留旧引用，免无谓重渲染）。 */
+function sameMap(a: LatestReleaseMap, b: LatestReleaseMap): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [k, v] of a) {
+    if (b.get(k) !== v) {
+      return false;
+    }
+  }
+  return true;
+}

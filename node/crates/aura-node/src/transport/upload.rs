@@ -38,6 +38,55 @@ pub async fn put_file(presigned_url: &str, path: &Path, local_addr: Option<IpAdd
 /// 不无限持有连接。重试策略由消费侧（TASK-010）在此之上决定。
 const PUT_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// 单次制品下载硬超时（M16 self-update 下载腿；与 PUT_TIMEOUT 同数系——控制面等待窗 330s 据此推导）。
+const GET_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// 经预签名 URL GET 下载对象到本地文件（M16 self-update 下载腿），返回字节数。
+/// 整体收内存后落盘（制品 ~20-40MB，与 put 腿同哲学）；http-only 约束同 PUT 腿（scheme 关把守）。
+pub async fn get_file(presigned_url: &str, dest: &Path, local_addr: Option<IpAddr>) -> Result<u64> {
+    let uri: hyper::Uri = presigned_url.parse().context("parse presigned url")?;
+    if uri.scheme_str() != Some("http") {
+        bail!(
+            "only http presigned endpoints are supported on the release download path (got {:?}); \
+             configure the object store with a plaintext node-reachable endpoint",
+            uri.scheme_str()
+        );
+    }
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .body(Full::new(Bytes::new()))
+        .context("build GET request")?;
+    let client: Client<_, Full<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(local_bound_connector(local_addr));
+
+    // 头与体两段同伞硬超时：对象存储半途挂起时快速失败（download 腿无重试，失败上抛 SelfUpdateResult）。
+    let resp = tokio::time::timeout(GET_TIMEOUT, client.request(req))
+        .await
+        .map_err(|_| anyhow!("presigned GET timed out after {}s", GET_TIMEOUT.as_secs()))?
+        .context("send GET request")?;
+    let status = resp.status();
+    let body = tokio::time::timeout(GET_TIMEOUT, resp.into_body().collect())
+        .await
+        .map_err(|_| anyhow!("presigned GET body timed out after {}s", GET_TIMEOUT.as_secs()))?
+        .context("read GET body")?
+        .to_bytes();
+    if !status.is_success() {
+        return Err(anyhow!("presigned GET failed: HTTP {}", status.as_u16()));
+    }
+
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("create staging dir {}", parent.display()))?;
+    }
+    tokio::fs::write(dest, &body)
+        .await
+        .with_context(|| format!("write staged file {}", dest.display()))?;
+    Ok(body.len() as u64)
+}
+
 /// 经预签名 URL PUT 一段字节，返回对象 ETag（去引号）。非 2xx 响应即 Err（含状态码）。
 pub async fn put_bytes(presigned_url: &str, body: Vec<u8>, local_addr: Option<IpAddr>) -> Result<String> {
     let uri: hyper::Uri = presigned_url.parse().context("parse presigned url")?;

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aura/v1/node.proto.
  */
 export const file_aura_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChJhdXJhL3YxL25vZGUucHJvdG8SB2F1cmEudjEi7AIKEE5vZGVUb0NvbnRyb2xsZXISJQoIcmVnaXN0ZXIYASABKAsyES5hdXJhLnYxLlJlZ2lzdGVySAASJwoJaGVhcnRiZWF0GAIgASgLMhIuYXVyYS52MS5IZWFydGJlYXRIABIuCg10b29sX3Jlc3BvbnNlGAMgASgLMhUuYXVyYS52MS5Ub29sUmVzcG9uc2VIABIyCg91cGxvYWRfY29tcGxldGUYBCABKAsyFy5hdXJhLnYxLlVwbG9hZENvbXBsZXRlSAASLgoNdXBsb2FkX2ZhaWxlZBgFIAEoCzIVLmF1cmEudjEuVXBsb2FkRmFpbGVkSAASMAoOYWdlbnRfYWN0aXZpdHkYBiABKAsyFi5hdXJhLnYxLkFnZW50QWN0aXZpdHlIABI3ChJtY3BfcHJveHlfcmVzcG9uc2UYByABKAsyGS5hdXJhLnYxLk1jcFByb3h5UmVzcG9uc2VIAEIJCgdwYXlsb2FkIuUBChBDb250cm9sbGVyVG9Ob2RlEiwKDHJlZ2lzdGVyX2FjaxgBIAEoCzIULmF1cmEudjEuUmVnaXN0ZXJBY2tIABIsCgx0b29sX3JlcXVlc3QYAiABKAsyFC5hdXJhLnYxLlRvb2xSZXF1ZXN0SAASMwoQdXBsb2FkX3VybF9ncmFudBgDIAEoCzIXLmF1cmEudjEuVXBsb2FkVXJsR3JhbnRIABI1ChFtY3BfcHJveHlfcmVxdWVzdBgEIAEoCzIYLmF1cmEudjEuTWNwUHJveHlSZXF1ZXN0SABCCQoHcGF5bG9hZCKHAQoPTWNwUHJveHlSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDAoEYm9keRgCIAEoDBIUCgxjb250ZW50X3R5cGUYAyABKAkSDgoGYWNjZXB0GAQgASgJEhIKCnVzZXJfYWdlbnQYBSABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgGIAEoCSJaChBNY3BQcm94eVJlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDgoGc3RhdHVzGAIgASgFEgwKBGJvZHkYAyABKAwSFAoMY29udGVudF90eXBlGAQgASgJIqQCCghSZWdpc3RlchIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg0KBXRva2VuGAMgASgJEg0KBXRvb2xzGAQgAygJEhgKEGNvbnRyYWN0X3ZlcnNpb24YBSABKAkSDAoEbmFtZRgGIAEoCRINCgVsYWJlbBgHIAEoCRIQCghsb2NhdGlvbhgIIAEoCRIUCgxuZXR3b3JrX3pvbmUYCSABKAkSEgoKb3NfdmVyc2lvbhgKIAEoCRISCgppcF9hZGRyZXNzGAsgASgJEhQKDHJ1bnRpbWVfa2luZBgMIAEoCRISCgppbmZyYV9ob3N0GA0gASgJEhAKCGF0dGFjaGVkGA4gASgJEhQKDG5vZGVfdmVyc2lvbhgPIAEoCSJBCgtSZWdpc3RlckFjaxIPCgdub2RlX2lkGAEgASgJEhAKCGFjY2VwdGVkGAIgASgIEg8KB21lc3NhZ2UYAyABKAkiMAoJSGVhcnRiZWF0Eg8KB25vZGVfaWQYASABKAkSEgoKdHNfdW5peF9tcxgCIAEoAyJmCgtUb29sUmVxdWVzdBIPCgd0YXNrX2lkGAEgASgJEgwKBHRvb2wYAiABKAkSEQoJanNvbl9hcmdzGAMgASgMEhMKC2RlYWRsaW5lX21zGAQgASgDEhAKCHRyYWNlX2lkGAUgASgJIjYKDFRvb2xSZXNwb25zZRIPCgd0YXNrX2lkGAEgASgJEhUKDWpzb25fZW52ZWxvcGUYAiABKAwiRgoOVXBsb2FkVXJsR3JhbnQSCwoDa2V5GAEgASgJEhUKDXByZXNpZ25lZF91cmwYAiABKAkSEAoIdHRsX3NlY3MYAyABKAMiKwoOVXBsb2FkQ29tcGxldGUSCwoDa2V5GAEgASgJEgwKBGV0YWcYAiABKAkiKgoMVXBsb2FkRmFpbGVkEgsKA2tleRgBIAEoCRINCgVlcnJvchgCIAEoCSI4Cg1BZ2VudEFjdGl2aXR5EicKBmV2ZW50cxgBIAMoCzIXLmF1cmEudjEuQWdlbnRDYWxsRXZlbnQiywEKDkFnZW50Q2FsbEV2ZW50EgwKBHBlZXIYASABKAkSDgoGbWV0aG9kGAIgASgJEgwKBHRvb2wYAyABKAkSEwoLY2xpZW50X25hbWUYBCABKAkSFgoOY2xpZW50X3ZlcnNpb24YBSABKAkSGAoQcHJvdG9jb2xfdmVyc2lvbhgGIAEoCRITCgtkdXJhdGlvbl9tcxgHIAEoAxIKCgJvaxgIIAEoCBIRCgl0cmFuc3BvcnQYCSABKAkSEgoKdHNfdW5peF9tcxgKIAEoAyISChBMaXN0Tm9kZXNSZXF1ZXN0IuUCCghOb2RlSW5mbxIPCgdub2RlX2lkGAEgASgJEhAKCHBsYXRmb3JtGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIUCgxsYXN0X3NlZW5fbXMYBCABKAMSDQoFdG9vbHMYBSADKAkSGAoQY29udHJhY3RfdmVyc2lvbhgGIAEoCRIMCgRuYW1lGAcgASgJEg0KBWxhYmVsGAggASgJEhAKCGxvY2F0aW9uGAkgASgJEhIKCm9zX3ZlcnNpb24YCiABKAkSEgoKaXBfYWRkcmVzcxgLIAEoCRIUCgxuZXR3b3JrX3pvbmUYDCABKAkSFwoPY29ubmVjdGVkX2F0X21zGA0gASgDEhQKDHJ1bnRpbWVfa2luZBgOIAEoCRISCgppbmZyYV9ob3N0GA8gASgJEhAKCGF0dGFjaGVkGBAgASgJEhQKDG5vZGVfdmVyc2lvbhgRIAEoCRIPCgdwcm9qZWN0GBIgASgJIjUKEUxpc3ROb2Rlc1Jlc3BvbnNlEiAKBW5vZGVzGAEgAygLMhEuYXVyYS52MS5Ob2RlSW5mbyJ7ChNEaXNwYXRjaFRvb2xSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDAoEdG9vbBgCIAEoCRIRCglqc29uX2FyZ3MYAyABKAwSEwoLZGVhZGxpbmVfbXMYBCABKAMSCwoDd2hvGAUgASgJEhAKCHRyYWNlX2lkGAYgASgJIi0KFERpc3BhdGNoVG9vbFJlc3BvbnNlEhUKDWpzb25fZW52ZWxvcGUYASABKAwiOgoYQ3JlYXRlRW52aXJvbm1lbnRSZXF1ZXN0EgwKBGtpbmQYASABKAkSEAoIdGVtcGxhdGUYAiABKAkiSgoZQ3JlYXRlRW52aXJvbm1lbnRSZXNwb25zZRIOCgZlbnZfaWQYASABKAkSDAoEdm1pZBgCIAEoBRIPCgdub2RlX2lkGAMgASgJIisKGURlc3Ryb3lFbnZpcm9ubWVudFJlcXVlc3QSDgoGZW52X2lkGAEgASgJIi8KGkRlc3Ryb3lFbnZpcm9ubWVudFJlc3BvbnNlEhEKCWRlc3Ryb3llZBgBIAEoCCIxChFTdGFydFRyYWNlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEgsKA3dobxgCIAEoCSImChJTdGFydFRyYWNlUmVzcG9uc2USEAoIdHJhY2VfaWQYASABKAkiJAoQU3RvcFRyYWNlUmVxdWVzdBIQCgh0cmFjZV9pZBgBIAEoCSIkChFTdG9wVHJhY2VSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIIkoKD0dldFRyYWNlUmVxdWVzdBIQCgh0cmFjZV9pZBgBIAEoCRIRCglwYWdlX3NpemUYAiABKAMSEgoKcGFnZV90b2tlbhgDIAEoCSJxChBHZXRUcmFjZVJlc3BvbnNlEiEKBXN0ZXBzGAEgAygLMhIuYXVyYS52MS5UcmFjZVN0ZXASDwoHbm9kZV9pZBgCIAEoCRIQCghwbGF0Zm9ybRgDIAEoCRIXCg9uZXh0X3BhZ2VfdG9rZW4YBCABKAkifAoJVHJhY2VTdGVwEgsKA3NlcRgBIAEoAxIMCgR0b29sGAIgASgJEhEKCWpzb25fYXJncxgDIAEoDBIVCg1qc29uX2VudmVsb3BlGAQgASgMEhYKDnNjcmVlbnNob3Rfa2V5GAUgASgJEhIKCnRzX3VuaXhfbXMYBiABKAMq8AEKCUVycm9yQ29kZRIaChZFUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASEgoORV9OT0RFX09GRkxJTkUQARIPCgtFX0NPT1JEX09PQhACEhQKEEVfQ0FQVFVSRV9GQUlMRUQQAxISCg5FX0lOUFVUX0ZBSUxFRBAEEhQKEEVfUFJPQ0VTU19GQUlMRUQQBRIRCg1FX0ZJTEVfRkFJTEVEEAYSEQoNRV9JTlZBTElEX0FSRxAHEhEKDUVfVU5TVVBQT1JURUQQCBIOCgpFX0lOVEVSTkFMEAkSCgoGRV9CVVNZEAoSDQoJRV9USU1FT1VUEAsyUgoLTm9kZUNvbnRyb2wSQwoHQ29ubmVjdBIZLmF1cmEudjEuTm9kZVRvQ29udHJvbGxlchoZLmF1cmEudjEuQ29udHJvbGxlclRvTm9kZSgBMAEyqQQKD0NvbnRyb2xsZXJBZG1pbhJCCglMaXN0Tm9kZXMSGS5hdXJhLnYxLkxpc3ROb2Rlc1JlcXVlc3QaGi5hdXJhLnYxLkxpc3ROb2Rlc1Jlc3BvbnNlEksKDERpc3BhdGNoVG9vbBIcLmF1cmEudjEuRGlzcGF0Y2hUb29sUmVxdWVzdBodLmF1cmEudjEuRGlzcGF0Y2hUb29sUmVzcG9uc2USWgoRQ3JlYXRlRW52aXJvbm1lbnQSIS5hdXJhLnYxLkNyZWF0ZUVudmlyb25tZW50UmVxdWVzdBoiLmF1cmEudjEuQ3JlYXRlRW52aXJvbm1lbnRSZXNwb25zZRJdChJEZXN0cm95RW52aXJvbm1lbnQSIi5hdXJhLnYxLkRlc3Ryb3lFbnZpcm9ubWVudFJlcXVlc3QaIy5hdXJhLnYxLkRlc3Ryb3lFbnZpcm9ubWVudFJlc3BvbnNlEkUKClN0YXJ0VHJhY2USGi5hdXJhLnYxLlN0YXJ0VHJhY2VSZXF1ZXN0GhsuYXVyYS52MS5TdGFydFRyYWNlUmVzcG9uc2USQgoJU3RvcFRyYWNlEhkuYXVyYS52MS5TdG9wVHJhY2VSZXF1ZXN0GhouYXVyYS52MS5TdG9wVHJhY2VSZXNwb25zZRI/CghHZXRUcmFjZRIYLmF1cmEudjEuR2V0VHJhY2VSZXF1ZXN0GhkuYXVyYS52MS5HZXRUcmFjZVJlc3BvbnNlQi9aLWdpdGh1Yi5jb20vYXVyYS9jb250cm9sbGVyL2dlbi9hdXJhL3YxO2F1cmF2MWIGcHJvdG8z");
+  fileDesc("ChJhdXJhL3YxL25vZGUucHJvdG8SB2F1cmEudjEipQMKEE5vZGVUb0NvbnRyb2xsZXISJQoIcmVnaXN0ZXIYASABKAsyES5hdXJhLnYxLlJlZ2lzdGVySAASJwoJaGVhcnRiZWF0GAIgASgLMhIuYXVyYS52MS5IZWFydGJlYXRIABIuCg10b29sX3Jlc3BvbnNlGAMgASgLMhUuYXVyYS52MS5Ub29sUmVzcG9uc2VIABIyCg91cGxvYWRfY29tcGxldGUYBCABKAsyFy5hdXJhLnYxLlVwbG9hZENvbXBsZXRlSAASLgoNdXBsb2FkX2ZhaWxlZBgFIAEoCzIVLmF1cmEudjEuVXBsb2FkRmFpbGVkSAASMAoOYWdlbnRfYWN0aXZpdHkYBiABKAsyFi5hdXJhLnYxLkFnZW50QWN0aXZpdHlIABI3ChJtY3BfcHJveHlfcmVzcG9uc2UYByABKAsyGS5hdXJhLnYxLk1jcFByb3h5UmVzcG9uc2VIABI3ChJzZWxmX3VwZGF0ZV9yZXN1bHQYCCABKAsyGS5hdXJhLnYxLlNlbGZVcGRhdGVSZXN1bHRIAEIJCgdwYXlsb2FkIpECChBDb250cm9sbGVyVG9Ob2RlEiwKDHJlZ2lzdGVyX2FjaxgBIAEoCzIULmF1cmEudjEuUmVnaXN0ZXJBY2tIABIsCgx0b29sX3JlcXVlc3QYAiABKAsyFC5hdXJhLnYxLlRvb2xSZXF1ZXN0SAASMwoQdXBsb2FkX3VybF9ncmFudBgDIAEoCzIXLmF1cmEudjEuVXBsb2FkVXJsR3JhbnRIABI1ChFtY3BfcHJveHlfcmVxdWVzdBgEIAEoCzIYLmF1cmEudjEuTWNwUHJveHlSZXF1ZXN0SAASKgoLc2VsZl91cGRhdGUYBSABKAsyEy5hdXJhLnYxLlNlbGZVcGRhdGVIAEIJCgdwYXlsb2FkIocBCg9NY3BQcm94eVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRib2R5GAIgASgMEhQKDGNvbnRlbnRfdHlwZRgDIAEoCRIOCgZhY2NlcHQYBCABKAkSEgoKdXNlcl9hZ2VudBgFIAEoCRIYChBwcm90b2NvbF92ZXJzaW9uGAYgASgJIloKEE1jcFByb3h5UmVzcG9uc2USEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAUSDAoEYm9keRgDIAEoDBIUCgxjb250ZW50X3R5cGUYBCABKAkiuwIKCFJlZ2lzdGVyEg8KB25vZGVfaWQYASABKAkSEAoIcGxhdGZvcm0YAiABKAkSDQoFdG9rZW4YAyABKAkSDQoFdG9vbHMYBCADKAkSGAoQY29udHJhY3RfdmVyc2lvbhgFIAEoCRIMCgRuYW1lGAYgASgJEg0KBWxhYmVsGAcgASgJEhAKCGxvY2F0aW9uGAggASgJEhQKDG5ldHdvcmtfem9uZRgJIAEoCRISCgpvc192ZXJzaW9uGAogASgJEhIKCmlwX2FkZHJlc3MYCyABKAkSFAoMcnVudGltZV9raW5kGAwgASgJEhIKCmluZnJhX2hvc3QYDSABKAkSEAoIYXR0YWNoZWQYDiABKAkSFAoMbm9kZV92ZXJzaW9uGA8gASgJEhUKDWhvc3RfcGxhdGZvcm0YECABKAkiQQoLUmVnaXN0ZXJBY2sSDwoHbm9kZV9pZBgBIAEoCRIQCghhY2NlcHRlZBgCIAEoCBIPCgdtZXNzYWdlGAMgASgJIjAKCUhlYXJ0YmVhdBIPCgdub2RlX2lkGAEgASgJEhIKCnRzX3VuaXhfbXMYAiABKAMiZgoLVG9vbFJlcXVlc3QSDwoHdGFza19pZBgBIAEoCRIMCgR0b29sGAIgASgJEhEKCWpzb25fYXJncxgDIAEoDBITCgtkZWFkbGluZV9tcxgEIAEoAxIQCgh0cmFjZV9pZBgFIAEoCSI2CgxUb29sUmVzcG9uc2USDwoHdGFza19pZBgBIAEoCRIVCg1qc29uX2VudmVsb3BlGAIgASgMIkYKDlVwbG9hZFVybEdyYW50EgsKA2tleRgBIAEoCRIVCg1wcmVzaWduZWRfdXJsGAIgASgJEhAKCHR0bF9zZWNzGAMgASgDIisKDlVwbG9hZENvbXBsZXRlEgsKA2tleRgBIAEoCRIMCgRldGFnGAIgASgJIioKDFVwbG9hZEZhaWxlZBILCgNrZXkYASABKAkSDQoFZXJyb3IYAiABKAkiSAoKU2VsZlVwZGF0ZRIPCgd2ZXJzaW9uGAEgASgJEgsKA3VybBgCIAEoCRIOCgZzaGEyNTYYAyABKAkSDAoEc2l6ZRgEIAEoAyI+ChBTZWxmVXBkYXRlUmVzdWx0Eg8KB3ZlcnNpb24YASABKAkSCgoCb2sYAiABKAgSDQoFZXJyb3IYAyABKAkiOAoNQWdlbnRBY3Rpdml0eRInCgZldmVudHMYASADKAsyFy5hdXJhLnYxLkFnZW50Q2FsbEV2ZW50IssBCg5BZ2VudENhbGxFdmVudBIMCgRwZWVyGAEgASgJEg4KBm1ldGhvZBgCIAEoCRIMCgR0b29sGAMgASgJEhMKC2NsaWVudF9uYW1lGAQgASgJEhYKDmNsaWVudF92ZXJzaW9uGAUgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBiABKAkSEwoLZHVyYXRpb25fbXMYByABKAMSCgoCb2sYCCABKAgSEQoJdHJhbnNwb3J0GAkgASgJEhIKCnRzX3VuaXhfbXMYCiABKAMiEgoQTGlzdE5vZGVzUmVxdWVzdCL8AgoITm9kZUluZm8SDwoHbm9kZV9pZBgBIAEoCRIQCghwbGF0Zm9ybRgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFAoMbGFzdF9zZWVuX21zGAQgASgDEg0KBXRvb2xzGAUgAygJEhgKEGNvbnRyYWN0X3ZlcnNpb24YBiABKAkSDAoEbmFtZRgHIAEoCRINCgVsYWJlbBgIIAEoCRIQCghsb2NhdGlvbhgJIAEoCRISCgpvc192ZXJzaW9uGAogASgJEhIKCmlwX2FkZHJlc3MYCyABKAkSFAoMbmV0d29ya196b25lGAwgASgJEhcKD2Nvbm5lY3RlZF9hdF9tcxgNIAEoAxIUCgxydW50aW1lX2tpbmQYDiABKAkSEgoKaW5mcmFfaG9zdBgPIAEoCRIQCghhdHRhY2hlZBgQIAEoCRIUCgxub2RlX3ZlcnNpb24YESABKAkSDwoHcHJvamVjdBgSIAEoCRIVCg1ob3N0X3BsYXRmb3JtGBMgASgJIjUKEUxpc3ROb2Rlc1Jlc3BvbnNlEiAKBW5vZGVzGAEgAygLMhEuYXVyYS52MS5Ob2RlSW5mbyJ7ChNEaXNwYXRjaFRvb2xSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDAoEdG9vbBgCIAEoCRIRCglqc29uX2FyZ3MYAyABKAwSEwoLZGVhZGxpbmVfbXMYBCABKAMSCwoDd2hvGAUgASgJEhAKCHRyYWNlX2lkGAYgASgJIi0KFERpc3BhdGNoVG9vbFJlc3BvbnNlEhUKDWpzb25fZW52ZWxvcGUYASABKAwiOgoYQ3JlYXRlRW52aXJvbm1lbnRSZXF1ZXN0EgwKBGtpbmQYASABKAkSEAoIdGVtcGxhdGUYAiABKAkiSgoZQ3JlYXRlRW52aXJvbm1lbnRSZXNwb25zZRIOCgZlbnZfaWQYASABKAkSDAoEdm1pZBgCIAEoBRIPCgdub2RlX2lkGAMgASgJIisKGURlc3Ryb3lFbnZpcm9ubWVudFJlcXVlc3QSDgoGZW52X2lkGAEgASgJIi8KGkRlc3Ryb3lFbnZpcm9ubWVudFJlc3BvbnNlEhEKCWRlc3Ryb3llZBgBIAEoCCIVChNMaXN0UmVsZWFzZXNSZXF1ZXN0ImEKB1JlbGVhc2USEAoIcGxhdGZvcm0YASABKAkSDwoHdmVyc2lvbhgCIAEoCRIOCgZzaGEyNTYYAyABKAkSDAoEc2l6ZRgEIAEoAxIVCg1jcmVhdGVkX2F0X21zGAUgASgDIjoKFExpc3RSZWxlYXNlc1Jlc3BvbnNlEiIKCHJlbGVhc2VzGAEgAygLMhAuYXVyYS52MS5SZWxlYXNlIjkKFVNlbGZVcGRhdGVOb2RlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiOQoWU2VsZlVwZGF0ZU5vZGVSZXNwb25zZRIOCgZzdGFnZWQYASABKAgSDwoHbWVzc2FnZRgCIAEoCSIxChFTdGFydFRyYWNlUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEgsKA3dobxgCIAEoCSImChJTdGFydFRyYWNlUmVzcG9uc2USEAoIdHJhY2VfaWQYASABKAkiJAoQU3RvcFRyYWNlUmVxdWVzdBIQCgh0cmFjZV9pZBgBIAEoCSIkChFTdG9wVHJhY2VSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIIkoKD0dldFRyYWNlUmVxdWVzdBIQCgh0cmFjZV9pZBgBIAEoCRIRCglwYWdlX3NpemUYAiABKAMSEgoKcGFnZV90b2tlbhgDIAEoCSJxChBHZXRUcmFjZVJlc3BvbnNlEiEKBXN0ZXBzGAEgAygLMhIuYXVyYS52MS5UcmFjZVN0ZXASDwoHbm9kZV9pZBgCIAEoCRIQCghwbGF0Zm9ybRgDIAEoCRIXCg9uZXh0X3BhZ2VfdG9rZW4YBCABKAkifAoJVHJhY2VTdGVwEgsKA3NlcRgBIAEoAxIMCgR0b29sGAIgASgJEhEKCWpzb25fYXJncxgDIAEoDBIVCg1qc29uX2VudmVsb3BlGAQgASgMEhYKDnNjcmVlbnNob3Rfa2V5GAUgASgJEhIKCnRzX3VuaXhfbXMYBiABKAMq8AEKCUVycm9yQ29kZRIaChZFUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEAASEgoORV9OT0RFX09GRkxJTkUQARIPCgtFX0NPT1JEX09PQhACEhQKEEVfQ0FQVFVSRV9GQUlMRUQQAxISCg5FX0lOUFVUX0ZBSUxFRBAEEhQKEEVfUFJPQ0VTU19GQUlMRUQQBRIRCg1FX0ZJTEVfRkFJTEVEEAYSEQoNRV9JTlZBTElEX0FSRxAHEhEKDUVfVU5TVVBQT1JURUQQCBIOCgpFX0lOVEVSTkFMEAkSCgoGRV9CVVNZEAoSDQoJRV9USU1FT1VUEAsyUgoLTm9kZUNvbnRyb2wSQwoHQ29ubmVjdBIZLmF1cmEudjEuTm9kZVRvQ29udHJvbGxlchoZLmF1cmEudjEuQ29udHJvbGxlclRvTm9kZSgBMAEyyQUKD0NvbnRyb2xsZXJBZG1pbhJCCglMaXN0Tm9kZXMSGS5hdXJhLnYxLkxpc3ROb2Rlc1JlcXVlc3QaGi5hdXJhLnYxLkxpc3ROb2Rlc1Jlc3BvbnNlEksKDERpc3BhdGNoVG9vbBIcLmF1cmEudjEuRGlzcGF0Y2hUb29sUmVxdWVzdBodLmF1cmEudjEuRGlzcGF0Y2hUb29sUmVzcG9uc2USWgoRQ3JlYXRlRW52aXJvbm1lbnQSIS5hdXJhLnYxLkNyZWF0ZUVudmlyb25tZW50UmVxdWVzdBoiLmF1cmEudjEuQ3JlYXRlRW52aXJvbm1lbnRSZXNwb25zZRJdChJEZXN0cm95RW52aXJvbm1lbnQSIi5hdXJhLnYxLkRlc3Ryb3lFbnZpcm9ubWVudFJlcXVlc3QaIy5hdXJhLnYxLkRlc3Ryb3lFbnZpcm9ubWVudFJlc3BvbnNlEkUKClN0YXJ0VHJhY2USGi5hdXJhLnYxLlN0YXJ0VHJhY2VSZXF1ZXN0GhsuYXVyYS52MS5TdGFydFRyYWNlUmVzcG9uc2USQgoJU3RvcFRyYWNlEhkuYXVyYS52MS5TdG9wVHJhY2VSZXF1ZXN0GhouYXVyYS52MS5TdG9wVHJhY2VSZXNwb25zZRI/CghHZXRUcmFjZRIYLmF1cmEudjEuR2V0VHJhY2VSZXF1ZXN0GhkuYXVyYS52MS5HZXRUcmFjZVJlc3BvbnNlEksKDExpc3RSZWxlYXNlcxIcLmF1cmEudjEuTGlzdFJlbGVhc2VzUmVxdWVzdBodLmF1cmEudjEuTGlzdFJlbGVhc2VzUmVzcG9uc2USUQoOU2VsZlVwZGF0ZU5vZGUSHi5hdXJhLnYxLlNlbGZVcGRhdGVOb2RlUmVxdWVzdBofLmF1cmEudjEuU2VsZlVwZGF0ZU5vZGVSZXNwb25zZUIvWi1naXRodWIuY29tL2F1cmEvY29udHJvbGxlci9nZW4vYXVyYS92MTthdXJhdjFiBnByb3RvMw");
 
 /**
  * 上行帧（节点 → 控制面）。
@@ -71,6 +71,14 @@ export type NodeToController = Message<"aura.v1.NodeToController"> & {
      */
     value: McpProxyResponse;
     case: "mcpProxyResponse";
+  } | {
+    /**
+     * M16：self-update 结果回执（additive，SelfUpdate 对偶帧；重启前发出）
+     *
+     * @generated from field: aura.v1.SelfUpdateResult self_update_result = 8;
+     */
+    value: SelfUpdateResult;
+    case: "selfUpdateResult";
   } | { case: undefined; value?: undefined };
 };
 
@@ -118,6 +126,14 @@ export type ControllerToNode = Message<"aura.v1.ControllerToNode"> & {
      */
     value: McpProxyRequest;
     case: "mcpProxyRequest";
+  } | {
+    /**
+     * M16：节点 self-update 指令（additive；未滚更节点安全忽略，rollout 侧超时可辨）
+     *
+     * @generated from field: aura.v1.SelfUpdate self_update = 5;
+     */
+    value: SelfUpdate;
+    case: "selfUpdate";
   } | { case: undefined; value?: undefined };
 };
 
@@ -343,6 +359,17 @@ export type Register = Message<"aura.v1.Register"> & {
    * @generated from field: string node_version = 15;
    */
   nodeVersion: string;
+
+  /**
+   * M16（self-update，additive）：二进制宿主平台。platform=2 是设备类（android 节点的二进制实际跑在
+   * linux-x86_64 宿主上），发布制品选型必须按二进制平台——std::env::consts {OS}-{ARCH} 编译期定值，
+   * 与 releases.platform 词表同源（linux-x86_64 / windows-x86_64 / macos-aarch64）。
+   *
+   * 二进制宿主平台（未滚更节点空 → rollout 明确跳过并提示手工滚一次）
+   *
+   * @generated from field: string host_platform = 16;
+   */
+  hostPlatform: string;
 };
 
 /**
@@ -575,6 +602,84 @@ export const UploadFailedSchema: GenMessage<UploadFailed> = /*@__PURE__*/
   messageDesc(file_aura_v1_node, 11);
 
 /**
+ * 控制面 → 节点：self-update 指令。
+ *
+ * @generated from message aura.v1.SelfUpdate
+ */
+export type SelfUpdate = Message<"aura.v1.SelfUpdate"> & {
+  /**
+   * 目标版本（releases 表登记值；结果帧回声关联）
+   *
+   * @generated from field: string version = 1;
+   */
+  version: string;
+
+  /**
+   * 新二进制 presigned GET URL（按节点 network_zone 可达端点签发，有限期）
+   *
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * 新二进制 sha256（hex 小写；下载后强校验，失配即弃）
+   *
+   * @generated from field: string sha256 = 3;
+   */
+  sha256: string;
+
+  /**
+   * 新二进制字节数（下载完整性预检）
+   *
+   * @generated from field: int64 size = 4;
+   */
+  size: bigint;
+};
+
+/**
+ * Describes the message aura.v1.SelfUpdate.
+ * Use `create(SelfUpdateSchema)` to create a new message.
+ */
+export const SelfUpdateSchema: GenMessage<SelfUpdate> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 12);
+
+/**
+ * 节点 → 控制面：self-update 结果回执（重启前发出；ok=true 后节点随即重启重注册）。
+ * 帧 best-effort：节点在回执送达前崩溃/断流时，控制面等待方兜底超时独立生效（两案纵深）。
+ *
+ * @generated from message aura.v1.SelfUpdateResult
+ */
+export type SelfUpdateResult = Message<"aura.v1.SelfUpdateResult"> & {
+  /**
+   * 回声指令中的目标版本
+   *
+   * @generated from field: string version = 1;
+   */
+  version: string;
+
+  /**
+   * true=已换刀待重启；false=失败（现网二进制未动）
+   *
+   * @generated from field: bool ok = 2;
+   */
+  ok: boolean;
+
+  /**
+   * 失败原因（诊断文本，anyhow cause 链单行展开；ok=true 时空）
+   *
+   * @generated from field: string error = 3;
+   */
+  error: string;
+};
+
+/**
+ * Describes the message aura.v1.SelfUpdateResult.
+ * Use `create(SelfUpdateResultSchema)` to create a new message.
+ */
+export const SelfUpdateResultSchema: GenMessage<SelfUpdateResult> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 13);
+
+/**
  * 一批 MCP 交互事件（节点 /mcp 中间件积攒后批量上报，减少反连流帧数）。
  *
  * @generated from message aura.v1.AgentActivity
@@ -591,7 +696,7 @@ export type AgentActivity = Message<"aura.v1.AgentActivity"> & {
  * Use `create(AgentActivitySchema)` to create a new message.
  */
 export const AgentActivitySchema: GenMessage<AgentActivity> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 12);
+  messageDesc(file_aura_v1_node, 14);
 
 /**
  * 单次 MCP 交互事件（节点 /mcp 观测中间件采集，一次 POST 一条）。
@@ -675,7 +780,7 @@ export type AgentCallEvent = Message<"aura.v1.AgentCallEvent"> & {
  * Use `create(AgentCallEventSchema)` to create a new message.
  */
 export const AgentCallEventSchema: GenMessage<AgentCallEvent> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 13);
+  messageDesc(file_aura_v1_node, 15);
 
 /**
  * @generated from message aura.v1.ListNodesRequest
@@ -688,7 +793,7 @@ export type ListNodesRequest = Message<"aura.v1.ListNodesRequest"> & {
  * Use `create(ListNodesRequestSchema)` to create a new message.
  */
 export const ListNodesRequestSchema: GenMessage<ListNodesRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 14);
+  messageDesc(file_aura_v1_node, 16);
 
 /**
  * @generated from message aura.v1.NodeInfo
@@ -824,6 +929,16 @@ export type NodeInfo = Message<"aura.v1.NodeInfo"> & {
    * @generated from field: string project = 18;
    */
   project: string;
+
+  /**
+   * M16（self-update，additive）：二进制宿主平台（Register.host_platform=16 落库回填；离线节点经表分支
+   * 回填最后已知值——rollout 规划与漂移视图需覆盖离线成员，同 runtime_kind 持久语义）。
+   *
+   * 二进制宿主平台（linux-x86_64 等；未滚更/未上报空）
+   *
+   * @generated from field: string host_platform = 19;
+   */
+  hostPlatform: string;
 };
 
 /**
@@ -831,7 +946,7 @@ export type NodeInfo = Message<"aura.v1.NodeInfo"> & {
  * Use `create(NodeInfoSchema)` to create a new message.
  */
 export const NodeInfoSchema: GenMessage<NodeInfo> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 15);
+  messageDesc(file_aura_v1_node, 17);
 
 /**
  * @generated from message aura.v1.ListNodesResponse
@@ -848,7 +963,7 @@ export type ListNodesResponse = Message<"aura.v1.ListNodesResponse"> & {
  * Use `create(ListNodesResponseSchema)` to create a new message.
  */
 export const ListNodesResponseSchema: GenMessage<ListNodesResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 16);
+  messageDesc(file_aura_v1_node, 18);
 
 /**
  * 经控制面转发工具调用到指定节点（REST → gRPC stream）。
@@ -896,7 +1011,7 @@ export type DispatchToolRequest = Message<"aura.v1.DispatchToolRequest"> & {
  * Use `create(DispatchToolRequestSchema)` to create a new message.
  */
 export const DispatchToolRequestSchema: GenMessage<DispatchToolRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 17);
+  messageDesc(file_aura_v1_node, 19);
 
 /**
  * @generated from message aura.v1.DispatchToolResponse
@@ -915,7 +1030,7 @@ export type DispatchToolResponse = Message<"aura.v1.DispatchToolResponse"> & {
  * Use `create(DispatchToolResponseSchema)` to create a new message.
  */
 export const DispatchToolResponseSchema: GenMessage<DispatchToolResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 18);
+  messageDesc(file_aura_v1_node, 20);
 
 /**
  * @generated from message aura.v1.CreateEnvironmentRequest
@@ -941,7 +1056,7 @@ export type CreateEnvironmentRequest = Message<"aura.v1.CreateEnvironmentRequest
  * Use `create(CreateEnvironmentRequestSchema)` to create a new message.
  */
 export const CreateEnvironmentRequestSchema: GenMessage<CreateEnvironmentRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 19);
+  messageDesc(file_aura_v1_node, 21);
 
 /**
  * @generated from message aura.v1.CreateEnvironmentResponse
@@ -970,7 +1085,7 @@ export type CreateEnvironmentResponse = Message<"aura.v1.CreateEnvironmentRespon
  * Use `create(CreateEnvironmentResponseSchema)` to create a new message.
  */
 export const CreateEnvironmentResponseSchema: GenMessage<CreateEnvironmentResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 20);
+  messageDesc(file_aura_v1_node, 22);
 
 /**
  * @generated from message aura.v1.DestroyEnvironmentRequest
@@ -987,7 +1102,7 @@ export type DestroyEnvironmentRequest = Message<"aura.v1.DestroyEnvironmentReque
  * Use `create(DestroyEnvironmentRequestSchema)` to create a new message.
  */
 export const DestroyEnvironmentRequestSchema: GenMessage<DestroyEnvironmentRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 21);
+  messageDesc(file_aura_v1_node, 23);
 
 /**
  * @generated from message aura.v1.DestroyEnvironmentResponse
@@ -1004,7 +1119,137 @@ export type DestroyEnvironmentResponse = Message<"aura.v1.DestroyEnvironmentResp
  * Use `create(DestroyEnvironmentResponseSchema)` to create a new message.
  */
 export const DestroyEnvironmentResponseSchema: GenMessage<DestroyEnvironmentResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 22);
+  messageDesc(file_aura_v1_node, 24);
+
+/**
+ * @generated from message aura.v1.ListReleasesRequest
+ */
+export type ListReleasesRequest = Message<"aura.v1.ListReleasesRequest"> & {
+};
+
+/**
+ * Describes the message aura.v1.ListReleasesRequest.
+ * Use `create(ListReleasesRequestSchema)` to create a new message.
+ */
+export const ListReleasesRequestSchema: GenMessage<ListReleasesRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 25);
+
+/**
+ * 一条发布制品元数据（releases 表投影；制品本体在对象存储 releases/<platform>/<version>/ 键下）。
+ *
+ * @generated from message aura.v1.Release
+ */
+export type Release = Message<"aura.v1.Release"> & {
+  /**
+   * 二进制宿主平台（linux-x86_64 / windows-x86_64 / macos-aarch64，与 Register.host_platform 同词表）
+   *
+   * @generated from field: string platform = 1;
+   */
+  platform: string;
+
+  /**
+   * 版本（同平台唯一）
+   *
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * 制品 sha256（hex 小写，上传时服务端计算）
+   *
+   * @generated from field: string sha256 = 3;
+   */
+  sha256: string;
+
+  /**
+   * 制品字节数
+   *
+   * @generated from field: int64 size = 4;
+   */
+  size: bigint;
+
+  /**
+   * 登记时刻（毫秒）
+   *
+   * @generated from field: int64 created_at_ms = 5;
+   */
+  createdAtMs: bigint;
+};
+
+/**
+ * Describes the message aura.v1.Release.
+ * Use `create(ReleaseSchema)` to create a new message.
+ */
+export const ReleaseSchema: GenMessage<Release> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 26);
+
+/**
+ * @generated from message aura.v1.ListReleasesResponse
+ */
+export type ListReleasesResponse = Message<"aura.v1.ListReleasesResponse"> & {
+  /**
+   * @generated from field: repeated aura.v1.Release releases = 1;
+   */
+  releases: Release[];
+};
+
+/**
+ * Describes the message aura.v1.ListReleasesResponse.
+ * Use `create(ListReleasesResponseSchema)` to create a new message.
+ */
+export const ListReleasesResponseSchema: GenMessage<ListReleasesResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 27);
+
+/**
+ * 触发单节点 self-update：按节点 host_platform+version 定位制品 → 按其 network_zone 签发 presigned GET
+ * → 下发 SelfUpdate 帧 → 同步等待 SelfUpdateResult。admin 档令牌 + 项目隔离门控。
+ *
+ * @generated from message aura.v1.SelfUpdateNodeRequest
+ */
+export type SelfUpdateNodeRequest = Message<"aura.v1.SelfUpdateNodeRequest"> & {
+  /**
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * @generated from field: string version = 2;
+   */
+  version: string;
+};
+
+/**
+ * Describes the message aura.v1.SelfUpdateNodeRequest.
+ * Use `create(SelfUpdateNodeRequestSchema)` to create a new message.
+ */
+export const SelfUpdateNodeRequestSchema: GenMessage<SelfUpdateNodeRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 28);
+
+/**
+ * @generated from message aura.v1.SelfUpdateNodeResponse
+ */
+export type SelfUpdateNodeResponse = Message<"aura.v1.SelfUpdateNodeResponse"> & {
+  /**
+   * true=节点已换刀待重启（版本收敛经 ListNodes.node_version 轮询确认）
+   *
+   * @generated from field: bool staged = 1;
+   */
+  staged: boolean;
+
+  /**
+   * 诊断信息（staged=false 时为节点/控制面侧失败原因）
+   *
+   * @generated from field: string message = 2;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message aura.v1.SelfUpdateNodeResponse.
+ * Use `create(SelfUpdateNodeResponseSchema)` to create a new message.
+ */
+export const SelfUpdateNodeResponseSchema: GenMessage<SelfUpdateNodeResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_node, 29);
 
 /**
  * 开始录制：对 node_id 建立 per-node 独占租约并返回 trace_id。
@@ -1031,7 +1276,7 @@ export type StartTraceRequest = Message<"aura.v1.StartTraceRequest"> & {
  * Use `create(StartTraceRequestSchema)` to create a new message.
  */
 export const StartTraceRequestSchema: GenMessage<StartTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 23);
+  messageDesc(file_aura_v1_node, 30);
 
 /**
  * @generated from message aura.v1.StartTraceResponse
@@ -1050,7 +1295,7 @@ export type StartTraceResponse = Message<"aura.v1.StartTraceResponse"> & {
  * Use `create(StartTraceResponseSchema)` to create a new message.
  */
 export const StartTraceResponseSchema: GenMessage<StartTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 24);
+  messageDesc(file_aura_v1_node, 31);
 
 /**
  * 停止录制：释放 trace_id 对应的 per-node 租约。
@@ -1069,7 +1314,7 @@ export type StopTraceRequest = Message<"aura.v1.StopTraceRequest"> & {
  * Use `create(StopTraceRequestSchema)` to create a new message.
  */
 export const StopTraceRequestSchema: GenMessage<StopTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 25);
+  messageDesc(file_aura_v1_node, 32);
 
 /**
  * @generated from message aura.v1.StopTraceResponse
@@ -1088,7 +1333,7 @@ export type StopTraceResponse = Message<"aura.v1.StopTraceResponse"> & {
  * Use `create(StopTraceResponseSchema)` to create a new message.
  */
 export const StopTraceResponseSchema: GenMessage<StopTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 26);
+  messageDesc(file_aura_v1_node, 33);
 
 /**
  * 读取录制步序（回放读路径）。分页 additive：步数×envelope 体积可超 connect 默认 max-recv-bytes，
@@ -1122,7 +1367,7 @@ export type GetTraceRequest = Message<"aura.v1.GetTraceRequest"> & {
  * Use `create(GetTraceRequestSchema)` to create a new message.
  */
 export const GetTraceRequestSchema: GenMessage<GetTraceRequest> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 27);
+  messageDesc(file_aura_v1_node, 34);
 
 /**
  * @generated from message aura.v1.GetTraceResponse
@@ -1160,7 +1405,7 @@ export type GetTraceResponse = Message<"aura.v1.GetTraceResponse"> & {
  * Use `create(GetTraceResponseSchema)` to create a new message.
  */
 export const GetTraceResponseSchema: GenMessage<GetTraceResponse> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 28);
+  messageDesc(file_aura_v1_node, 35);
 
 /**
  * 单条录制步（回放读路径载体）。
@@ -1216,7 +1461,7 @@ export type TraceStep = Message<"aura.v1.TraceStep"> & {
  * Use `create(TraceStepSchema)` to create a new message.
  */
 export const TraceStepSchema: GenMessage<TraceStep> = /*@__PURE__*/
-  messageDesc(file_aura_v1_node, 29);
+  messageDesc(file_aura_v1_node, 36);
 
 /**
  * 镜像 aura-capability CapError::code()（node/crates/aura-capability/src/types.rs 为规范源），
@@ -1387,6 +1632,26 @@ export const ControllerAdmin: GenService<{
     methodKind: "unary";
     input: typeof GetTraceRequestSchema;
     output: typeof GetTraceResponseSchema;
+  },
+  /**
+   * M16 节点 self-update 管理面（additive）。制品上传走 REST POST /v1/releases（流式字节不过 connect
+   * 消息上限）；本面只承载元数据列举与滚更触发。SelfUpdateNode 同步等待节点 SelfUpdateResult
+   * （staged=已换刀待重启），版本收敛由调用方（auractl rollout）轮询 ListNodes.node_version 确认。
+   *
+   * @generated from rpc aura.v1.ControllerAdmin.ListReleases
+   */
+  listReleases: {
+    methodKind: "unary";
+    input: typeof ListReleasesRequestSchema;
+    output: typeof ListReleasesResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ControllerAdmin.SelfUpdateNode
+   */
+  selfUpdateNode: {
+    methodKind: "unary";
+    input: typeof SelfUpdateNodeRequestSchema;
+    output: typeof SelfUpdateNodeResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_aura_v1_node, 1);

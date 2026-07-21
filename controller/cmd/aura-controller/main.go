@@ -427,7 +427,7 @@ func main() {
 	}
 
 	grpcServer := newGRPCServer(*grpcAddr, serverCert, caPool, ncs, enrollSrv, pgStore, handlerOpts...)
-	restServer := newRESTServer(*restAddr, serverCert, tokenScopes, pgStore, reg, gw, sched, prov, consoleSrv, tangoBridge, artifactHandler, enrollSrv, spaHandler, handlerOpts...)
+	restServer := newRESTServer(*restAddr, serverCert, tokenScopes, pgStore, minioStore, reg, gw, sched, prov, consoleSrv, tangoBridge, artifactHandler, enrollSrv, spaHandler, handlerOpts...)
 
 	// 指标端口（明文 HTTP，供 Prometheus 抓取）：故障仅记日志，不拖垮控制面主服务。
 	var metricsServer *http.Server
@@ -554,9 +554,13 @@ func newGRPCServer(addr string, cert tls.Certificate, caPool *x509.CertPool, ncs
 // 中间件边界（对齐 research §4/§6）：CORS(最外) → /aura.v1.* 经 bearer 鉴权 / /stream/* 桥自持 bearer / 其余 SPA 公开。
 // M15：pgStore 直传（可为 nil）——供 ControllerAdmin/网关项目隔离判据 + REST 鉴权 DB 令牌源 +
 // ConsoleService token 治理。typed-nil 纪律：nil 具体指针直传即旁路（api tokenSource 装配处判 nil 保接口 nil）。
-func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScopes, pgStore *store.PGStore, reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider, consoleSrv *transport.ConsoleServiceServer, tango http.Handler, artifact http.Handler, enrollSrv *transport.EnrollServer, spa http.Handler, opts ...connect.HandlerOption) *http.Server {
+// M16：minioStore 直传（可为 nil）——供 SelfUpdateNode 制品签发（SetArtifacts 可空注入）+ 制品上传端点
+// （MinIO+PG 双就位才挂载，否则 /v1/releases 回落 enroll/SPA 面）。
+func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScopes, pgStore *store.PGStore, minioStore *storage.MinioStore, reg *registry.NodeRegistry, gw *gateway.Gateway, sched *scheduler.Scheduler, prov provisioner.EnvProvider, consoleSrv *transport.ConsoleServiceServer, tango http.Handler, artifact http.Handler, enrollSrv *transport.EnrollServer, spa http.Handler, opts ...connect.HandlerOption) *http.Server {
 	mux := http.NewServeMux()
-	adminPath, adminHandler := aurav1connect.NewControllerAdminHandler(transport.NewControllerAdminServer(reg, gw, sched, prov, pgStore), opts...)
+	adminSrv := transport.NewControllerAdminServer(reg, gw, sched, prov, pgStore)
+	adminSrv.SetArtifacts(minioStore) // M16：self-update 制品签发源（nil 安全，未配 MinIO 时该面 Unavailable）
+	adminPath, adminHandler := aurav1connect.NewControllerAdminHandler(adminSrv, opts...)
 	// T8 hop 防环入站面（ha-contract §1.4，m-1）：读 X-Aura-Forwarded-By 即在请求 ctx 打标——被
 	// 转发方 Ready 失败时不查 owner、不二次转发，E_NODE_OFFLINE 一跳终态（middleware 形态零动
 	// rest.go/transport；标记经 connect handler → gateway → scheduler.dispatch ctx 贯通）。
@@ -587,9 +591,16 @@ func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScop
 		apiTokens = pgStore
 	}
 
+	// M16 制品上传端点：MinIO（制品本体）+ PG（登记表）双就位才挂载；缺任一保 nil，/v1/releases 回落
+	// 公开面（404），发布面未启用不影响既有功能。
+	var releasesHandler http.Handler
+	if minioStore != nil && pgStore != nil {
+		releasesHandler = transport.ReleaseUploadHandler(minioStore, pgStore)
+	}
+
 	return &http.Server{
 		Addr:    addr,
-		Handler: transport.NewRESTHandler(scopes, apiTokens, mux, tango, artifact, enrollHandler, mcpGateway, spa),
+		Handler: transport.NewRESTHandler(scopes, apiTokens, mux, tango, artifact, enrollHandler, mcpGateway, releasesHandler, spa),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,

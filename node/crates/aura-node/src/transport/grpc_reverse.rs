@@ -265,12 +265,19 @@ pub async fn run(
         attached,
     };
 
+    // M16 self-update：启动早期一次捕获安装身份（安装路径 + 原始参数）。换刀后 current_exe
+    // （/proc/self/exe 等）指向被 rename 的 .old，运行中再解析不可靠；捕获失败则收帧时诚实拒绝。
+    let update_ctx = super::self_update::UpdateContext::capture();
+    if update_ctx.is_none() {
+        tracing::warn!("current_exe unresolved at startup; self-update will be refused on this node");
+    }
+
     let initial_backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(30);
     let mut backoff = initial_backoff;
 
     loop {
-        match connect_once(&tools, &cfg, &node_id, &reported, &uplink).await {
+        match connect_once(&tools, &cfg, &node_id, &reported, &uplink, &update_ctx).await {
             Ok(()) => {
                 tracing::warn!("reverse stream closed, reconnecting");
                 backoff = initial_backoff;
@@ -305,6 +312,7 @@ async fn connect_once(
     node_id: &Arc<Mutex<String>>,
     reported: &SelfReported,
     uplink: &Arc<Mutex<Option<mpsc::Sender<NodeToController>>>>,
+    update_ctx: &Option<super::self_update::UpdateContext>,
 ) -> Result<()> {
     let channel = build_channel(cfg).await?;
     let mut client = NodeControlClient::new(channel)
@@ -359,6 +367,9 @@ async fn connect_once(
             // 批E（滚更可见性，additive 自报）：二进制版本编译期定值（CARGO_PKG_VERSION），controller
             // 落 nodes 表——版本偏斜自此可从 console/API 盘点（此前仅 auractl stderr 可见）。
             node_version: env!("CARGO_PKG_VERSION").to_string(),
+            // M16 self-update（additive 自报）：二进制宿主平台 {OS}-{ARCH}（编译期定值）。platform
+            // 字段是设备类（android 节点二进制跑在 linux 宿主），发布制品选型必须按本值。
+            host_platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
         })),
     };
     tx.send(register)
@@ -451,6 +462,19 @@ async fn connect_once(
                 let ptx = tx.clone();
                 let loopback = cfg.mcp_loopback;
                 tokio::spawn(mcp_proxy_serve(preq, loopback, ptx));
+            }
+            Some(controller_to_node::Payload::SelfUpdate(su)) => {
+                // M16 self-update：独立 spawn（下载/校验耗时，不阻塞收帧/心跳）。成活路径 handle 内
+                // 换刀后直接 exec/exit 重启（本连接随之消亡、新进程重注册）；失败路径回
+                // SelfUpdateResult 后一切如常，现网二进制未动。
+                tokio::spawn(super::self_update::handle(
+                    su,
+                    update_ctx.clone(),
+                    cfg.data_dir(),
+                    cfg.local_addr,
+                    tools.clone(),
+                    tx.clone(),
+                ));
             }
             Some(controller_to_node::Payload::UploadUrlGrant(grant)) => {
                 // 大产物旁路上传（G-5）：经预签名 PUT URL 直连对象存储上传，绕开双向流 16MB 内联上限，

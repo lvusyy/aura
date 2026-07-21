@@ -111,6 +111,7 @@ type NodeToController struct {
 	//	*NodeToController_UploadFailed
 	//	*NodeToController_AgentActivity
 	//	*NodeToController_McpProxyResponse
+	//	*NodeToController_SelfUpdateResult
 	Payload       isNodeToController_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -216,6 +217,15 @@ func (x *NodeToController) GetMcpProxyResponse() *McpProxyResponse {
 	return nil
 }
 
+func (x *NodeToController) GetSelfUpdateResult() *SelfUpdateResult {
+	if x != nil {
+		if x, ok := x.Payload.(*NodeToController_SelfUpdateResult); ok {
+			return x.SelfUpdateResult
+		}
+	}
+	return nil
+}
+
 type isNodeToController_Payload interface {
 	isNodeToController_Payload()
 }
@@ -248,6 +258,10 @@ type NodeToController_McpProxyResponse struct {
 	McpProxyResponse *McpProxyResponse `protobuf:"bytes,7,opt,name=mcp_proxy_response,json=mcpProxyResponse,proto3,oneof"` // M14：MCP 网关代理响应（additive，request_id 关联 McpProxyRequest）
 }
 
+type NodeToController_SelfUpdateResult struct {
+	SelfUpdateResult *SelfUpdateResult `protobuf:"bytes,8,opt,name=self_update_result,json=selfUpdateResult,proto3,oneof"` // M16：self-update 结果回执（additive，SelfUpdate 对偶帧；重启前发出）
+}
+
 func (*NodeToController_Register) isNodeToController_Payload() {}
 
 func (*NodeToController_Heartbeat) isNodeToController_Payload() {}
@@ -262,6 +276,8 @@ func (*NodeToController_AgentActivity) isNodeToController_Payload() {}
 
 func (*NodeToController_McpProxyResponse) isNodeToController_Payload() {}
 
+func (*NodeToController_SelfUpdateResult) isNodeToController_Payload() {}
+
 // 下行帧（控制面 → 节点）。
 type ControllerToNode struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -271,6 +287,7 @@ type ControllerToNode struct {
 	//	*ControllerToNode_ToolRequest
 	//	*ControllerToNode_UploadUrlGrant
 	//	*ControllerToNode_McpProxyRequest
+	//	*ControllerToNode_SelfUpdate
 	Payload       isControllerToNode_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -349,6 +366,15 @@ func (x *ControllerToNode) GetMcpProxyRequest() *McpProxyRequest {
 	return nil
 }
 
+func (x *ControllerToNode) GetSelfUpdate() *SelfUpdate {
+	if x != nil {
+		if x, ok := x.Payload.(*ControllerToNode_SelfUpdate); ok {
+			return x.SelfUpdate
+		}
+	}
+	return nil
+}
+
 type isControllerToNode_Payload interface {
 	isControllerToNode_Payload()
 }
@@ -369,6 +395,10 @@ type ControllerToNode_McpProxyRequest struct {
 	McpProxyRequest *McpProxyRequest `protobuf:"bytes,4,opt,name=mcp_proxy_request,json=mcpProxyRequest,proto3,oneof"` // M14：控制面 MCP 网关代理请求（additive；未滚更节点安全忽略未知帧，网关侧超时可辨）
 }
 
+type ControllerToNode_SelfUpdate struct {
+	SelfUpdate *SelfUpdate `protobuf:"bytes,5,opt,name=self_update,json=selfUpdate,proto3,oneof"` // M16：节点 self-update 指令（additive；未滚更节点安全忽略，rollout 侧超时可辨）
+}
+
 func (*ControllerToNode_RegisterAck) isControllerToNode_Payload() {}
 
 func (*ControllerToNode_ToolRequest) isControllerToNode_Payload() {}
@@ -376,6 +406,8 @@ func (*ControllerToNode_ToolRequest) isControllerToNode_Payload() {}
 func (*ControllerToNode_UploadUrlGrant) isControllerToNode_Payload() {}
 
 func (*ControllerToNode_McpProxyRequest) isControllerToNode_Payload() {}
+
+func (*ControllerToNode_SelfUpdate) isControllerToNode_Payload() {}
 
 // 控制面 → 节点：一次 MCP JSON-RPC 请求的代理封装。
 type McpProxyRequest struct {
@@ -554,7 +586,11 @@ type Register struct {
 	// 批E（滚更可见性，additive）：节点二进制版本自报（CARGO_PKG_VERSION）。此前版本偏斜仅
 	// auractl stderr 可见，无法从 console/API 盘点舰队滚更进度；随 Register 落 nodes 表（离线也可查
 	// 最后已知版本，同 runtime_kind 持久语义）。
-	NodeVersion   string `protobuf:"bytes,15,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"` // 节点二进制版本（aura-node CARGO_PKG_VERSION；未滚更节点空）
+	NodeVersion string `protobuf:"bytes,15,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"` // 节点二进制版本（aura-node CARGO_PKG_VERSION；未滚更节点空）
+	// M16（self-update，additive）：二进制宿主平台。platform=2 是设备类（android 节点的二进制实际跑在
+	// linux-x86_64 宿主上），发布制品选型必须按二进制平台——std::env::consts {OS}-{ARCH} 编译期定值，
+	// 与 releases.platform 词表同源（linux-x86_64 / windows-x86_64 / macos-aarch64）。
+	HostPlatform  string `protobuf:"bytes,16,opt,name=host_platform,json=hostPlatform,proto3" json:"host_platform,omitempty"` // 二进制宿主平台（未滚更节点空 → rollout 明确跳过并提示手工滚一次）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -690,6 +726,13 @@ func (x *Register) GetAttached() string {
 func (x *Register) GetNodeVersion() string {
 	if x != nil {
 		return x.NodeVersion
+	}
+	return ""
+}
+
+func (x *Register) GetHostPlatform() string {
+	if x != nil {
+		return x.HostPlatform
 	}
 	return ""
 }
@@ -1110,6 +1153,137 @@ func (x *UploadFailed) GetError() string {
 	return ""
 }
 
+// 控制面 → 节点：self-update 指令。
+type SelfUpdate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"` // 目标版本（releases 表登记值；结果帧回声关联）
+	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`         // 新二进制 presigned GET URL（按节点 network_zone 可达端点签发，有限期）
+	Sha256        string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`   // 新二进制 sha256（hex 小写；下载后强校验，失配即弃）
+	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`      // 新二进制字节数（下载完整性预检）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SelfUpdate) Reset() {
+	*x = SelfUpdate{}
+	mi := &file_aura_v1_node_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SelfUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SelfUpdate) ProtoMessage() {}
+
+func (x *SelfUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SelfUpdate.ProtoReflect.Descriptor instead.
+func (*SelfUpdate) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SelfUpdate) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *SelfUpdate) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *SelfUpdate) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *SelfUpdate) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+// 节点 → 控制面：self-update 结果回执（重启前发出；ok=true 后节点随即重启重注册）。
+// 帧 best-effort：节点在回执送达前崩溃/断流时，控制面等待方兜底超时独立生效（两案纵深）。
+type SelfUpdateResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"` // 回声指令中的目标版本
+	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`          // true=已换刀待重启；false=失败（现网二进制未动）
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`     // 失败原因（诊断文本，anyhow cause 链单行展开；ok=true 时空）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SelfUpdateResult) Reset() {
+	*x = SelfUpdateResult{}
+	mi := &file_aura_v1_node_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SelfUpdateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SelfUpdateResult) ProtoMessage() {}
+
+func (x *SelfUpdateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SelfUpdateResult.ProtoReflect.Descriptor instead.
+func (*SelfUpdateResult) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SelfUpdateResult) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *SelfUpdateResult) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *SelfUpdateResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 // 一批 MCP 交互事件（节点 /mcp 中间件积攒后批量上报，减少反连流帧数）。
 type AgentActivity struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1120,7 +1294,7 @@ type AgentActivity struct {
 
 func (x *AgentActivity) Reset() {
 	*x = AgentActivity{}
-	mi := &file_aura_v1_node_proto_msgTypes[12]
+	mi := &file_aura_v1_node_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1132,7 +1306,7 @@ func (x *AgentActivity) String() string {
 func (*AgentActivity) ProtoMessage() {}
 
 func (x *AgentActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[12]
+	mi := &file_aura_v1_node_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1145,7 +1319,7 @@ func (x *AgentActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentActivity.ProtoReflect.Descriptor instead.
 func (*AgentActivity) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{12}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AgentActivity) GetEvents() []*AgentCallEvent {
@@ -1174,7 +1348,7 @@ type AgentCallEvent struct {
 
 func (x *AgentCallEvent) Reset() {
 	*x = AgentCallEvent{}
-	mi := &file_aura_v1_node_proto_msgTypes[13]
+	mi := &file_aura_v1_node_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1186,7 +1360,7 @@ func (x *AgentCallEvent) String() string {
 func (*AgentCallEvent) ProtoMessage() {}
 
 func (x *AgentCallEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[13]
+	mi := &file_aura_v1_node_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1199,7 +1373,7 @@ func (x *AgentCallEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCallEvent.ProtoReflect.Descriptor instead.
 func (*AgentCallEvent) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{13}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AgentCallEvent) GetPeer() string {
@@ -1280,7 +1454,7 @@ type ListNodesRequest struct {
 
 func (x *ListNodesRequest) Reset() {
 	*x = ListNodesRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[14]
+	mi := &file_aura_v1_node_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1292,7 +1466,7 @@ func (x *ListNodesRequest) String() string {
 func (*ListNodesRequest) ProtoMessage() {}
 
 func (x *ListNodesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[14]
+	mi := &file_aura_v1_node_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1305,7 +1479,7 @@ func (x *ListNodesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNodesRequest.ProtoReflect.Descriptor instead.
 func (*ListNodesRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{14}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{16}
 }
 
 type NodeInfo struct {
@@ -1334,14 +1508,17 @@ type NodeInfo struct {
 	NodeVersion string `protobuf:"bytes,17,opt,name=node_version,json=nodeVersion,proto3" json:"node_version,omitempty"` // 节点二进制版本（CARGO_PKG_VERSION；未滚更/未上报空）
 	// M15（项目隔离，additive）：节点项目归属。console 管理面赋值（UpdateNodeMeta / enroll token 携带），
 	// 非节点自报——区别于 label 的双写方语义，本字段单写方（管理面权威）。空=未归属（仅全域令牌可见可控）。
-	Project       string `protobuf:"bytes,18,opt,name=project,proto3" json:"project,omitempty"` // 项目归属（''=未归属；项目令牌仅见/仅控同值节点）
+	Project string `protobuf:"bytes,18,opt,name=project,proto3" json:"project,omitempty"` // 项目归属（''=未归属；项目令牌仅见/仅控同值节点）
+	// M16（self-update，additive）：二进制宿主平台（Register.host_platform=16 落库回填；离线节点经表分支
+	// 回填最后已知值——rollout 规划与漂移视图需覆盖离线成员，同 runtime_kind 持久语义）。
+	HostPlatform  string `protobuf:"bytes,19,opt,name=host_platform,json=hostPlatform,proto3" json:"host_platform,omitempty"` // 二进制宿主平台（linux-x86_64 等；未滚更/未上报空）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_aura_v1_node_proto_msgTypes[15]
+	mi := &file_aura_v1_node_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1353,7 +1530,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[15]
+	mi := &file_aura_v1_node_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1366,7 +1543,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{15}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *NodeInfo) GetNodeId() string {
@@ -1495,6 +1672,13 @@ func (x *NodeInfo) GetProject() string {
 	return ""
 }
 
+func (x *NodeInfo) GetHostPlatform() string {
+	if x != nil {
+		return x.HostPlatform
+	}
+	return ""
+}
+
 type ListNodesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Nodes         []*NodeInfo            `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
@@ -1504,7 +1688,7 @@ type ListNodesResponse struct {
 
 func (x *ListNodesResponse) Reset() {
 	*x = ListNodesResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[16]
+	mi := &file_aura_v1_node_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1516,7 +1700,7 @@ func (x *ListNodesResponse) String() string {
 func (*ListNodesResponse) ProtoMessage() {}
 
 func (x *ListNodesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[16]
+	mi := &file_aura_v1_node_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1529,7 +1713,7 @@ func (x *ListNodesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNodesResponse.ProtoReflect.Descriptor instead.
 func (*ListNodesResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{16}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListNodesResponse) GetNodes() []*NodeInfo {
@@ -1554,7 +1738,7 @@ type DispatchToolRequest struct {
 
 func (x *DispatchToolRequest) Reset() {
 	*x = DispatchToolRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[17]
+	mi := &file_aura_v1_node_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1566,7 +1750,7 @@ func (x *DispatchToolRequest) String() string {
 func (*DispatchToolRequest) ProtoMessage() {}
 
 func (x *DispatchToolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[17]
+	mi := &file_aura_v1_node_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1579,7 +1763,7 @@ func (x *DispatchToolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchToolRequest.ProtoReflect.Descriptor instead.
 func (*DispatchToolRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{17}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DispatchToolRequest) GetNodeId() string {
@@ -1633,7 +1817,7 @@ type DispatchToolResponse struct {
 
 func (x *DispatchToolResponse) Reset() {
 	*x = DispatchToolResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[18]
+	mi := &file_aura_v1_node_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1645,7 +1829,7 @@ func (x *DispatchToolResponse) String() string {
 func (*DispatchToolResponse) ProtoMessage() {}
 
 func (x *DispatchToolResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[18]
+	mi := &file_aura_v1_node_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1658,7 +1842,7 @@ func (x *DispatchToolResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchToolResponse.ProtoReflect.Descriptor instead.
 func (*DispatchToolResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{18}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DispatchToolResponse) GetJsonEnvelope() []byte {
@@ -1678,7 +1862,7 @@ type CreateEnvironmentRequest struct {
 
 func (x *CreateEnvironmentRequest) Reset() {
 	*x = CreateEnvironmentRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[19]
+	mi := &file_aura_v1_node_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1690,7 +1874,7 @@ func (x *CreateEnvironmentRequest) String() string {
 func (*CreateEnvironmentRequest) ProtoMessage() {}
 
 func (x *CreateEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[19]
+	mi := &file_aura_v1_node_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1703,7 +1887,7 @@ func (x *CreateEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*CreateEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{19}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateEnvironmentRequest) GetKind() string {
@@ -1731,7 +1915,7 @@ type CreateEnvironmentResponse struct {
 
 func (x *CreateEnvironmentResponse) Reset() {
 	*x = CreateEnvironmentResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[20]
+	mi := &file_aura_v1_node_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1743,7 +1927,7 @@ func (x *CreateEnvironmentResponse) String() string {
 func (*CreateEnvironmentResponse) ProtoMessage() {}
 
 func (x *CreateEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[20]
+	mi := &file_aura_v1_node_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1756,7 +1940,7 @@ func (x *CreateEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*CreateEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{20}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateEnvironmentResponse) GetEnvId() string {
@@ -1789,7 +1973,7 @@ type DestroyEnvironmentRequest struct {
 
 func (x *DestroyEnvironmentRequest) Reset() {
 	*x = DestroyEnvironmentRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[21]
+	mi := &file_aura_v1_node_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1801,7 +1985,7 @@ func (x *DestroyEnvironmentRequest) String() string {
 func (*DestroyEnvironmentRequest) ProtoMessage() {}
 
 func (x *DestroyEnvironmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[21]
+	mi := &file_aura_v1_node_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1814,7 +1998,7 @@ func (x *DestroyEnvironmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyEnvironmentRequest.ProtoReflect.Descriptor instead.
 func (*DestroyEnvironmentRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{21}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DestroyEnvironmentRequest) GetEnvId() string {
@@ -1833,7 +2017,7 @@ type DestroyEnvironmentResponse struct {
 
 func (x *DestroyEnvironmentResponse) Reset() {
 	*x = DestroyEnvironmentResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[22]
+	mi := &file_aura_v1_node_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1845,7 +2029,7 @@ func (x *DestroyEnvironmentResponse) String() string {
 func (*DestroyEnvironmentResponse) ProtoMessage() {}
 
 func (x *DestroyEnvironmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[22]
+	mi := &file_aura_v1_node_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1858,7 +2042,7 @@ func (x *DestroyEnvironmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DestroyEnvironmentResponse.ProtoReflect.Descriptor instead.
 func (*DestroyEnvironmentResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{22}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DestroyEnvironmentResponse) GetDestroyed() bool {
@@ -1866,6 +2050,269 @@ func (x *DestroyEnvironmentResponse) GetDestroyed() bool {
 		return x.Destroyed
 	}
 	return false
+}
+
+type ListReleasesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListReleasesRequest) Reset() {
+	*x = ListReleasesRequest{}
+	mi := &file_aura_v1_node_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListReleasesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListReleasesRequest) ProtoMessage() {}
+
+func (x *ListReleasesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListReleasesRequest.ProtoReflect.Descriptor instead.
+func (*ListReleasesRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{25}
+}
+
+// 一条发布制品元数据（releases 表投影；制品本体在对象存储 releases/<platform>/<version>/ 键下）。
+type Release struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Platform      string                 `protobuf:"bytes,1,opt,name=platform,proto3" json:"platform,omitempty"`                             // 二进制宿主平台（linux-x86_64 / windows-x86_64 / macos-aarch64，与 Register.host_platform 同词表）
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                               // 版本（同平台唯一）
+	Sha256        string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`                                 // 制品 sha256（hex 小写，上传时服务端计算）
+	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`                                    // 制品字节数
+	CreatedAtMs   int64                  `protobuf:"varint,5,opt,name=created_at_ms,json=createdAtMs,proto3" json:"created_at_ms,omitempty"` // 登记时刻（毫秒）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Release) Reset() {
+	*x = Release{}
+	mi := &file_aura_v1_node_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Release) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Release) ProtoMessage() {}
+
+func (x *Release) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Release.ProtoReflect.Descriptor instead.
+func (*Release) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *Release) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+func (x *Release) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *Release) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *Release) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *Release) GetCreatedAtMs() int64 {
+	if x != nil {
+		return x.CreatedAtMs
+	}
+	return 0
+}
+
+type ListReleasesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Releases      []*Release             `protobuf:"bytes,1,rep,name=releases,proto3" json:"releases,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListReleasesResponse) Reset() {
+	*x = ListReleasesResponse{}
+	mi := &file_aura_v1_node_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListReleasesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListReleasesResponse) ProtoMessage() {}
+
+func (x *ListReleasesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListReleasesResponse.ProtoReflect.Descriptor instead.
+func (*ListReleasesResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListReleasesResponse) GetReleases() []*Release {
+	if x != nil {
+		return x.Releases
+	}
+	return nil
+}
+
+// 触发单节点 self-update：按节点 host_platform+version 定位制品 → 按其 network_zone 签发 presigned GET
+// → 下发 SelfUpdate 帧 → 同步等待 SelfUpdateResult。admin 档令牌 + 项目隔离门控。
+type SelfUpdateNodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SelfUpdateNodeRequest) Reset() {
+	*x = SelfUpdateNodeRequest{}
+	mi := &file_aura_v1_node_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SelfUpdateNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SelfUpdateNodeRequest) ProtoMessage() {}
+
+func (x *SelfUpdateNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SelfUpdateNodeRequest.ProtoReflect.Descriptor instead.
+func (*SelfUpdateNodeRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *SelfUpdateNodeRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *SelfUpdateNodeRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type SelfUpdateNodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Staged        bool                   `protobuf:"varint,1,opt,name=staged,proto3" json:"staged,omitempty"`  // true=节点已换刀待重启（版本收敛经 ListNodes.node_version 轮询确认）
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"` // 诊断信息（staged=false 时为节点/控制面侧失败原因）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SelfUpdateNodeResponse) Reset() {
+	*x = SelfUpdateNodeResponse{}
+	mi := &file_aura_v1_node_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SelfUpdateNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SelfUpdateNodeResponse) ProtoMessage() {}
+
+func (x *SelfUpdateNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_node_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SelfUpdateNodeResponse.ProtoReflect.Descriptor instead.
+func (*SelfUpdateNodeResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SelfUpdateNodeResponse) GetStaged() bool {
+	if x != nil {
+		return x.Staged
+	}
+	return false
+}
+
+func (x *SelfUpdateNodeResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
 }
 
 // 开始录制：对 node_id 建立 per-node 独占租约并返回 trace_id。
@@ -1880,7 +2327,7 @@ type StartTraceRequest struct {
 
 func (x *StartTraceRequest) Reset() {
 	*x = StartTraceRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[23]
+	mi := &file_aura_v1_node_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1892,7 +2339,7 @@ func (x *StartTraceRequest) String() string {
 func (*StartTraceRequest) ProtoMessage() {}
 
 func (x *StartTraceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[23]
+	mi := &file_aura_v1_node_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1905,7 +2352,7 @@ func (x *StartTraceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartTraceRequest.ProtoReflect.Descriptor instead.
 func (*StartTraceRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{23}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *StartTraceRequest) GetNodeId() string {
@@ -1931,7 +2378,7 @@ type StartTraceResponse struct {
 
 func (x *StartTraceResponse) Reset() {
 	*x = StartTraceResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[24]
+	mi := &file_aura_v1_node_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1943,7 +2390,7 @@ func (x *StartTraceResponse) String() string {
 func (*StartTraceResponse) ProtoMessage() {}
 
 func (x *StartTraceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[24]
+	mi := &file_aura_v1_node_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1956,7 +2403,7 @@ func (x *StartTraceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartTraceResponse.ProtoReflect.Descriptor instead.
 func (*StartTraceResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{24}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *StartTraceResponse) GetTraceId() string {
@@ -1976,7 +2423,7 @@ type StopTraceRequest struct {
 
 func (x *StopTraceRequest) Reset() {
 	*x = StopTraceRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[25]
+	mi := &file_aura_v1_node_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1988,7 +2435,7 @@ func (x *StopTraceRequest) String() string {
 func (*StopTraceRequest) ProtoMessage() {}
 
 func (x *StopTraceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[25]
+	mi := &file_aura_v1_node_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2001,7 +2448,7 @@ func (x *StopTraceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopTraceRequest.ProtoReflect.Descriptor instead.
 func (*StopTraceRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{25}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *StopTraceRequest) GetTraceId() string {
@@ -2020,7 +2467,7 @@ type StopTraceResponse struct {
 
 func (x *StopTraceResponse) Reset() {
 	*x = StopTraceResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[26]
+	mi := &file_aura_v1_node_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2032,7 +2479,7 @@ func (x *StopTraceResponse) String() string {
 func (*StopTraceResponse) ProtoMessage() {}
 
 func (x *StopTraceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[26]
+	mi := &file_aura_v1_node_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2045,7 +2492,7 @@ func (x *StopTraceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopTraceResponse.ProtoReflect.Descriptor instead.
 func (*StopTraceResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{26}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *StopTraceResponse) GetStopped() bool {
@@ -2068,7 +2515,7 @@ type GetTraceRequest struct {
 
 func (x *GetTraceRequest) Reset() {
 	*x = GetTraceRequest{}
-	mi := &file_aura_v1_node_proto_msgTypes[27]
+	mi := &file_aura_v1_node_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2080,7 +2527,7 @@ func (x *GetTraceRequest) String() string {
 func (*GetTraceRequest) ProtoMessage() {}
 
 func (x *GetTraceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[27]
+	mi := &file_aura_v1_node_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2093,7 +2540,7 @@ func (x *GetTraceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTraceRequest.ProtoReflect.Descriptor instead.
 func (*GetTraceRequest) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{27}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *GetTraceRequest) GetTraceId() string {
@@ -2129,7 +2576,7 @@ type GetTraceResponse struct {
 
 func (x *GetTraceResponse) Reset() {
 	*x = GetTraceResponse{}
-	mi := &file_aura_v1_node_proto_msgTypes[28]
+	mi := &file_aura_v1_node_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2141,7 +2588,7 @@ func (x *GetTraceResponse) String() string {
 func (*GetTraceResponse) ProtoMessage() {}
 
 func (x *GetTraceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[28]
+	mi := &file_aura_v1_node_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2154,7 +2601,7 @@ func (x *GetTraceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTraceResponse.ProtoReflect.Descriptor instead.
 func (*GetTraceResponse) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{28}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GetTraceResponse) GetSteps() []*TraceStep {
@@ -2200,7 +2647,7 @@ type TraceStep struct {
 
 func (x *TraceStep) Reset() {
 	*x = TraceStep{}
-	mi := &file_aura_v1_node_proto_msgTypes[29]
+	mi := &file_aura_v1_node_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2212,7 +2659,7 @@ func (x *TraceStep) String() string {
 func (*TraceStep) ProtoMessage() {}
 
 func (x *TraceStep) ProtoReflect() protoreflect.Message {
-	mi := &file_aura_v1_node_proto_msgTypes[29]
+	mi := &file_aura_v1_node_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2225,7 +2672,7 @@ func (x *TraceStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TraceStep.ProtoReflect.Descriptor instead.
 func (*TraceStep) Descriptor() ([]byte, []int) {
-	return file_aura_v1_node_proto_rawDescGZIP(), []int{29}
+	return file_aura_v1_node_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *TraceStep) GetSeq() int64 {
@@ -2274,7 +2721,7 @@ var File_aura_v1_node_proto protoreflect.FileDescriptor
 
 const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x12aura/v1/node.proto\x12\aaura.v1\"\xce\x03\n" +
+	"\x12aura/v1/node.proto\x12\aaura.v1\"\x99\x04\n" +
 	"\x10NodeToController\x12/\n" +
 	"\bregister\x18\x01 \x01(\v2\x11.aura.v1.RegisterH\x00R\bregister\x122\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x12.aura.v1.HeartbeatH\x00R\theartbeat\x12<\n" +
@@ -2282,13 +2729,16 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\x0fupload_complete\x18\x04 \x01(\v2\x17.aura.v1.UploadCompleteH\x00R\x0euploadComplete\x12<\n" +
 	"\rupload_failed\x18\x05 \x01(\v2\x15.aura.v1.UploadFailedH\x00R\fuploadFailed\x12?\n" +
 	"\x0eagent_activity\x18\x06 \x01(\v2\x16.aura.v1.AgentActivityH\x00R\ragentActivity\x12I\n" +
-	"\x12mcp_proxy_response\x18\a \x01(\v2\x19.aura.v1.McpProxyResponseH\x00R\x10mcpProxyResponseB\t\n" +
-	"\apayload\"\xa0\x02\n" +
+	"\x12mcp_proxy_response\x18\a \x01(\v2\x19.aura.v1.McpProxyResponseH\x00R\x10mcpProxyResponse\x12I\n" +
+	"\x12self_update_result\x18\b \x01(\v2\x19.aura.v1.SelfUpdateResultH\x00R\x10selfUpdateResultB\t\n" +
+	"\apayload\"\xd8\x02\n" +
 	"\x10ControllerToNode\x129\n" +
 	"\fregister_ack\x18\x01 \x01(\v2\x14.aura.v1.RegisterAckH\x00R\vregisterAck\x129\n" +
 	"\ftool_request\x18\x02 \x01(\v2\x14.aura.v1.ToolRequestH\x00R\vtoolRequest\x12C\n" +
 	"\x10upload_url_grant\x18\x03 \x01(\v2\x17.aura.v1.UploadUrlGrantH\x00R\x0euploadUrlGrant\x12F\n" +
-	"\x11mcp_proxy_request\x18\x04 \x01(\v2\x18.aura.v1.McpProxyRequestH\x00R\x0fmcpProxyRequestB\t\n" +
+	"\x11mcp_proxy_request\x18\x04 \x01(\v2\x18.aura.v1.McpProxyRequestH\x00R\x0fmcpProxyRequest\x126\n" +
+	"\vself_update\x18\x05 \x01(\v2\x13.aura.v1.SelfUpdateH\x00R\n" +
+	"selfUpdateB\t\n" +
 	"\apayload\"\xc9\x01\n" +
 	"\x0fMcpProxyRequest\x12\x1d\n" +
 	"\n" +
@@ -2304,7 +2754,7 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\x05R\x06status\x12\x12\n" +
 	"\x04body\x18\x03 \x01(\fR\x04body\x12!\n" +
-	"\fcontent_type\x18\x04 \x01(\tR\vcontentType\"\xbe\x03\n" +
+	"\fcontent_type\x18\x04 \x01(\tR\vcontentType\"\xe3\x03\n" +
 	"\bRegister\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
 	"\bplatform\x18\x02 \x01(\tR\bplatform\x12\x14\n" +
@@ -2324,7 +2774,8 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"infra_host\x18\r \x01(\tR\tinfraHost\x12\x1a\n" +
 	"\battached\x18\x0e \x01(\tR\battached\x12!\n" +
-	"\fnode_version\x18\x0f \x01(\tR\vnodeVersion\"\\\n" +
+	"\fnode_version\x18\x0f \x01(\tR\vnodeVersion\x12#\n" +
+	"\rhost_platform\x18\x10 \x01(\tR\fhostPlatform\"\\\n" +
 	"\vRegisterAck\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
 	"\baccepted\x18\x02 \x01(\bR\baccepted\x12\x18\n" +
@@ -2352,7 +2803,17 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\x04etag\x18\x02 \x01(\tR\x04etag\"6\n" +
 	"\fUploadFailed\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"@\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"d\n" +
+	"\n" +
+	"SelfUpdate\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x10\n" +
+	"\x03url\x18\x02 \x01(\tR\x03url\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x12\n" +
+	"\x04size\x18\x04 \x01(\x03R\x04size\"R\n" +
+	"\x10SelfUpdateResult\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x0e\n" +
+	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"@\n" +
 	"\rAgentActivity\x12/\n" +
 	"\x06events\x18\x01 \x03(\v2\x17.aura.v1.AgentCallEventR\x06events\"\xb0\x02\n" +
 	"\x0eAgentCallEvent\x12\x12\n" +
@@ -2370,7 +2831,7 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"ts_unix_ms\x18\n" +
 	" \x01(\x03R\btsUnixMs\"\x12\n" +
-	"\x10ListNodesRequest\"\xa4\x04\n" +
+	"\x10ListNodesRequest\"\xc9\x04\n" +
 	"\bNodeInfo\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1a\n" +
 	"\bplatform\x18\x02 \x01(\tR\bplatform\x12\x16\n" +
@@ -2394,7 +2855,8 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"infra_host\x18\x0f \x01(\tR\tinfraHost\x12\x1a\n" +
 	"\battached\x18\x10 \x01(\tR\battached\x12!\n" +
 	"\fnode_version\x18\x11 \x01(\tR\vnodeVersion\x12\x18\n" +
-	"\aproject\x18\x12 \x01(\tR\aproject\"<\n" +
+	"\aproject\x18\x12 \x01(\tR\aproject\x12#\n" +
+	"\rhost_platform\x18\x13 \x01(\tR\fhostPlatform\"<\n" +
 	"\x11ListNodesResponse\x12'\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x11.aura.v1.NodeInfoR\x05nodes\"\xad\x01\n" +
 	"\x13DispatchToolRequest\x12\x17\n" +
@@ -2417,7 +2879,22 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\x19DestroyEnvironmentRequest\x12\x15\n" +
 	"\x06env_id\x18\x01 \x01(\tR\x05envId\":\n" +
 	"\x1aDestroyEnvironmentResponse\x12\x1c\n" +
-	"\tdestroyed\x18\x01 \x01(\bR\tdestroyed\">\n" +
+	"\tdestroyed\x18\x01 \x01(\bR\tdestroyed\"\x15\n" +
+	"\x13ListReleasesRequest\"\x8f\x01\n" +
+	"\aRelease\x12\x1a\n" +
+	"\bplatform\x18\x01 \x01(\tR\bplatform\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x12\n" +
+	"\x04size\x18\x04 \x01(\x03R\x04size\x12\"\n" +
+	"\rcreated_at_ms\x18\x05 \x01(\x03R\vcreatedAtMs\"D\n" +
+	"\x14ListReleasesResponse\x12,\n" +
+	"\breleases\x18\x01 \x03(\v2\x10.aura.v1.ReleaseR\breleases\"J\n" +
+	"\x15SelfUpdateNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"J\n" +
+	"\x16SelfUpdateNodeResponse\x12\x16\n" +
+	"\x06staged\x18\x01 \x01(\bR\x06staged\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\">\n" +
 	"\x11StartTraceRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x10\n" +
 	"\x03who\x18\x02 \x01(\tR\x03who\"/\n" +
@@ -2462,7 +2939,7 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\x12\r\n" +
 	"\tE_TIMEOUT\x10\v2R\n" +
 	"\vNodeControl\x12C\n" +
-	"\aConnect\x12\x19.aura.v1.NodeToController\x1a\x19.aura.v1.ControllerToNode(\x010\x012\xa9\x04\n" +
+	"\aConnect\x12\x19.aura.v1.NodeToController\x1a\x19.aura.v1.ControllerToNode(\x010\x012\xc9\x05\n" +
 	"\x0fControllerAdmin\x12B\n" +
 	"\tListNodes\x12\x19.aura.v1.ListNodesRequest\x1a\x1a.aura.v1.ListNodesResponse\x12K\n" +
 	"\fDispatchTool\x12\x1c.aura.v1.DispatchToolRequest\x1a\x1d.aura.v1.DispatchToolResponse\x12Z\n" +
@@ -2471,7 +2948,9 @@ const file_aura_v1_node_proto_rawDesc = "" +
 	"\n" +
 	"StartTrace\x12\x1a.aura.v1.StartTraceRequest\x1a\x1b.aura.v1.StartTraceResponse\x12B\n" +
 	"\tStopTrace\x12\x19.aura.v1.StopTraceRequest\x1a\x1a.aura.v1.StopTraceResponse\x12?\n" +
-	"\bGetTrace\x12\x18.aura.v1.GetTraceRequest\x1a\x19.aura.v1.GetTraceResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
+	"\bGetTrace\x12\x18.aura.v1.GetTraceRequest\x1a\x19.aura.v1.GetTraceResponse\x12K\n" +
+	"\fListReleases\x12\x1c.aura.v1.ListReleasesRequest\x1a\x1d.aura.v1.ListReleasesResponse\x12Q\n" +
+	"\x0eSelfUpdateNode\x12\x1e.aura.v1.SelfUpdateNodeRequest\x1a\x1f.aura.v1.SelfUpdateNodeResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
 
 var (
 	file_aura_v1_node_proto_rawDescOnce sync.Once
@@ -2486,7 +2965,7 @@ func file_aura_v1_node_proto_rawDescGZIP() []byte {
 }
 
 var file_aura_v1_node_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_aura_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_aura_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
 var file_aura_v1_node_proto_goTypes = []any{
 	(ErrorCode)(0),                     // 0: aura.v1.ErrorCode
 	(*NodeToController)(nil),           // 1: aura.v1.NodeToController
@@ -2501,24 +2980,31 @@ var file_aura_v1_node_proto_goTypes = []any{
 	(*UploadUrlGrant)(nil),             // 10: aura.v1.UploadUrlGrant
 	(*UploadComplete)(nil),             // 11: aura.v1.UploadComplete
 	(*UploadFailed)(nil),               // 12: aura.v1.UploadFailed
-	(*AgentActivity)(nil),              // 13: aura.v1.AgentActivity
-	(*AgentCallEvent)(nil),             // 14: aura.v1.AgentCallEvent
-	(*ListNodesRequest)(nil),           // 15: aura.v1.ListNodesRequest
-	(*NodeInfo)(nil),                   // 16: aura.v1.NodeInfo
-	(*ListNodesResponse)(nil),          // 17: aura.v1.ListNodesResponse
-	(*DispatchToolRequest)(nil),        // 18: aura.v1.DispatchToolRequest
-	(*DispatchToolResponse)(nil),       // 19: aura.v1.DispatchToolResponse
-	(*CreateEnvironmentRequest)(nil),   // 20: aura.v1.CreateEnvironmentRequest
-	(*CreateEnvironmentResponse)(nil),  // 21: aura.v1.CreateEnvironmentResponse
-	(*DestroyEnvironmentRequest)(nil),  // 22: aura.v1.DestroyEnvironmentRequest
-	(*DestroyEnvironmentResponse)(nil), // 23: aura.v1.DestroyEnvironmentResponse
-	(*StartTraceRequest)(nil),          // 24: aura.v1.StartTraceRequest
-	(*StartTraceResponse)(nil),         // 25: aura.v1.StartTraceResponse
-	(*StopTraceRequest)(nil),           // 26: aura.v1.StopTraceRequest
-	(*StopTraceResponse)(nil),          // 27: aura.v1.StopTraceResponse
-	(*GetTraceRequest)(nil),            // 28: aura.v1.GetTraceRequest
-	(*GetTraceResponse)(nil),           // 29: aura.v1.GetTraceResponse
-	(*TraceStep)(nil),                  // 30: aura.v1.TraceStep
+	(*SelfUpdate)(nil),                 // 13: aura.v1.SelfUpdate
+	(*SelfUpdateResult)(nil),           // 14: aura.v1.SelfUpdateResult
+	(*AgentActivity)(nil),              // 15: aura.v1.AgentActivity
+	(*AgentCallEvent)(nil),             // 16: aura.v1.AgentCallEvent
+	(*ListNodesRequest)(nil),           // 17: aura.v1.ListNodesRequest
+	(*NodeInfo)(nil),                   // 18: aura.v1.NodeInfo
+	(*ListNodesResponse)(nil),          // 19: aura.v1.ListNodesResponse
+	(*DispatchToolRequest)(nil),        // 20: aura.v1.DispatchToolRequest
+	(*DispatchToolResponse)(nil),       // 21: aura.v1.DispatchToolResponse
+	(*CreateEnvironmentRequest)(nil),   // 22: aura.v1.CreateEnvironmentRequest
+	(*CreateEnvironmentResponse)(nil),  // 23: aura.v1.CreateEnvironmentResponse
+	(*DestroyEnvironmentRequest)(nil),  // 24: aura.v1.DestroyEnvironmentRequest
+	(*DestroyEnvironmentResponse)(nil), // 25: aura.v1.DestroyEnvironmentResponse
+	(*ListReleasesRequest)(nil),        // 26: aura.v1.ListReleasesRequest
+	(*Release)(nil),                    // 27: aura.v1.Release
+	(*ListReleasesResponse)(nil),       // 28: aura.v1.ListReleasesResponse
+	(*SelfUpdateNodeRequest)(nil),      // 29: aura.v1.SelfUpdateNodeRequest
+	(*SelfUpdateNodeResponse)(nil),     // 30: aura.v1.SelfUpdateNodeResponse
+	(*StartTraceRequest)(nil),          // 31: aura.v1.StartTraceRequest
+	(*StartTraceResponse)(nil),         // 32: aura.v1.StartTraceResponse
+	(*StopTraceRequest)(nil),           // 33: aura.v1.StopTraceRequest
+	(*StopTraceResponse)(nil),          // 34: aura.v1.StopTraceResponse
+	(*GetTraceRequest)(nil),            // 35: aura.v1.GetTraceRequest
+	(*GetTraceResponse)(nil),           // 36: aura.v1.GetTraceResponse
+	(*TraceStep)(nil),                  // 37: aura.v1.TraceStep
 }
 var file_aura_v1_node_proto_depIdxs = []int32{
 	5,  // 0: aura.v1.NodeToController.register:type_name -> aura.v1.Register
@@ -2526,36 +3012,43 @@ var file_aura_v1_node_proto_depIdxs = []int32{
 	9,  // 2: aura.v1.NodeToController.tool_response:type_name -> aura.v1.ToolResponse
 	11, // 3: aura.v1.NodeToController.upload_complete:type_name -> aura.v1.UploadComplete
 	12, // 4: aura.v1.NodeToController.upload_failed:type_name -> aura.v1.UploadFailed
-	13, // 5: aura.v1.NodeToController.agent_activity:type_name -> aura.v1.AgentActivity
+	15, // 5: aura.v1.NodeToController.agent_activity:type_name -> aura.v1.AgentActivity
 	4,  // 6: aura.v1.NodeToController.mcp_proxy_response:type_name -> aura.v1.McpProxyResponse
-	6,  // 7: aura.v1.ControllerToNode.register_ack:type_name -> aura.v1.RegisterAck
-	8,  // 8: aura.v1.ControllerToNode.tool_request:type_name -> aura.v1.ToolRequest
-	10, // 9: aura.v1.ControllerToNode.upload_url_grant:type_name -> aura.v1.UploadUrlGrant
-	3,  // 10: aura.v1.ControllerToNode.mcp_proxy_request:type_name -> aura.v1.McpProxyRequest
-	14, // 11: aura.v1.AgentActivity.events:type_name -> aura.v1.AgentCallEvent
-	16, // 12: aura.v1.ListNodesResponse.nodes:type_name -> aura.v1.NodeInfo
-	30, // 13: aura.v1.GetTraceResponse.steps:type_name -> aura.v1.TraceStep
-	1,  // 14: aura.v1.NodeControl.Connect:input_type -> aura.v1.NodeToController
-	15, // 15: aura.v1.ControllerAdmin.ListNodes:input_type -> aura.v1.ListNodesRequest
-	18, // 16: aura.v1.ControllerAdmin.DispatchTool:input_type -> aura.v1.DispatchToolRequest
-	20, // 17: aura.v1.ControllerAdmin.CreateEnvironment:input_type -> aura.v1.CreateEnvironmentRequest
-	22, // 18: aura.v1.ControllerAdmin.DestroyEnvironment:input_type -> aura.v1.DestroyEnvironmentRequest
-	24, // 19: aura.v1.ControllerAdmin.StartTrace:input_type -> aura.v1.StartTraceRequest
-	26, // 20: aura.v1.ControllerAdmin.StopTrace:input_type -> aura.v1.StopTraceRequest
-	28, // 21: aura.v1.ControllerAdmin.GetTrace:input_type -> aura.v1.GetTraceRequest
-	2,  // 22: aura.v1.NodeControl.Connect:output_type -> aura.v1.ControllerToNode
-	17, // 23: aura.v1.ControllerAdmin.ListNodes:output_type -> aura.v1.ListNodesResponse
-	19, // 24: aura.v1.ControllerAdmin.DispatchTool:output_type -> aura.v1.DispatchToolResponse
-	21, // 25: aura.v1.ControllerAdmin.CreateEnvironment:output_type -> aura.v1.CreateEnvironmentResponse
-	23, // 26: aura.v1.ControllerAdmin.DestroyEnvironment:output_type -> aura.v1.DestroyEnvironmentResponse
-	25, // 27: aura.v1.ControllerAdmin.StartTrace:output_type -> aura.v1.StartTraceResponse
-	27, // 28: aura.v1.ControllerAdmin.StopTrace:output_type -> aura.v1.StopTraceResponse
-	29, // 29: aura.v1.ControllerAdmin.GetTrace:output_type -> aura.v1.GetTraceResponse
-	22, // [22:30] is the sub-list for method output_type
-	14, // [14:22] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	14, // 7: aura.v1.NodeToController.self_update_result:type_name -> aura.v1.SelfUpdateResult
+	6,  // 8: aura.v1.ControllerToNode.register_ack:type_name -> aura.v1.RegisterAck
+	8,  // 9: aura.v1.ControllerToNode.tool_request:type_name -> aura.v1.ToolRequest
+	10, // 10: aura.v1.ControllerToNode.upload_url_grant:type_name -> aura.v1.UploadUrlGrant
+	3,  // 11: aura.v1.ControllerToNode.mcp_proxy_request:type_name -> aura.v1.McpProxyRequest
+	13, // 12: aura.v1.ControllerToNode.self_update:type_name -> aura.v1.SelfUpdate
+	16, // 13: aura.v1.AgentActivity.events:type_name -> aura.v1.AgentCallEvent
+	18, // 14: aura.v1.ListNodesResponse.nodes:type_name -> aura.v1.NodeInfo
+	27, // 15: aura.v1.ListReleasesResponse.releases:type_name -> aura.v1.Release
+	37, // 16: aura.v1.GetTraceResponse.steps:type_name -> aura.v1.TraceStep
+	1,  // 17: aura.v1.NodeControl.Connect:input_type -> aura.v1.NodeToController
+	17, // 18: aura.v1.ControllerAdmin.ListNodes:input_type -> aura.v1.ListNodesRequest
+	20, // 19: aura.v1.ControllerAdmin.DispatchTool:input_type -> aura.v1.DispatchToolRequest
+	22, // 20: aura.v1.ControllerAdmin.CreateEnvironment:input_type -> aura.v1.CreateEnvironmentRequest
+	24, // 21: aura.v1.ControllerAdmin.DestroyEnvironment:input_type -> aura.v1.DestroyEnvironmentRequest
+	31, // 22: aura.v1.ControllerAdmin.StartTrace:input_type -> aura.v1.StartTraceRequest
+	33, // 23: aura.v1.ControllerAdmin.StopTrace:input_type -> aura.v1.StopTraceRequest
+	35, // 24: aura.v1.ControllerAdmin.GetTrace:input_type -> aura.v1.GetTraceRequest
+	26, // 25: aura.v1.ControllerAdmin.ListReleases:input_type -> aura.v1.ListReleasesRequest
+	29, // 26: aura.v1.ControllerAdmin.SelfUpdateNode:input_type -> aura.v1.SelfUpdateNodeRequest
+	2,  // 27: aura.v1.NodeControl.Connect:output_type -> aura.v1.ControllerToNode
+	19, // 28: aura.v1.ControllerAdmin.ListNodes:output_type -> aura.v1.ListNodesResponse
+	21, // 29: aura.v1.ControllerAdmin.DispatchTool:output_type -> aura.v1.DispatchToolResponse
+	23, // 30: aura.v1.ControllerAdmin.CreateEnvironment:output_type -> aura.v1.CreateEnvironmentResponse
+	25, // 31: aura.v1.ControllerAdmin.DestroyEnvironment:output_type -> aura.v1.DestroyEnvironmentResponse
+	32, // 32: aura.v1.ControllerAdmin.StartTrace:output_type -> aura.v1.StartTraceResponse
+	34, // 33: aura.v1.ControllerAdmin.StopTrace:output_type -> aura.v1.StopTraceResponse
+	36, // 34: aura.v1.ControllerAdmin.GetTrace:output_type -> aura.v1.GetTraceResponse
+	28, // 35: aura.v1.ControllerAdmin.ListReleases:output_type -> aura.v1.ListReleasesResponse
+	30, // 36: aura.v1.ControllerAdmin.SelfUpdateNode:output_type -> aura.v1.SelfUpdateNodeResponse
+	27, // [27:37] is the sub-list for method output_type
+	17, // [17:27] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_aura_v1_node_proto_init() }
@@ -2571,12 +3064,14 @@ func file_aura_v1_node_proto_init() {
 		(*NodeToController_UploadFailed)(nil),
 		(*NodeToController_AgentActivity)(nil),
 		(*NodeToController_McpProxyResponse)(nil),
+		(*NodeToController_SelfUpdateResult)(nil),
 	}
 	file_aura_v1_node_proto_msgTypes[1].OneofWrappers = []any{
 		(*ControllerToNode_RegisterAck)(nil),
 		(*ControllerToNode_ToolRequest)(nil),
 		(*ControllerToNode_UploadUrlGrant)(nil),
 		(*ControllerToNode_McpProxyRequest)(nil),
+		(*ControllerToNode_SelfUpdate)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2584,7 +3079,7 @@ func file_aura_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aura_v1_node_proto_rawDesc), len(file_aura_v1_node_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   37,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

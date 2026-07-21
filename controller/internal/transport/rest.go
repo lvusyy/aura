@@ -21,6 +21,7 @@ import (
 	"github.com/aura/controller/internal/provisioner"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/storage"
 	"github.com/aura/controller/internal/store"
 )
 
@@ -31,6 +32,7 @@ type ControllerAdminServer struct {
 	scheduler   *scheduler.Scheduler
 	provisioner provisioner.EnvProvider // 可为 nil（未配置任何 provider 时环境接口返回 Unavailable）
 	pg          *store.PGStore          // 可为 nil（M15 项目隔离判据源；nil=节点视同未归属，见 CheckNodeProjectAccess）
+	artifacts   *storage.MinioStore     // 可为 nil（M16 self-update 制品签发源；经 SetArtifacts 装配期注入）
 }
 
 // NewControllerAdminServer 构造管理面服务。prov 是 EnvProvider（PVE 或 K8s，单选装配），

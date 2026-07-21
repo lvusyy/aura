@@ -72,6 +72,9 @@ type NodeSession struct {
 	// 批E（滚更可见性，注册即定无锁读）：节点二进制版本自报（CARGO_PKG_VERSION），同落 nodes 表
 	// （离线成员滚更盘点经 ListFleet 表分支回填最后已知版本）。
 	NodeVersion string
+	// M16（self-update，注册即定无锁读）：二进制宿主平台自报（{OS}-{ARCH}，发布制品选型判据——
+	// platform 是设备类，android 节点的二进制实际跑在 linux 宿主）。同落 nodes 表。
+	HostPlatform string
 
 	mu       sync.RWMutex
 	lastSeen time.Time
@@ -90,6 +93,9 @@ type NodeSession struct {
 	// mcpPending 关联 request_id -> 等待 McpProxyResponse 的 channel（M14 网关代理，与 pending
 	// 同锁不同表：两类响应 id 空间独立，混表会让哑管道请求依赖 ToolResponse 类型）。
 	mcpPending map[string]chan *aurav1.McpProxyResponse
+	// selfUpdatePending 等待 SelfUpdateResult 的单槽（M16；同 pendingMu 守护）：per-node 单飞——
+	// 同一节点同时至多一个 self-update 在途（结果帧无关联 id，单槽即天然闸）。nil=无在途。
+	selfUpdatePending chan *aurav1.SelfUpdateResult
 
 	// done 在会话关闭时闭合，唤醒阻塞在 Send / Dispatch 上的调用方。
 	done      chan struct{}
@@ -226,6 +232,58 @@ func (s *NodeSession) ProxyMcp(ctx context.Context, req *aurav1.McpProxyRequest)
 		return nil, ctx.Err()
 	case <-s.done:
 		return nil, ErrNodeGone
+	}
+}
+
+// SelfUpdate 向节点下发 self-update 指令并等待 SelfUpdateResult（M16，SelfUpdateNode 管理面入口）。
+// 单槽 pending（结果帧无关联 id）：同节点已有在途 self-update 即拒绝（per-node 单飞闸）；
+// ctx 到期（调用方兜底 timer）或节点掉线时返回错误。ok=true 的结果意味着节点已换刀、随即重启重注册。
+func (s *NodeSession) SelfUpdate(ctx context.Context, req *aurav1.SelfUpdate) (*aurav1.SelfUpdateResult, error) {
+	ch := make(chan *aurav1.SelfUpdateResult, 1)
+	s.pendingMu.Lock()
+	if s.selfUpdatePending != nil {
+		s.pendingMu.Unlock()
+		return nil, errors.New("self-update already in flight for this node")
+	}
+	s.selfUpdatePending = ch
+	s.pendingMu.Unlock()
+	defer func() {
+		s.pendingMu.Lock()
+		if s.selfUpdatePending == ch {
+			s.selfUpdatePending = nil
+		}
+		s.pendingMu.Unlock()
+	}()
+
+	frame := &aurav1.ControllerToNode{
+		Payload: &aurav1.ControllerToNode_SelfUpdate{SelfUpdate: req},
+	}
+	if err := s.Send(ctx, frame); err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.done:
+		return nil, ErrNodeGone
+	}
+}
+
+// DeliverSelfUpdateResult 将收到的 SelfUpdateResult 路由回等待方（transport 收帧循环调用）。
+// 无人等待或已交付时静默丢弃（同 DeliverResponse 纪律）。
+func (s *NodeSession) DeliverSelfUpdateResult(resp *aurav1.SelfUpdateResult) {
+	s.pendingMu.Lock()
+	ch := s.selfUpdatePending
+	s.pendingMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- resp:
+	default:
 	}
 }
 
@@ -384,6 +442,8 @@ func (r *NodeRegistry) Register(ctx context.Context, reg *aurav1.Register, certF
 		Attached:    reg.GetAttached(),
 		// 批E：节点二进制版本自报落库（滚更进度盘点）。
 		NodeVersion: reg.GetNodeVersion(),
+		// M16：二进制宿主平台自报落库（rollout 制品选型 + 离线漂移盘点）。
+		HostPlatform: reg.GetHostPlatform(),
 	}
 	if r.store == nil {
 		return nodeID, info, nil // 纯内存：eff 直取自报值
@@ -496,6 +556,8 @@ func (r *NodeRegistry) nodeInfo(s *NodeSession) *aurav1.NodeInfo {
 		Attached:    s.Attached,
 		// 批E：节点二进制版本（在线会话回填；离线走 ListFleet 表分支回填最后已知版本）。
 		NodeVersion: s.NodeVersion,
+		// M16：二进制宿主平台（在线会话回填；离线走 ListFleet 表分支——已持久化 nodes 表）。
+		HostPlatform: s.HostPlatform,
 	}
 }
 

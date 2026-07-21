@@ -36,11 +36,17 @@ const enrollPathPrefix = "/v1/"
 //     否则预检因缺 token 被 401，跨域失败。
 // 批E C1：token 单值改 TokenScopes 多档映射（ro/ops/admin 分级 + forwarder 独立凭据同表准入）。
 // M15：tokens 为 DB 实体令牌查验源（nil=env-only，行为零变化）——API 面与 MCP 网关同源鉴权。
-func NewRESTHandler(scopes TokenScopes, tokens ApiTokenSource, apiMux, stream, artifact, enroll, mcp, spa http.Handler) http.Handler {
+// M16：releases 为制品上传端点（POST /v1/releases，bearer 鉴权 + handler 内 admin 档校验）；
+// 与 /v1/mcp/ 同理必须前置于 enroll 宽前缀 /v1/，否则落公开 enroll 面。
+func NewRESTHandler(scopes TokenScopes, tokens ApiTokenSource, apiMux, stream, artifact, enroll, mcp, releases, spa http.Handler) http.Handler {
 	apiAuth := BearerMiddlewareDB(scopes, tokens, apiMux)
 	var mcpAuth http.Handler
 	if mcp != nil {
 		mcpAuth = BearerMiddlewareDB(scopes, tokens, mcp)
+	}
+	var releasesAuth http.Handler
+	if releases != nil {
+		releasesAuth = BearerMiddlewareDB(scopes, tokens, releases)
 	}
 	router := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -54,6 +60,9 @@ func NewRESTHandler(scopes TokenScopes, tokens ApiTokenSource, apiMux, stream, a
 		// 否则落公开 enroll 面（404 且绕过 bearer）。
 		case mcpAuth != nil && strings.HasPrefix(r.URL.Path, mcpGatewayPathPrefix):
 			mcpAuth.ServeHTTP(w, r)
+		// M16 制品上传（bearer 鉴权）：同 /v1/mcp/ 纪律前置于 enroll 宽前缀。
+		case releasesAuth != nil && r.URL.Path == releasesPath:
+			releasesAuth.ServeHTTP(w, r)
 		case enroll != nil && strings.HasPrefix(r.URL.Path, enrollPathPrefix):
 			enroll.ServeHTTP(w, r) // 公开：enroll token 认证在 handler 内（ConsumeToken），不过 bearer
 		default:

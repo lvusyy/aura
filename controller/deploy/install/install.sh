@@ -36,7 +36,9 @@ TLS_DOMAIN="${AURA_TLS_DOMAIN:-aura-controller}"
 HTTP_BIND="${AURA_HTTP_BIND:-0.0.0.0:7100}"
 # enroll REST bootstrap 端口（install-command-spec §2：由 --controller 的 HOST 派生 HOST:18080）。
 ENROLL_PORT="${AURA_ENROLL_PORT:-18080}"
-BIN_PATH="/usr/local/bin/aura-node"
+# 二进制安装路径：缺省在 DATA_DIR 解析后派生为 ${DATA_DIR}/bin/aura-node（M16 self-update 布局，
+# 见平台检测段注释）；可经 $AURA_BIN_PATH 显式覆盖。
+BIN_PATH="${AURA_BIN_PATH:-}"
 
 die()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[install] $*" >&2; }
@@ -194,6 +196,11 @@ if [ -z "$DATA_DIR" ]; then
   esac
 fi
 
+# M16 self-update 布局：二进制装进数据目录（随后 chown 归服务用户）——self-update 原子换刀需要节点
+# 进程对二进制所在目录可写；旧 /usr/local/bin（root 属主）布局下非 root 服务无法 rename 替换。
+# /usr/local/bin/aura-node 保留 symlink 供人工 CLI（enroll/service 子命令），换刀换真身 symlink 恒有效。
+if [ -z "$BIN_PATH" ]; then BIN_PATH="${DATA_DIR}/bin/aura-node"; fi
+
 # ============================ 2) 拉二进制 ============================
 BIN_URL="${RELEASE_BASE}/${ASSET}"
 info "fetch binary: ${BIN_URL} -> ${BIN_PATH}"
@@ -203,6 +210,10 @@ tmpca=""
 trap 'rm -f "$tmpbin" "${tmpca:-}"' EXIT
 curl -fsSL "$BIN_URL" -o "$tmpbin" || die "download binary failed: ${BIN_URL}"
 run_priv install -m 0755 "$tmpbin" "$BIN_PATH"
+# 便捷 symlink（best-effort）：真身在数据目录（self-update 换真身），symlink 供 PATH 内人工调用。
+if [ "$BIN_PATH" != "/usr/local/bin/aura-node" ]; then
+  run_priv ln -sf "$BIN_PATH" /usr/local/bin/aura-node || warn "symlink /usr/local/bin/aura-node failed（不影响服务）"
+fi
 
 # ============================ 3+4) enroll（genkey+CSR → 换 per-node cert）============================
 run_priv mkdir -p "$DATA_DIR"

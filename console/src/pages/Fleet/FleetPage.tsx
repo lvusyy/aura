@@ -50,7 +50,8 @@ import {
   WindowsOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
-import { useDashboard, useFleetStream } from "../../api/fleet";
+import { useDashboard, useFleetStream, useLatestReleases } from "../../api/fleet";
+import type { LatestReleaseMap } from "../../api/fleet";
 import { consoleClient } from "../../api/transport";
 import type { DashboardState, FleetStreamState, FleetStreamStatus } from "../../api/fleet";
 import type { NodeRecording } from "../../gen/aura/v1/console_pb";
@@ -443,6 +444,31 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge status={meta.status} text={meta.text} />;
 }
 
+// 版本漂移上下文（M16）：host_platform → 最新发布版本映射，经 Provider 注入子树，VersionDriftTag 消费。
+const ReleasesContext = createContext<LatestReleaseMap>(new Map());
+
+// 版本漂移标签（M16 滚更可见性）：节点二进制版本落后于本平台最新发布时高亮「可更新 → x.y.z」。
+// 判据（与 auractl rollout「already-at」跳过同口径）：节点在线 + 上报了 host_platform + node_version +
+// 本平台有 release + 最新发布版本 ≠ 节点当前版本。任一不满足返回 null（离线节点不催更新、未滚更节点
+// 无 host_platform 无法匹配、未配 releases 域时映射空——皆静默不显）。
+function VersionDriftTag({ node }: { node: NodeInfo }) {
+  const releases = useContext(ReleasesContext);
+  if (node.status === "offline" || !node.hostPlatform || !node.nodeVersion) {
+    return null;
+  }
+  const latest = releases.get(node.hostPlatform);
+  if (!latest || latest === node.nodeVersion) {
+    return null;
+  }
+  return (
+    <Tooltip title={`当前 ${node.nodeVersion} → 最新发布 ${latest}（auractl rollout --version ${latest} 更新）`}>
+      <Tag color="orange" style={{ cursor: "help" }}>
+        可更新 → {latest}
+      </Tag>
+    </Tooltip>
+  );
+}
+
 // 录制占用徽章（M10-P1 租约期 UX）：StartTrace 后被租节点显示「录制中(who)」——补齐此前只见
 // 泛化 E_BUSY 的观测盲区；StopTrace/TTL 过期随快照帧消失（≤30s 心跳兜底）。tooltip 露 trace_id
 // 供操作重放对账。无租约返回 null（卡片/表格零占位）。
@@ -667,9 +693,10 @@ const NodeCard = memo(function NodeCard({
         >
           {node.nodeId}
         </Typography.Text>
-        {/* 能力（可展开，sub-goal 2）+ 契约（次要）+ 录制占用 + 详情（批B 渐进披露：IP/网络域/在线时长）。 */}
+        {/* 能力（可展开，sub-goal 2）+ 契约（次要）+ 录制占用 + 版本漂移（M16）+ 详情（批B 渐进披露）。 */}
         <Space size="small" wrap>
           <RecordingTag rec={rec} />
+          <VersionDriftTag node={node} />
           <ToolsTag tools={node.tools} />
           <Tag>契约 {node.contractVersion || "—"}</Tag>
           <NodeDetailsLink node={node} />
@@ -783,9 +810,10 @@ function NodeTable({
       title: "状态",
       key: "status",
       render: (_, n) => (
-        <Space size={4}>
+        <Space size={4} wrap>
           <StatusBadge status={n.status} />
           <RecordingTag rec={recordings.get(n.nodeId)} />
+          <VersionDriftTag node={n} />
         </Space>
       ),
     },
@@ -944,6 +972,7 @@ function NowProvider({ children }: { children: ReactNode }) {
 export function FleetPage() {
   const stream = useFleetStream();
   const dash = useDashboard();
+  const latestReleases = useLatestReleases();
   const [view, setView] = useState<"card" | "table">("card");
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState("");
@@ -1033,6 +1062,7 @@ export function FleetPage() {
 
   return (
     <NowProvider>
+      <ReleasesContext.Provider value={latestReleases}>
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <SummaryBar dash={dash} stream={stream} />
 
@@ -1131,6 +1161,7 @@ export function FleetPage() {
       <AddDeviceModal open={addOpen} onClose={() => setAddOpen(false)} />
       <EditNodeMetaModal node={editNode} open={editNode !== null} onClose={() => setEditNode(null)} />
       </Space>
+      </ReleasesContext.Provider>
     </NowProvider>
   );
 }

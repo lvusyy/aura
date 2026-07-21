@@ -528,3 +528,67 @@ func TestListFleetNilStoreOnlineOnly(t *testing.T) {
 		t.Fatalf("nil-store ListFleet len = %d, want 1 (online-only)", got)
 	}
 }
+
+// TestSelfUpdateSingleFlight 验证 M16 self-update 单槽闸：同节点在途时第二次调用即拒；结果送达后
+// 槽释放、后续调用可再入。
+func TestSelfUpdateSingleFlight(t *testing.T) {
+	s := NewSession("n1", "linux", nil, "", 4)
+	defer s.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// 第一发在途（后台等待结果）。
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := s.SelfUpdate(ctx, &aurav1.SelfUpdate{Version: "0.3.0"})
+		firstDone <- err
+	}()
+	// 等首发帧入队（sendCh 有帧即已注册单槽）。
+	deadline := time.Now().Add(time.Second)
+	for len(s.sendCh) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// 在途中第二发必须被拒。
+	if _, err := s.SelfUpdate(ctx, &aurav1.SelfUpdate{Version: "0.3.1"}); err == nil {
+		t.Fatal("second in-flight self-update should be rejected")
+	}
+
+	// 送达结果：首发返回、槽释放。
+	s.DeliverSelfUpdateResult(&aurav1.SelfUpdateResult{Version: "0.3.0", Ok: true})
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first self-update should resolve ok, got %v", err)
+	}
+
+	// 槽已释放：无人等待时结果静默丢弃、新调用可再注册（用已取消 ctx 立即返回，只验注册不被拒）。
+	s.DeliverSelfUpdateResult(&aurav1.SelfUpdateResult{})
+	cancelled, cancel2 := context.WithCancel(context.Background())
+	cancel2()
+	if _, err := s.SelfUpdate(cancelled, &aurav1.SelfUpdate{Version: "0.3.2"}); errors.Is(err, context.Canceled) {
+		// 期望路径：注册成功、Send 因 ctx 取消返回（说明单槽已可再入）。
+	} else if err != nil && err.Error() == "self-update already in flight for this node" {
+		t.Fatal("slot should be released after result delivery")
+	}
+}
+
+// TestSelfUpdateNodeGone 验证节点掉线（会话 Close）解除 self-update 等待（ErrNodeGone，不悬挂）。
+func TestSelfUpdateNodeGone(t *testing.T) {
+	s := NewSession("n1", "linux", nil, "", 4)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.SelfUpdate(ctx, &aurav1.SelfUpdate{Version: "0.3.0"})
+		done <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for len(s.sendCh) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	s.Close()
+	if err := <-done; !errors.Is(err, ErrNodeGone) {
+		t.Fatalf("want ErrNodeGone after session close, got %v", err)
+	}
+}

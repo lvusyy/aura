@@ -319,8 +319,15 @@ func (s *MinioStore) ListRecordings(ctx context.Context) ([]RecordingObject, err
 // 经默认 zone 的 presign client（AURA_MINIO_PUBLIC_ENDPOINT 公网可达端点）签发——下载消费方为 CLI/agent，
 // 非按 node 网络域分派的上传腿（T07 scope 仅上传腿 ISS-20260714-003）。
 func (s *MinioStore) PresignedGet(ctx context.Context, key string, ttl time.Duration) (*url.URL, error) {
+	return s.PresignedGetZone(ctx, key, ttl, defaultZoneKey)
+}
+
+// PresignedGetZone 按网络域 zone 签发下载预签名 URL（M16 节点 self-update 下载腿）：节点可达端点随其
+// 上报的 network_zone 分派（镜像 PresignedPut 上传腿语义，同 presignClientFor 回落规则）——252.x 域节点
+// 经跳板端点下载新二进制、lan 域直连，空/未知 zone 回落默认端点。
+func (s *MinioStore) PresignedGetZone(ctx context.Context, key string, ttl time.Duration, zone string) (*url.URL, error) {
 	if ttl <= 0 {
 		ttl = defaultPresignTTL
 	}
-	return s.presignClientFor(defaultZoneKey).PresignedGetObject(ctx, s.bucket, key, ttl, url.Values{})
+	return s.presignClientFor(zone).PresignedGetObject(ctx, s.bucket, key, ttl, url.Values{})
 }

@@ -58,6 +58,12 @@ const (
 	// ControllerAdminGetTraceProcedure is the fully-qualified name of the ControllerAdmin's GetTrace
 	// RPC.
 	ControllerAdminGetTraceProcedure = "/aura.v1.ControllerAdmin/GetTrace"
+	// ControllerAdminListReleasesProcedure is the fully-qualified name of the ControllerAdmin's
+	// ListReleases RPC.
+	ControllerAdminListReleasesProcedure = "/aura.v1.ControllerAdmin/ListReleases"
+	// ControllerAdminSelfUpdateNodeProcedure is the fully-qualified name of the ControllerAdmin's
+	// SelfUpdateNode RPC.
+	ControllerAdminSelfUpdateNodeProcedure = "/aura.v1.ControllerAdmin/SelfUpdateNode"
 )
 
 // NodeControlClient is a client for the aura.v1.NodeControl service.
@@ -147,6 +153,11 @@ type ControllerAdminClient interface {
 	StartTrace(context.Context, *connect.Request[v1.StartTraceRequest]) (*connect.Response[v1.StartTraceResponse], error)
 	StopTrace(context.Context, *connect.Request[v1.StopTraceRequest]) (*connect.Response[v1.StopTraceResponse], error)
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// M16 节点 self-update 管理面（additive）。制品上传走 REST POST /v1/releases（流式字节不过 connect
+	// 消息上限）；本面只承载元数据列举与滚更触发。SelfUpdateNode 同步等待节点 SelfUpdateResult
+	// （staged=已换刀待重启），版本收敛由调用方（auractl rollout）轮询 ListNodes.node_version 确认。
+	ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error)
+	SelfUpdateNode(context.Context, *connect.Request[v1.SelfUpdateNodeRequest]) (*connect.Response[v1.SelfUpdateNodeResponse], error)
 }
 
 // NewControllerAdminClient constructs a client for the aura.v1.ControllerAdmin service. By default,
@@ -202,6 +213,18 @@ func NewControllerAdminClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(controllerAdminMethods.ByName("GetTrace")),
 			connect.WithClientOptions(opts...),
 		),
+		listReleases: connect.NewClient[v1.ListReleasesRequest, v1.ListReleasesResponse](
+			httpClient,
+			baseURL+ControllerAdminListReleasesProcedure,
+			connect.WithSchema(controllerAdminMethods.ByName("ListReleases")),
+			connect.WithClientOptions(opts...),
+		),
+		selfUpdateNode: connect.NewClient[v1.SelfUpdateNodeRequest, v1.SelfUpdateNodeResponse](
+			httpClient,
+			baseURL+ControllerAdminSelfUpdateNodeProcedure,
+			connect.WithSchema(controllerAdminMethods.ByName("SelfUpdateNode")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -214,6 +237,8 @@ type controllerAdminClient struct {
 	startTrace         *connect.Client[v1.StartTraceRequest, v1.StartTraceResponse]
 	stopTrace          *connect.Client[v1.StopTraceRequest, v1.StopTraceResponse]
 	getTrace           *connect.Client[v1.GetTraceRequest, v1.GetTraceResponse]
+	listReleases       *connect.Client[v1.ListReleasesRequest, v1.ListReleasesResponse]
+	selfUpdateNode     *connect.Client[v1.SelfUpdateNodeRequest, v1.SelfUpdateNodeResponse]
 }
 
 // ListNodes calls aura.v1.ControllerAdmin.ListNodes.
@@ -251,6 +276,16 @@ func (c *controllerAdminClient) GetTrace(ctx context.Context, req *connect.Reque
 	return c.getTrace.CallUnary(ctx, req)
 }
 
+// ListReleases calls aura.v1.ControllerAdmin.ListReleases.
+func (c *controllerAdminClient) ListReleases(ctx context.Context, req *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error) {
+	return c.listReleases.CallUnary(ctx, req)
+}
+
+// SelfUpdateNode calls aura.v1.ControllerAdmin.SelfUpdateNode.
+func (c *controllerAdminClient) SelfUpdateNode(ctx context.Context, req *connect.Request[v1.SelfUpdateNodeRequest]) (*connect.Response[v1.SelfUpdateNodeResponse], error) {
+	return c.selfUpdateNode.CallUnary(ctx, req)
+}
+
 // ControllerAdminHandler is an implementation of the aura.v1.ControllerAdmin service.
 type ControllerAdminHandler interface {
 	ListNodes(context.Context, *connect.Request[v1.ListNodesRequest]) (*connect.Response[v1.ListNodesResponse], error)
@@ -262,6 +297,11 @@ type ControllerAdminHandler interface {
 	StartTrace(context.Context, *connect.Request[v1.StartTraceRequest]) (*connect.Response[v1.StartTraceResponse], error)
 	StopTrace(context.Context, *connect.Request[v1.StopTraceRequest]) (*connect.Response[v1.StopTraceResponse], error)
 	GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error)
+	// M16 节点 self-update 管理面（additive）。制品上传走 REST POST /v1/releases（流式字节不过 connect
+	// 消息上限）；本面只承载元数据列举与滚更触发。SelfUpdateNode 同步等待节点 SelfUpdateResult
+	// （staged=已换刀待重启），版本收敛由调用方（auractl rollout）轮询 ListNodes.node_version 确认。
+	ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error)
+	SelfUpdateNode(context.Context, *connect.Request[v1.SelfUpdateNodeRequest]) (*connect.Response[v1.SelfUpdateNodeResponse], error)
 }
 
 // NewControllerAdminHandler builds an HTTP handler from the service implementation. It returns the
@@ -313,6 +353,18 @@ func NewControllerAdminHandler(svc ControllerAdminHandler, opts ...connect.Handl
 		connect.WithSchema(controllerAdminMethods.ByName("GetTrace")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controllerAdminListReleasesHandler := connect.NewUnaryHandler(
+		ControllerAdminListReleasesProcedure,
+		svc.ListReleases,
+		connect.WithSchema(controllerAdminMethods.ByName("ListReleases")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controllerAdminSelfUpdateNodeHandler := connect.NewUnaryHandler(
+		ControllerAdminSelfUpdateNodeProcedure,
+		svc.SelfUpdateNode,
+		connect.WithSchema(controllerAdminMethods.ByName("SelfUpdateNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aura.v1.ControllerAdmin/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControllerAdminListNodesProcedure:
@@ -329,6 +381,10 @@ func NewControllerAdminHandler(svc ControllerAdminHandler, opts ...connect.Handl
 			controllerAdminStopTraceHandler.ServeHTTP(w, r)
 		case ControllerAdminGetTraceProcedure:
 			controllerAdminGetTraceHandler.ServeHTTP(w, r)
+		case ControllerAdminListReleasesProcedure:
+			controllerAdminListReleasesHandler.ServeHTTP(w, r)
+		case ControllerAdminSelfUpdateNodeProcedure:
+			controllerAdminSelfUpdateNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -364,4 +420,12 @@ func (UnimplementedControllerAdminHandler) StopTrace(context.Context, *connect.R
 
 func (UnimplementedControllerAdminHandler) GetTrace(context.Context, *connect.Request[v1.GetTraceRequest]) (*connect.Response[v1.GetTraceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ControllerAdmin.GetTrace is not implemented"))
+}
+
+func (UnimplementedControllerAdminHandler) ListReleases(context.Context, *connect.Request[v1.ListReleasesRequest]) (*connect.Response[v1.ListReleasesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ControllerAdmin.ListReleases is not implemented"))
+}
+
+func (UnimplementedControllerAdminHandler) SelfUpdateNode(context.Context, *connect.Request[v1.SelfUpdateNodeRequest]) (*connect.Response[v1.SelfUpdateNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ControllerAdmin.SelfUpdateNode is not implemented"))
 }
