@@ -64,7 +64,9 @@ uiautomation = "0.25"
 # 以 as_raw_hmonitor() 直调 Win32 GetMonitorInfoW（x/y）+ GetDpiForMonitor（scale）补齐。
 # windows 0.62.2 已在依赖树（windows-capture 同版声明），提升为直接依赖零新 crate；
 # features 只列本 crate 直用面（Foundation=RECT、Gdi=HMONITOR/MONITORINFOEXW、HiDpi=DPI）。
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
+# Win32_Globalization(MultiByteToWideChar)+Win32_System_Console(GetConsoleOutputCP)：run_command
+# 输出按系统控制台代码页解码(中文 Windows GBK/936),规避 from_utf8_lossy 对非 UTF-8 输出的 mojibake。
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_Globalization", "Win32_System_Console"] }
 
 # Linux a11y 域（TASK-005）：atspi（纯 Rust zbus AT-SPI2）。走 D-Bus 无障碍总线，天然异步；
 # tokio feature 让内部 zbus 走 tokio 运行时，与节点主运行时一致。macOS 无 a11y 依赖（defer stub）。

@@ -38,6 +38,48 @@ fn sha256_hex(data: &[u8]) -> String {
     hex
 }
 
+/// 解码命令输出字节为字符串。优先严格 UTF-8（现代程序多 UTF-8 输出）；失败时 Windows 回落系统
+/// 控制台代码页解码（中文系统 GBK/936：cmd 内建命令如 `ver` 的中文输出直接按 UTF-8 会 mojibake，
+/// 如 "版本"→乱码），非 Windows 保持 lossy UTF-8。
+fn decode_cmd_output(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_owned(),
+        Err(_) => decode_native_codepage(bytes),
+    }
+}
+
+/// Windows：按当前控制台输出代码页（GetConsoleOutputCP，中文系统 936=GBK）解码。两阶段
+/// MultiByteToWideChar（先测 wide 长度、按值分配后填充）→ UTF-16 → String。任何一步失败回落
+/// lossy UTF-8（不 panic）。
+#[cfg(windows)]
+fn decode_native_codepage(bytes: &[u8]) -> String {
+    use windows::Win32::Globalization::{MultiByteToWideChar, MULTI_BYTE_TO_WIDE_CHAR_FLAGS};
+    use windows::Win32::System::Console::GetConsoleOutputCP;
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // SAFETY: GetConsoleOutputCP 无副作用；MultiByteToWideChar 两阶段调用，wide 缓冲按首调返回
+    // 长度精确分配，入/出参切片均有效。
+    unsafe {
+        let cp = GetConsoleOutputCP();
+        let need = MultiByteToWideChar(cp, MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0), bytes, None);
+        if need <= 0 {
+            return String::from_utf8_lossy(bytes).into_owned();
+        }
+        let mut buf = vec![0u16; need as usize];
+        let n = MultiByteToWideChar(cp, MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0), bytes, Some(&mut buf));
+        if n <= 0 {
+            return String::from_utf8_lossy(bytes).into_owned();
+        }
+        String::from_utf16_lossy(&buf[..n as usize])
+    }
+}
+
+#[cfg(not(windows))]
+fn decode_native_codepage(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 #[async_trait]
 impl ProcessFileDriver for PlatformDriver {
     async fn list_processes(&self) -> Result<Vec<ProcessInfo>, CapError> {
@@ -223,8 +265,8 @@ impl ProcessFileDriver for PlatformDriver {
         Ok(CmdResult {
             // 信号终止时 code() 为 None，统一以 -1 表示无正常退出码。
             exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout: decode_cmd_output(&output.stdout),
+            stderr: decode_cmd_output(&output.stderr),
         })
     }
 }
