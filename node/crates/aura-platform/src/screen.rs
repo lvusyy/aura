@@ -624,7 +624,10 @@ pub(crate) mod backend {
 /// Windows 采集后端：windows-capture（WGC）。回调式采集经 sync_channel 收敛为同步单帧。
 #[cfg(windows)]
 mod backend {
+    use std::process::Command as StdCommand;
     use std::sync::mpsc::{sync_channel, SyncSender};
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
 
     use aura_capability::{CapError, DisplayInfo};
     use windows::Win32::Foundation::RECT;
@@ -709,16 +712,21 @@ mod backend {
         m: &Monitor,
         primary_idx: Option<usize>,
     ) -> Result<DisplayInfo, CapError> {
-        let idx = m.index().map_err(wgc_err)?;
+        // index()/name() 对非标准设备名（无头/ssh 会话缺 \\.\DISPLAYn）会解析失败——软降级，
+        // 不让单个显示器元数据缺失拖垮整个 list_displays（F3 修复：曾因任一显示器 index 解析失败
+        // 整体 E_CAPTURE_FAILED "invalid digit found in string"）。primary 判定退化为 false，
+        // name 回落枚举序号占位；width/height 仍硬失败——拿不到尺寸的显示器无采集意义。
+        let idx = m.index().ok();
+        let name = m.name().unwrap_or_else(|_| format!("display-{id}"));
         let (x, y, scale) = monitor_truth(m);
         Ok(DisplayInfo {
             id,
-            name: m.name().map_err(wgc_err)?,
+            name,
             x,
             y,
             width: m.width().map_err(wgc_err)?,
             height: m.height().map_err(wgc_err)?,
-            is_primary: primary_idx == Some(idx),
+            is_primary: idx.is_some() && idx == primary_idx,
             scale,
         })
     }
@@ -764,9 +772,27 @@ mod backend {
         Ok((pixels.to_vec(), w, h))
     }
 
-    /// 采集指定显示器整屏为 (RGBA8, w, h)。start() 阻塞当前（spawn_blocking）线程跑 WGC 消息循环，
-    /// 首帧回调 stop 后返回；随后 try_recv 取回该帧（同步单帧封装）。
+    /// 采集指定显示器整屏为 (RGBA8, w, h)。WGC 采集失败且属可恢复错误（会话无显示面致
+    /// ItemConvertFailed 等）时，触发一次会话自愈（tscon 本会话 → console 重建显示面）后重试一次。
     pub(super) fn capture_monitor_rgba(index: Option<u32>) -> Result<CapturedRgba, CapError> {
+        match capture_once(index) {
+            Ok(r) => Ok(r),
+            Err(e) if is_recoverable_capture_error(&e) => {
+                eprintln!("aura-platform screen: capture failed ({e:?}); attempting session self-heal (tscon)");
+                if try_reattach_session() {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    capture_once(index)
+                } else {
+                    Err(e)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 单次 WGC 采集（无自愈）。start() 阻塞当前（spawn_blocking）线程跑 WGC 消息循环，首帧回调
+    /// stop 后返回；随后 try_recv 取回该帧（同步单帧封装）。
+    fn capture_once(index: Option<u32>) -> Result<CapturedRgba, CapError> {
         let monitor = pick_monitor(index)?;
         let (tx, rx) = sync_channel::<Result<CapturedRgba, String>>(1);
         // Cursor/Border 均取 Default：显式请求（WithoutCursor/WithoutBorder）需要较新的
@@ -789,14 +815,70 @@ mod backend {
             .map_err(CapError::CaptureFailed)
     }
 
+    /// WGC 采集错误是否属"会话显示面缺失"类可恢复错误。ItemConvertFailed = WGC 无法为当前会话
+    /// 显示器建捕获项（无头裸机 RDP 断开后典型）；宽松匹配 WGC 前缀兜底同类会话态错误。
+    fn is_recoverable_capture_error(e: &CapError) -> bool {
+        matches!(e, CapError::CaptureFailed(m) if m.contains("ItemConvertFailed") || m.contains("WGC capture failed"))
+    }
+
+    /// 距上次自愈的节流闸（防抖：反复 tscon 会加剧会话抖动）。
+    static SELF_HEAL_LAST: Mutex<Option<Instant>> = Mutex::new(None);
+
+    /// 会话显示面自愈：把本进程会话接管到物理 console（tscon %SESSIONNAME% /dest:console），令
+    /// 断开会话重新获得显示面。节流 30s 防抖。经 cmd 展开 %SESSIONNAME%（当前会话名，交互会话
+    /// 自带）——免依赖 windows crate 的 ProcessIdToSessionId（版本间模块路径不稳）。需
+    /// InteractiveToken Highest 权限（生产计划任务已具备）。注：本步恢复"采集会话"；真实桌面
+    /// 内容仍依赖一块常驻显示器（虚拟显示器/RDP 连接）——无显示器时 tscon 后为白屏。
+    fn try_reattach_session() -> bool {
+        {
+            let mut last = SELF_HEAL_LAST.lock().unwrap();
+            if let Some(t) = *last {
+                if t.elapsed() < Duration::from_secs(30) {
+                    return false;
+                }
+            }
+            *last = Some(Instant::now());
+        }
+        match StdCommand::new("cmd")
+            .args(["/c", "tscon %SESSIONNAME% /dest:console"])
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                eprintln!("aura-platform screen: session self-heal ok (tscon %SESSIONNAME% -> console)");
+                true
+            }
+            Ok(o) => {
+                eprintln!(
+                    "aura-platform screen: tscon self-heal exit {:?}: {}",
+                    o.status.code(),
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+                false
+            }
+            Err(e) => {
+                eprintln!("aura-platform screen: tscon self-heal spawn failed: {e}");
+                false
+            }
+        }
+    }
+
     pub(super) fn list_monitors() -> Result<Vec<DisplayInfo>, CapError> {
         let monitors = Monitor::enumerate().map_err(wgc_err)?;
         let primary_idx = Monitor::primary().ok().and_then(|m| m.index().ok());
-        monitors
+        // 单个显示器元数据失败（width/height 取不到）跳过而非整体失败——无头/异常会话下仍尽力
+        // 返回可用显示器（F3：配合 monitor_to_info 的 index/name 软降级，list_displays 不再因
+        // 任一显示器解析失败而整体 E_CAPTURE_FAILED）。
+        Ok(monitors
             .iter()
             .enumerate()
-            .map(|(idx, m)| monitor_to_info(idx as u32, m, primary_idx))
-            .collect()
+            .filter_map(|(idx, m)| match monitor_to_info(idx as u32, m, primary_idx) {
+                Ok(info) => Some(info),
+                Err(e) => {
+                    eprintln!("aura-platform screen: skip monitor {idx} in list_displays: {e:?}");
+                    None
+                }
+            })
+            .collect())
     }
 
     pub(super) fn get_monitor_info(index: u32) -> Result<DisplayInfo, CapError> {
