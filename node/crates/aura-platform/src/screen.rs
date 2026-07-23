@@ -824,11 +824,13 @@ mod backend {
     /// 距上次自愈的节流闸（防抖：反复 tscon 会加剧会话抖动）。
     static SELF_HEAL_LAST: Mutex<Option<Instant>> = Mutex::new(None);
 
-    /// 会话显示面自愈：把本进程会话接管到物理 console（tscon %SESSIONNAME% /dest:console），令
-    /// 断开会话重新获得显示面。节流 30s 防抖。经 cmd 展开 %SESSIONNAME%（当前会话名，交互会话
-    /// 自带）——免依赖 windows crate 的 ProcessIdToSessionId（版本间模块路径不稳）。需
-    /// InteractiveToken Highest 权限（生产计划任务已具备）。注：本步恢复"采集会话"；真实桌面
-    /// 内容仍依赖一块常驻显示器（虚拟显示器/RDP 连接）——无显示器时 tscon 后为白屏。
+    /// 会话显示面自愈：把本进程会话接管到物理 console（tscon <本会话id> /dest:console），令断开
+    /// 会话重新获得显示面（console 侧常驻虚拟显示器 usbmmidd 随之可被 WGC 采集）。节流 30s 防抖。
+    /// 会话 id 经 PowerShell 动态取（powershell 为 aura-node 子进程、继承同一会话）——%SESSIONNAME%
+    /// 环境变量在计划任务启动的进程里不存在（cmd 不展开→tscon 收字面串报"未找到 Sessionname"，实测），
+    /// ProcessIdToSessionId 又因 windows 0.62.2 模块路径不稳编译失败，故走 PowerShell。需
+    /// InteractiveToken Highest 权限（生产计划任务已具备）。注：真实桌面内容仍依赖一块常驻显示器
+    /// （usbmmidd 虚拟屏在 console 会话）——② 自愈 + ③ usbmmidd 配合才是完整根治。
     fn try_reattach_session() -> bool {
         {
             let mut last = SELF_HEAL_LAST.lock().unwrap();
@@ -839,12 +841,16 @@ mod backend {
             }
             *last = Some(Instant::now());
         }
-        match StdCommand::new("cmd")
-            .args(["/c", "tscon %SESSIONNAME% /dest:console"])
+        match StdCommand::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "tscon ([System.Diagnostics.Process]::GetCurrentProcess().SessionId) /dest:console",
+            ])
             .output()
         {
             Ok(o) if o.status.success() => {
-                eprintln!("aura-platform screen: session self-heal ok (tscon %SESSIONNAME% -> console)");
+                eprintln!("aura-platform screen: session self-heal ok (tscon <session> -> console)");
                 true
             }
             Ok(o) => {
