@@ -152,18 +152,63 @@ impl Default for A11yParams {
     }
 }
 
-/// assert a11y 形态的取树缺省：**深遍历**（depth 32 / max_nodes 5000）。
+/// assert a11y 形态的取树入参：字段与 [`A11yParams`] 一一对应，但**缺省深遍历**（depth 32 /
+/// max_nodes 5000）。
 ///
-/// 与 get_a11y_tree 的浅层缺省（depth 3 / max_nodes 200）刻意不同——浅层是为「整棵树回给 agent」
-/// 防上下文树爆（R-4）而设；assert 只回 `passed` + 命中节点摘要，**树不进上下文**，该约束在此不成立。
-/// 沿用浅层的唯一效果是深层节点假阴性：实测 Android 浏览器地址栏 EditText 位于树第 5 层，depth 3
-/// 下 `found=false`，agent 据此误判「文本没写进去」（e2e F2）。上限仍有界，防病态树无限遍历。
-fn default_assert_a11y_query() -> A11yParams {
-    A11yParams {
-        root: None,
-        depth: 32,
-        role: None,
-        max_nodes: 5000,
+/// 为什么独立成类型，而不是「复用 A11yParams + 在字段上挂外层 serde default」：外层 default 只在
+/// `query` **整体缺省**时生效——调用方只要给了任意一个字段（如 `{"root":"focus"}`），其余字段就退回
+/// A11yParams 自身的浅层缺省（depth 3），F2 假阴性原样复发（真机复现：只传 `{"max_nodes":5000}`
+/// 即得 `truncated at depth=3`）。缺省必须落在**字段级**才能逐字段独立生效。
+///
+/// 为什么 assert 用深缺省：浅层（3/200）是为 get_a11y_tree「整棵树回给 agent」防上下文树爆（R-4）
+/// 而设；assert 只回 `passed` + 命中节点摘要，**树不进上下文**，该约束在此不成立。沿用浅层的唯一
+/// 效果是深层节点假阴性（实测 Android 地址栏 EditText 位于树第 5 层）。上限仍有界，防病态树无限遍历。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AssertA11yQuery {
+    /// 子树根选择器，语义同 [`A11yParams::root`]。
+    #[serde(default)]
+    pub root: Option<String>,
+    /// 遍历深度，缺省 32（深遍历）。
+    #[serde(default = "default_assert_depth")]
+    pub depth: u32,
+    /// 角色过滤，语义同 [`A11yParams::role`]。
+    #[serde(default)]
+    pub role: Option<String>,
+    /// 节点总数上限，缺省 5000。
+    #[serde(default = "default_assert_max_nodes")]
+    pub max_nodes: u32,
+}
+
+/// AssertA11yQuery.depth 缺省：32 层深遍历（理由见 [`AssertA11yQuery`]）。
+fn default_assert_depth() -> u32 {
+    32
+}
+
+/// AssertA11yQuery.max_nodes 缺省：5000 节点预算（理由见 [`AssertA11yQuery`]）。
+fn default_assert_max_nodes() -> u32 {
+    5000
+}
+
+impl Default for AssertA11yQuery {
+    fn default() -> Self {
+        AssertA11yQuery {
+            root: None,
+            depth: default_assert_depth(),
+            role: None,
+            max_nodes: default_assert_max_nodes(),
+        }
+    }
+}
+
+/// 交付 `A11yDriver::get_a11y_tree` 时转为通用取树入参（字段一一对应，无语义变换）。
+impl From<AssertA11yQuery> for A11yParams {
+    fn from(q: AssertA11yQuery) -> Self {
+        A11yParams {
+            root: q.root,
+            depth: q.depth,
+            role: q.role,
+            max_nodes: q.max_nodes,
+        }
     }
 }
 
@@ -269,10 +314,11 @@ pub struct AssertParams {
     /// a11y 形态：匹配字段 `name`（缺省）/ `role` / `value` / `any`。text 形态忽略。
     #[serde(default)]
     pub field: A11yField,
-    /// a11y 形态：取树入参（root/depth/role/max_nodes）。缺省**深遍历**（depth 32 / max_nodes 5000），
-    /// 与 get_a11y_tree 的浅层缺省刻意不同（理由见 [`default_assert_a11y_query`]）。text 形态忽略。
-    #[serde(default = "default_assert_a11y_query")]
-    pub query: A11yParams,
+    /// a11y 形态：取树入参（root/depth/role/max_nodes）。**逐字段**缺省深遍历（depth 32 /
+    /// max_nodes 5000），与 get_a11y_tree 的浅层缺省刻意不同（理由见 [`AssertA11yQuery`]）；
+    /// 只给部分字段时其余字段仍取深缺省。text 形态忽略。
+    #[serde(default)]
+    pub query: AssertA11yQuery,
     /// image 形态：参考图 base64（WebP，通常取自先前 screenshot 输出）。缺省时可由
     /// `baseline_key` 从节点侧 baseline 存储读取；显式给定则优先于 baseline。text/a11y 形态忽略。
     #[serde(default)]

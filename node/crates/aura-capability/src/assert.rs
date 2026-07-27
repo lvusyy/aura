@@ -44,7 +44,7 @@ pub async fn eval_assert<D: A11yDriver + ScreenDriver + ?Sized>(
     match params.mode {
         AssertMode::Text => assert_text(&params),
         AssertMode::A11y => {
-            let tree = driver.get_a11y_tree(params.query.clone()).await?;
+            let tree = driver.get_a11y_tree(params.query.clone().into()).await?;
             Ok(assert_a11y(&params, &tree.nodes, tree.truncated))
         }
         AssertMode::Image => {
@@ -85,11 +85,17 @@ fn assert_text(params: &AssertParams) -> Result<AssertResult, CapError> {
 fn assert_a11y(params: &AssertParams, nodes: &[A11yNode], truncated: bool) -> AssertResult {
     let matched = find_matching_node(nodes, &params.expect, params.match_type, params.field);
     let found = matched.is_some();
-    let passed = found == params.present;
-    let trunc_note = if !found && truncated {
+    // 未命中 + 树被截断 = 搜索面不完整，**结论不成立**：既不能断定存在，也不能断定不存在。
+    // 故此组合一律 passed=false——尤其 present=false（反向断言）绝不能靠「没搜到」判通过，
+    // 那是拿不完整的搜索证明不存在（不可靠的 pass 比诚实的 fail 更危险）。命中则结论确定，
+    // 截断与否无碍。
+    let inconclusive = !found && truncated;
+    let passed = !inconclusive && found == params.present;
+    let trunc_note = if inconclusive {
         format!(
-            " [WARNING: a11y tree truncated at depth={} / max_nodes={} — search incomplete; \
-             raise query.depth / query.max_nodes before trusting this result]",
+            " [WARNING: a11y tree truncated at depth={} / max_nodes={} — search incomplete, \
+             result INCONCLUSIVE (reported as passed=false; absence cannot be proven from a \
+             truncated tree); raise query.depth / query.max_nodes and retry]",
             params.query.depth, params.query.max_nodes
         )
     } else {
@@ -628,10 +634,23 @@ mod tests {
         assert_eq!(shallow.depth, 3, "get_a11y_tree 浅层缺省不变");
         assert_eq!(shallow.max_nodes, 200);
 
-        // 调用方显式给定 query 仍以其为准（缺省只在字段缺省时生效）。
+        // 调用方显式给定字段以其为准。
         let q: AssertParams =
             serde_json::from_str(r#"{"mode":"a11y","expect":"MARK","query":{"depth":2}}"#).unwrap();
         assert_eq!(q.query.depth, 2);
+
+        // 回归守卫（发布前审查 #4，真机复现过）：**部分** query 不得让未给的字段退回浅层。
+        // 曾因缺省挂在外层（只在 query 整体缺省时生效）而复发 F2 假阴性。
+        let partial: AssertParams =
+            serde_json::from_str(r#"{"mode":"a11y","expect":"MARK","query":{"max_nodes":5000}}"#)
+                .unwrap();
+        assert_eq!(partial.query.depth, 32, "只给 max_nodes 时 depth 必须仍取深缺省");
+        let by_root: AssertParams =
+            serde_json::from_str(r#"{"mode":"a11y","expect":"MARK","query":{"root":"focus"}}"#)
+                .unwrap();
+        assert_eq!(by_root.query.depth, 32, "只给 root 时 depth 必须仍取深缺省");
+        assert_eq!(by_root.query.max_nodes, 5000);
+        assert_eq!(by_root.query.root.as_deref(), Some("focus"));
     }
 
     /// F2 回归：未命中 + 树截断 → detail 须明示搜索不完整（禁静默截断——agent 据 found=false
@@ -662,5 +681,38 @@ mod tests {
             false,
         );
         assert!(!clean_miss.detail.contains("truncated"), "detail: {}", clean_miss.detail);
+    }
+
+    /// 回归守卫（发布前审查 #5）：截断树上的**反向断言**（present=false）不得因「没搜到」而通过——
+    /// 不完整的搜索无法证明不存在。未截断时反向断言照常成立。
+    #[test]
+    fn a11y_negative_assert_not_passed_on_truncated_tree() {
+        let tree = vec![leaf("Button", "Save")];
+
+        // 截断 + 未命中 + present=false → 结论不成立,必须 passed=false。
+        let trunc = assert_a11y(
+            &params_a11y("NoSuchElementZZZ", false, A11yField::Name, MatchType::Contains),
+            &tree,
+            true,
+        );
+        assert!(!trunc.passed, "截断树上不得断定「不存在」: {}", trunc.detail);
+        assert!(trunc.detail.contains("INCONCLUSIVE"), "detail: {}", trunc.detail);
+
+        // 未截断 + 未命中 + present=false → 搜索完整,反向断言成立。
+        let clean = assert_a11y(
+            &params_a11y("NoSuchElementZZZ", false, A11yField::Name, MatchType::Contains),
+            &tree,
+            false,
+        );
+        assert!(clean.passed, "完整树上反向断言应通过: {}", clean.detail);
+
+        // 命中 + present=false + 截断 → 确定性地不通过（命中即定论,与截断无关）。
+        let hit = assert_a11y(
+            &params_a11y("Save", false, A11yField::Name, MatchType::Contains),
+            &tree,
+            true,
+        );
+        assert!(!hit.passed);
+        assert!(!hit.detail.contains("INCONCLUSIVE"), "detail: {}", hit.detail);
     }
 }

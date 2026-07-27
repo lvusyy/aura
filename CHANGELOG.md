@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 本文件记录项目的重要变更,格式遵循 Keep a Changelog,版本号遵循语义化版本。
 
-## [0.3.1] - 2026-07-27
+## [0.3.2] - 2026-07-27
 
 ### Fixed
 
@@ -13,8 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Windows 无头机截图健壮性:交互会话失去显示面(如远程连接断开)后 WGC 永久失败、进程重启亦不自愈——节点现检测该故障并自愈(把自身会话接管到 console,配合常驻虚拟显示器)后重试一次;`list_displays` 不再因单个显示器设备名非标准而整体失败。
 - **`assert(mode=a11y)` false negatives**: the accessibility lookup reused the same shallow defaults as `get_a11y_tree` (depth 3 / 200 nodes), so a control deeper in the tree — e.g. a browser address bar `EditText` at depth 5 — reported `found=false` and misled agents into concluding their input had not landed. Assert now traverses deeply by default (depth 32 / 5000 nodes): the shallow default exists to keep a whole tree from flooding the agent's context, and assert returns only a verdict plus the matched node, so that constraint does not apply there (`get_a11y_tree` itself is unchanged). When a lookup misses **and** the tree was truncated, the result now says the search was incomplete instead of reporting a bare `found=false`.
 - `assert(mode=a11y)` 假阴性:取树沿用了 get_a11y_tree 的浅层缺省(深度 3),深层控件(如浏览器地址栏)被判"不存在",agent 据此误判输入未生效。assert 改为缺省深遍历(浅层是为「整树回 agent」防上下文树爆而设,assert 只回判定+命中节点,该约束在此不成立;get_a11y_tree 自身不变);未命中且树被截断时如实告知搜索不完整,不再静默。
-- `run_command` output on non-UTF-8 Windows consoles is now decoded with the console code page (GBK on Chinese Windows) instead of being mangled by a lossy UTF-8 read.
-- Windows 中文控制台下 `run_command` 输出不再乱码(按控制台代码页解码)。
+- `run_command` output on non-UTF-8 Windows consoles is now decoded with the console code page (GBK on Chinese Windows) instead of being mangled by a lossy UTF-8 read. Note that a short GBK sequence that happens to be valid UTF-8 can still decode incorrectly — automatic detection has no reliable answer for arbitrary child processes.
+- Windows 中文控制台下 `run_command` 输出不再乱码(按控制台代码页解码)。注意:恰好构成合法 UTF-8 的短 GBK 序列仍可能解错——对任意子进程的编码,自动探测没有可靠解。
+- **`assert(mode=a11y)` verdict soundness** (both found in pre-release review): supplying only *part* of the query object (e.g. `{"root":"focus"}`) used to reset every unspecified field to the shallow `get_a11y_tree` defaults, silently reintroducing the deep-node false negative — the deep defaults now apply per field. And a miss on a **truncated** tree is now reported as `passed=false` and flagged `INCONCLUSIVE`: a negative assertion (`present=false`) can no longer "pass" on the strength of a search that never finished, since absence cannot be proven from an incomplete tree.
+- `assert(mode=a11y)` 判定收紧(两处均由发布前审查发现):只给**部分** query 字段(如 `{"root":"focus"}`)时,未指定的字段会退回浅层缺省、深层节点假阴性复发——缺省改为逐字段生效;**截断**树上未命中现返回 `passed=false` 并标记 `INCONCLUSIVE`——反向断言(`present=false`)不再靠「没搜到」判通过,不完整的搜索无法证明不存在。
 
 ## [0.3.0] - 2026-07-21
 
@@ -68,7 +70,7 @@ First public release. 首次公开发布。
 - **`auractl`** CLI: task dispatch, environment lifecycle, artifact fetch, trace replay against the controller REST plane.
 - Prebuilt binaries: `aura-node` (Windows x64 / Linux x64 / macOS arm64), `aura-controller` + `auractl` (Linux x64, console embedded), `auractl` (Windows x64).
 
-[0.3.1]: https://github.com/lvusyy/aura/releases/tag/v0.3.1
+[0.3.2]: https://github.com/lvusyy/aura/releases/tag/v0.3.2
 [0.3.0]: https://github.com/lvusyy/aura/releases/tag/v0.3.0
 [0.2.0]: https://github.com/lvusyy/aura/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lvusyy/aura/releases/tag/v0.1.0
