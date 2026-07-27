@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 本文件记录项目的重要变更,格式遵循 Keep a Changelog,版本号遵循语义化版本。
 
+## [0.3.1] - 2026-07-27
+
+### Fixed
+
+- **Windows screen capture robustness**: on a headless machine whose interactive session lost its display surface (e.g. the remote client disconnected), WGC capture failed permanently with `ItemConvertFailed` and a node process restart did not recover it. The node now detects that failure and self-heals by reattaching its own session to the console — where a persistent virtual display can live — then retries the capture once (throttled to 30 s). `list_displays` no longer collapses when a single monitor carries a non-standard device name: per-monitor `index`/`name` resolution degrades gracefully and unreadable monitors are skipped instead of failing the whole enumeration (previously `invalid digit found in string`).
+- Windows 无头机截图健壮性:交互会话失去显示面(如远程连接断开)后 WGC 永久失败、进程重启亦不自愈——节点现检测该故障并自愈(把自身会话接管到 console,配合常驻虚拟显示器)后重试一次;`list_displays` 不再因单个显示器设备名非标准而整体失败。
+- **`assert(mode=a11y)` false negatives**: the accessibility lookup reused the same shallow defaults as `get_a11y_tree` (depth 3 / 200 nodes), so a control deeper in the tree — e.g. a browser address bar `EditText` at depth 5 — reported `found=false` and misled agents into concluding their input had not landed. Assert now traverses deeply by default (depth 32 / 5000 nodes): the shallow default exists to keep a whole tree from flooding the agent's context, and assert returns only a verdict plus the matched node, so that constraint does not apply there (`get_a11y_tree` itself is unchanged). When a lookup misses **and** the tree was truncated, the result now says the search was incomplete instead of reporting a bare `found=false`.
+- `assert(mode=a11y)` 假阴性:取树沿用了 get_a11y_tree 的浅层缺省(深度 3),深层控件(如浏览器地址栏)被判"不存在",agent 据此误判输入未生效。assert 改为缺省深遍历(浅层是为「整树回 agent」防上下文树爆而设,assert 只回判定+命中节点,该约束在此不成立;get_a11y_tree 自身不变);未命中且树被截断时如实告知搜索不完整,不再静默。
+- `run_command` output on non-UTF-8 Windows consoles is now decoded with the console code page (GBK on Chinese Windows) instead of being mangled by a lossy UTF-8 read.
+- Windows 中文控制台下 `run_command` 输出不再乱码(按控制台代码页解码)。
+
 ## [0.3.0] - 2026-07-21
 
 ### Added
@@ -57,6 +68,7 @@ First public release. 首次公开发布。
 - **`auractl`** CLI: task dispatch, environment lifecycle, artifact fetch, trace replay against the controller REST plane.
 - Prebuilt binaries: `aura-node` (Windows x64 / Linux x64 / macOS arm64), `aura-controller` + `auractl` (Linux x64, console embedded), `auractl` (Windows x64).
 
+[0.3.1]: https://github.com/lvusyy/aura/releases/tag/v0.3.1
 [0.3.0]: https://github.com/lvusyy/aura/releases/tag/v0.3.0
 [0.2.0]: https://github.com/lvusyy/aura/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lvusyy/aura/releases/tag/v0.1.0
