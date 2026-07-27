@@ -45,7 +45,7 @@ pub async fn eval_assert<D: A11yDriver + ScreenDriver + ?Sized>(
         AssertMode::Text => assert_text(&params),
         AssertMode::A11y => {
             let tree = driver.get_a11y_tree(params.query.clone()).await?;
-            Ok(assert_a11y(&params, &tree.nodes))
+            Ok(assert_a11y(&params, &tree.nodes, tree.truncated))
         }
         AssertMode::Image => {
             // 复用 M1 既有截图管线（WebP / 缩放）取当前帧；region 与截图同 display 像素空间。
@@ -78,14 +78,27 @@ fn assert_text(params: &AssertParams) -> Result<AssertResult, CapError> {
 }
 
 /// a11y 形态：在树中 DFS 查找字段匹配 `expect` 的节点；`present` 决定期望成立性。
-fn assert_a11y(params: &AssertParams, nodes: &[A11yNode]) -> AssertResult {
+///
+/// `truncated`（取树命中 depth / max_nodes 上限）在**未命中**时如实透出：未命中 + 截断意味着搜索面
+/// 不完整——present=true 时该 fail 可能是假阴性，present=false 时该 pass 不可靠。禁静默截断
+/// （agent 据 found=false 误判"操作没生效"是 e2e F2 的实际后果）。命中时截断无碍，不加噪。
+fn assert_a11y(params: &AssertParams, nodes: &[A11yNode], truncated: bool) -> AssertResult {
     let matched = find_matching_node(nodes, &params.expect, params.match_type, params.field);
     let found = matched.is_some();
     let passed = found == params.present;
+    let trunc_note = if !found && truncated {
+        format!(
+            " [WARNING: a11y tree truncated at depth={} / max_nodes={} — search incomplete; \
+             raise query.depth / query.max_nodes before trusting this result]",
+            params.query.depth, params.query.max_nodes
+        )
+    } else {
+        String::new()
+    };
     AssertResult {
         passed,
         detail: format!(
-            "a11y assert: {}expect {:?} on field {:?} (match={:?}); found={found}, passed={passed}",
+            "a11y assert: {}expect {:?} on field {:?} (match={:?}); found={found}, passed={passed}{trunc_note}",
             if params.present { "" } else { "NOT " },
             params.expect,
             params.field,
@@ -471,6 +484,7 @@ mod tests {
         let hit = assert_a11y(
             &params_a11y("Save", true, A11yField::Name, MatchType::Contains),
             &tree,
+            false,
         );
         assert!(hit.passed);
         assert!(hit.matched.is_some());
@@ -482,6 +496,7 @@ mod tests {
         let miss = assert_a11y(
             &params_a11y("NoSuchElementZZZ", true, A11yField::Name, MatchType::Contains),
             &tree,
+            false,
         );
         assert!(!miss.passed);
         assert!(miss.matched.is_none());
@@ -497,11 +512,13 @@ mod tests {
         let by_name = assert_a11y(
             &params_a11y("按钮", true, A11yField::Name, MatchType::Contains),
             &tree,
+            false,
         );
         assert!(!by_name.passed); // name="开始" 不含 "按钮"
         let by_any = assert_a11y(
             &params_a11y("按钮", true, A11yField::Any, MatchType::Contains),
             &tree,
+            false,
         );
         assert!(by_any.passed); // Any 经 role="按钮" 命中
     }
@@ -596,5 +613,54 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code(), "E_INVALID_ARG");
+    }
+
+    /// F2 回归：assert a11y 未指定 query 时须**深遍历**（depth 32 / max_nodes 5000）——沿用
+    /// get_a11y_tree 的浅层缺省（depth 3）会让深层节点假阴性（实测 Android 地址栏 EditText 在第 5 层）。
+    /// 对照断言：get_a11y_tree 自身的浅层缺省不变（防上下文树爆语义不受本修改影响）。
+    #[test]
+    fn assert_a11y_query_defaults_to_deep_traversal() {
+        let p: AssertParams = serde_json::from_str(r#"{"mode":"a11y","expect":"MARK"}"#).unwrap();
+        assert_eq!(p.query.depth, 32, "assert 取树须深遍历");
+        assert_eq!(p.query.max_nodes, 5000, "assert 取树节点预算须足量");
+
+        let shallow = crate::types::A11yParams::default();
+        assert_eq!(shallow.depth, 3, "get_a11y_tree 浅层缺省不变");
+        assert_eq!(shallow.max_nodes, 200);
+
+        // 调用方显式给定 query 仍以其为准（缺省只在字段缺省时生效）。
+        let q: AssertParams =
+            serde_json::from_str(r#"{"mode":"a11y","expect":"MARK","query":{"depth":2}}"#).unwrap();
+        assert_eq!(q.query.depth, 2);
+    }
+
+    /// F2 回归：未命中 + 树截断 → detail 须明示搜索不完整（禁静默截断——agent 据 found=false
+    /// 误判"操作没生效"正是 e2e 实际后果）；命中时不加噪；未截断的未命中亦不加噪（真阴性）。
+    #[test]
+    fn a11y_assert_discloses_truncation_only_on_miss() {
+        let tree = vec![leaf("Button", "Save")];
+
+        let miss = assert_a11y(
+            &params_a11y("NoSuchElementZZZ", true, A11yField::Name, MatchType::Contains),
+            &tree,
+            true,
+        );
+        assert!(!miss.passed);
+        assert!(miss.detail.contains("truncated"), "detail: {}", miss.detail);
+
+        let hit = assert_a11y(
+            &params_a11y("Save", true, A11yField::Name, MatchType::Contains),
+            &tree,
+            true,
+        );
+        assert!(hit.passed);
+        assert!(!hit.detail.contains("truncated"), "detail: {}", hit.detail);
+
+        let clean_miss = assert_a11y(
+            &params_a11y("NoSuchElementZZZ", true, A11yField::Name, MatchType::Contains),
+            &tree,
+            false,
+        );
+        assert!(!clean_miss.detail.contains("truncated"), "detail: {}", clean_miss.detail);
     }
 }

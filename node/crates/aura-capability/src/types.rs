@@ -140,8 +140,7 @@ fn default_a11y_max_nodes() -> u32 {
     200
 }
 
-/// 缺省 A11yParams：浅层根遍历（depth 3 / max_nodes 200 / 不过滤）。
-/// 供 assert a11y 形态在未指定 `query` 时复用同一浅层默认（`#[serde(default)]` 依赖之）。
+/// 缺省 A11yParams：浅层根遍历（depth 3 / max_nodes 200 / 不过滤）——get_a11y_tree 取树面专用。
 impl Default for A11yParams {
     fn default() -> Self {
         A11yParams {
@@ -150,6 +149,21 @@ impl Default for A11yParams {
             role: None,
             max_nodes: default_a11y_max_nodes(),
         }
+    }
+}
+
+/// assert a11y 形态的取树缺省：**深遍历**（depth 32 / max_nodes 5000）。
+///
+/// 与 get_a11y_tree 的浅层缺省（depth 3 / max_nodes 200）刻意不同——浅层是为「整棵树回给 agent」
+/// 防上下文树爆（R-4）而设；assert 只回 `passed` + 命中节点摘要，**树不进上下文**，该约束在此不成立。
+/// 沿用浅层的唯一效果是深层节点假阴性：实测 Android 浏览器地址栏 EditText 位于树第 5 层，depth 3
+/// 下 `found=false`，agent 据此误判「文本没写进去」（e2e F2）。上限仍有界，防病态树无限遍历。
+fn default_assert_a11y_query() -> A11yParams {
+    A11yParams {
+        root: None,
+        depth: 32,
+        role: None,
+        max_nodes: 5000,
     }
 }
 
@@ -255,8 +269,9 @@ pub struct AssertParams {
     /// a11y 形态：匹配字段 `name`（缺省）/ `role` / `value` / `any`。text 形态忽略。
     #[serde(default)]
     pub field: A11yField,
-    /// a11y 形态：取树入参（root/depth/role/max_nodes），缺省浅层。text 形态忽略。
-    #[serde(default)]
+    /// a11y 形态：取树入参（root/depth/role/max_nodes）。缺省**深遍历**（depth 32 / max_nodes 5000），
+    /// 与 get_a11y_tree 的浅层缺省刻意不同（理由见 [`default_assert_a11y_query`]）。text 形态忽略。
+    #[serde(default = "default_assert_a11y_query")]
     pub query: A11yParams,
     /// image 形态：参考图 base64（WebP，通常取自先前 screenshot 输出）。缺省时可由
     /// `baseline_key` 从节点侧 baseline 存储读取；显式给定则优先于 baseline。text/a11y 形态忽略。
