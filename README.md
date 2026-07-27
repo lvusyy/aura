@@ -63,6 +63,18 @@ Verified configuration guides for each are built into the web console (Agents pa
 
 Any other MCP client that speaks Streamable HTTP (or spawns a stdio server) works the same way.
 
+### Tool safety hints and client-side approval
+
+Every AURA tool is annotated per the MCP spec: read-only ones (`screenshot`, `get_a11y_tree`, `assert`, `list_*`) carry `readOnlyHint`, and ones that change the target machine (`click`, `type`, `key`, `run_command`, `kill_process`, `file_push`, …) carry `destructiveHint`. Clients use those hints to decide what needs human approval — which means **a tool call your agent refuses to make is usually its own approval policy, not an AURA failure**. The same call normally succeeds from another client, from `auractl tool call`, or straight against the MCP endpoint; that is the quickest way to tell the two apart.
+
+The case you are most likely to hit: **Claude Code in non-interactive mode (`claude -p`) refuses `run_command`** with
+
+```
+MCPTool requires permission
+```
+
+while screenshot, click, type and assert all go through normally. Run Claude Code interactively and it simply asks you to approve the call once. For unattended runs that need command execution, drive it from a client without that gate (Codex CLI is verified against all six of our node types) or use the control plane directly — `auractl tool call <node-id> run_command --args '{"cmd":"uname","args":["-a"]}'`. In our testing the usual escape hatches (`--dangerously-skip-permissions`, `--permission-mode bypassPermissions`, `--allowedTools`, allow-list entries in `settings.json`) did **not** lift this particular gate; also note that a project-level `.claude/settings.local.json` is only read after that directory has been trusted once in an interactive session, so it silently has no effect in a fresh checkout.
+
 ## Web console
 
 The controller ships with a full management console — React + Ant Design, embedded in the binary via `go:embed` and served at `https://<controller-host>:18080/console` with bearer-token login. Nothing extra to deploy. Page by page:

@@ -63,6 +63,18 @@ coding agent 很会写代码、跑测试,但「这个应用对人类真的可用
 
 其他任何支持 Streamable HTTP(或拉起 stdio server)的 MCP 客户端同样适用。
 
+### 工具安全提示与客户端侧审批
+
+AURA 的每个工具都按 MCP 规范打了标注:只读类(`screenshot`、`get_a11y_tree`、`assert`、`list_*`)带 `readOnlyHint`,会改变目标机状态的(`click`、`type`、`key`、`run_command`、`kill_process`、`file_push` 等)带 `destructiveHint`。客户端据此决定哪些调用需要人工批准——也就是说,**你的 agent 拒绝执行某个工具,通常是它自己的审批策略所致,不是 AURA 出错**。同一个调用换个客户端、用 `auractl tool call`、或直接打 MCP 端点一般都能成功,这也是区分两者最快的办法。
+
+最容易遇到的一种情况:**Claude Code 在非交互模式(`claude -p`)下会拒绝 `run_command`**,报
+
+```
+MCPTool requires permission
+```
+
+而截图、点击、输入、断言则一路畅通。改用交互式运行 Claude Code,它只会弹一次审批让你确认。若无人值守的自动化确实需要执行命令,可以换一个没有该门控的客户端(Codex CLI 在我们全部六类节点上均已验证),或直接走控制面:`auractl tool call <node-id> run_command --args '{"cmd":"uname","args":["-a"]}'`。我们实测发现,常见的几种绕过方式(`--dangerously-skip-permissions`、`--permission-mode bypassPermissions`、`--allowedTools`、以及在 `settings.json` 里加 allow 条目)都**无法**解除这一项门控;另外要注意,项目级 `.claude/settings.local.json` 只有在该目录被交互式信任过之后才会加载,在全新 checkout 里它会静默失效。
+
 ## Web 管理台
 
 控制面自带完整管理台——React + Ant Design,经 `go:embed` 内嵌进二进制,访问 `https://<控制面>:18080/console`,bearer token 登录,无需任何额外部署。逐页介绍:
