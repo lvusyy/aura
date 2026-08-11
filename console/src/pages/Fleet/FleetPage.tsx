@@ -469,6 +469,63 @@ function VersionDriftTag({ node }: { node: NodeInfo }) {
   );
 }
 
+// 能力名 → 中文（M17 健康巡检三核心项；未知项回原始名兜底）。
+const HEALTH_NAME_LABEL: Record<string, string> = {
+  display: "显示器",
+  screenshot: "截图",
+  a11y: "无障碍",
+};
+
+// 巡检分级 → 展示色/文案（与 node doctor 分级词表同源：ok/degraded/warn/skipped）。
+const HEALTH_STATUS_META: Record<string, { color: string; label: string }> = {
+  ok: { color: "green", label: "正常" },
+  degraded: { color: "red", label: "异常" },
+  warn: { color: "gold", label: "提示" },
+  skipped: { color: "default", label: "跳过" },
+};
+
+// 能力健康聚合徽章（M17 舰队健康巡检）：节点周期非侵入自检（显示器/截图/无障碍）结果聚合——
+// 抓「在线但能力静默降级」（锁屏黑帧/截图后端故障/权限被收）。有 degraded → 红「能力异常 N」；
+// 仅 warn → 黄「能力提示」；全 ok → 绿「能力正常」；空（未滚更节点/巡检禁用/离线无会话）→ null
+// 不显。Popover 展开逐项分级与诊断文本；巡检时刻按打开时刻快照（同 NodeDetails 惯例，免 tick 重渲染）。
+function CapabilityHealthTag({ node }: { node: NodeInfo }) {
+  if (!node.health?.length) {
+    return null;
+  }
+  const degraded = node.health.filter((h) => h.status === "degraded").length;
+  const warn = node.health.filter((h) => h.status === "warn").length;
+  const color = degraded ? "red" : warn ? "gold" : "green";
+  const text = degraded ? `能力异常 ${degraded}` : warn ? "能力提示" : "能力正常";
+  const checkedAt = Math.max(...node.health.map((h) => Number(h.checkedAtMs)));
+  const content = (
+    <Space direction="vertical" size={6} style={{ maxWidth: 380, fontSize: 13 }}>
+      {node.health.map((h) => {
+        const meta = HEALTH_STATUS_META[h.status] ?? { color: "default", label: h.status };
+        return (
+          <div key={h.name}>
+            <Tag color={meta.color}>
+              {HEALTH_NAME_LABEL[h.name] ?? h.name}：{meta.label}
+            </Tag>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {h.detail}
+            </Typography.Text>
+          </div>
+        );
+      })}
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        巡检于 {relativeTime(checkedAt, Date.now())}
+      </Typography.Text>
+    </Space>
+  );
+  return (
+    <Popover content={content} title="能力健康（节点周期自检）" trigger={["hover", "click"]} placement="bottomLeft">
+      <Tag color={color} style={{ cursor: "pointer" }}>
+        {text}
+      </Tag>
+    </Popover>
+  );
+}
+
 // 录制占用徽章（M10-P1 租约期 UX）：StartTrace 后被租节点显示「录制中(who)」——补齐此前只见
 // 泛化 E_BUSY 的观测盲区；StopTrace/TTL 过期随快照帧消失（≤30s 心跳兜底）。tooltip 露 trace_id
 // 供操作重放对账。无租约返回 null（卡片/表格零占位）。
@@ -693,9 +750,11 @@ const NodeCard = memo(function NodeCard({
         >
           {node.nodeId}
         </Typography.Text>
-        {/* 能力（可展开，sub-goal 2）+ 契约（次要）+ 录制占用 + 版本漂移（M16）+ 详情（批B 渐进披露）。 */}
+        {/* 能力（可展开，sub-goal 2）+ 契约（次要）+ 录制占用 + 版本漂移（M16）+ 能力健康（M17）
+            + 详情（批B 渐进披露）。 */}
         <Space size="small" wrap>
           <RecordingTag rec={rec} />
+          <CapabilityHealthTag node={node} />
           <VersionDriftTag node={node} />
           <ToolsTag tools={node.tools} />
           <Tag>契约 {node.contractVersion || "—"}</Tag>

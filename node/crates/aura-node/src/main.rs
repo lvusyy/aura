@@ -13,6 +13,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use aura_platform::{build_driver, DriverKind};
 
+mod doctor;
 mod service;
 mod transport;
 
@@ -91,6 +92,10 @@ enum TransportCmd {
     /// 服务生命周期管理（M16 T1.5，非门控）：查状态 / 重启（跨平台统一入口 + self-update 后验证）。
     /// 一次性子命令，跑完即退（不启动 driver/反连服务面）。安装归 install.sh/install.ps1 单一源，不重复。
     Service(service::ServiceArgs),
+    /// 能力自检（M17 T1，非门控）：实测 display/截图/a11y/输入/音频/进程通路并分级报告，抓
+    /// 「在线但能力静默降级」（锁屏黑帧、TCC 未授、截图后端故障）。存在 degraded 时退出码 1。
+    /// 一次性子命令，需 driver（--driver/--serial/--wda-url 生效）但不启动 MCP/反连服务面。
+    Doctor(doctor::DoctorArgs),
 }
 
 /// 构造 OTLP tracing 层（仅 `--features otel`）。
@@ -171,14 +176,36 @@ async fn main() -> Result<()> {
         _ => {}
     }
 
-    // 运行时按 --driver 选择驱动实现（默认 desktop 回归零破坏）；--serial 由 Android/iOS 臂消费，
-    // --wda-url 仅 iOS 臂消费（desktop/android 忽略）。
-    let driver = build_driver(cli.driver.into(), cli.serial, Some(cli.wda_url));
+    // M17 T1 doctor：一次性能力自检，需 driver 但不需反连/传输面——分支内独立装配 driver 跑完
+    // 即退（不经 startup_check：一次性命令不得递增 self-update 尝试计数/武装 watchdog）。
+    // degraded 存在时退出码 1（脚本/CI 可判）；报告已在 run 内落 stdout。
+    if let TransportCmd::Doctor(ref args) = cli.transport {
+        let driver = build_driver(cli.driver.into(), cli.serial, Some(cli.wda_url));
+        let healthy = doctor::run(driver, args.clone()).await?;
+        if !healthy {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
 
     // gRPC 反连配置先解析：其 data_dir（`--data-dir` CLI）注入 AuraTools，使录屏落盘路径与旁路上传
     // 读取路径同源（消除 record_tools 既往独立 env 解析的双解析漂移）。未启用 grpc 时用 env 缺省。
     #[cfg(feature = "grpc")]
     let mut reverse_cfg = cli.reverse.into_config()?;
+
+    // M17 T2 启动健康回滚检查：尽早于 driver/传输装配跑——新版本在后续任何初始化（driver 构造/
+    // 传输面/反连）崩溃都已被尝试计数覆盖，超限即回滚 .old；更早的失败（加载不了/CLI 解析崩）由
+    // self-update stage 的 sanity `--version` 探针在换刀前拦截。仅反连形态有 pending 可查
+    // （self-update 只经反连下发）；enroll/service/doctor 一次性命令已在上方短路不经此。
+    #[cfg(feature = "grpc")]
+    if let Some(cfg) = reverse_cfg.as_ref() {
+        let update_ctx = transport::self_update::UpdateContext::capture();
+        transport::self_update::startup_check_and_arm(&cfg.data_dir(), &update_ctx);
+    }
+
+    // 运行时按 --driver 选择驱动实现（默认 desktop 回归零破坏）；--serial 由 Android/iOS 臂消费，
+    // --wda-url 仅 iOS 臂消费（desktop/android 忽略）。
+    let driver = build_driver(cli.driver.into(), cli.serial, Some(cli.wda_url));
     // M14：http 传输并存时回填 MCP 网关自环端点——控制面网关的代理请求经此送达本机 rmcp 面。
     // 通配绑定（0.0.0.0/[::]）走 IPv4 环回；绑定具体地址（含 127.0.0.1 与显式网卡 IP）时自环
     // 用该地址本身——否则 `--bind <LAN-IP>` 形态下 127.0.0.1 不在监听面、网关恒 502。
@@ -248,6 +275,8 @@ async fn main() -> Result<()> {
             }
             // service 已在 driver 装配前短路返回；此处不可达，仅为 match 穷尽。
             TransportCmd::Service(_) => unreachable!("service handled before driver setup"),
+            // doctor 已在 driver 装配后短路返回；此处不可达，仅为 match 穷尽。
+            TransportCmd::Doctor(_) => unreachable!("doctor handled after driver setup"),
         }
     };
     tokio::select! {

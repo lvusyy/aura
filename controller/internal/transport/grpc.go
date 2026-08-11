@@ -448,6 +448,11 @@ func (s *NodeControlServer) Connect(
 		switch {
 		case frame.GetHeartbeat() != nil:
 			sess.Touch()
+			// M17：能力健康巡检结果会话回填（session-only，同 os_version 先例）。len>0 才写——
+			// 空帧（未滚更节点/巡检禁用/首轮未跑）不清空既有值，避免瞬时闪空。
+			if h := frame.GetHeartbeat().GetHealth(); len(h) > 0 {
+				sess.SetHealth(h)
+			}
 			s.refreshHealth(ctx, nodeID)
 			// 心跳续租归属（T6 三点位之二）：SET 幂等即续租，单方法两用（ha-contract §1.2）。
 			s.setOwner(ctx, nodeID)

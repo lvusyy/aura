@@ -1521,7 +1521,7 @@ mod a11y_tests {
             present: true,
             actual: Some(actual.to_string()),
             field: A11yField::Name,
-            query: A11yParams::default(),
+            query: aura_capability::AssertA11yQuery::default(),
             reference_image_base64: None,
             region: None,
             threshold: 0.05,

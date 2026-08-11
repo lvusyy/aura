@@ -96,6 +96,9 @@ pub async fn handle(
         IN_FLIGHT.store(false, Ordering::SeqCst);
         return;
     }
+    // M17 T2：换刀成功即写 pending 标记——新二进制启动后 register 成功才 commit 清除；
+    // 启动崩溃循环 / 试用窗内未注册由 startup_check_and_arm 依此回滚 .old（启动健康回滚闭环）。
+    write_pending(&data_dir, &version);
 
     tracing::info!(version = %version, exe = %ctx.exe.display(), "self-update swapped; reporting and restarting");
     send_result(&mut resp_tx, &version, Ok(())).await;
@@ -327,6 +330,217 @@ fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+// ===== 启动健康回滚（M17 T2，M16 Phase3 债）=====
+//
+// M16 换刀链的安全网：换刀成功 ≠ 新版本健康——新二进制可能起动即崩（崩溃循环）或起而不连
+// （TLS/反连回归）。机制：换刀后写 pending 标记 → 新二进制启动时递增尝试计数，超限即回滚 `.old`；
+// 未超限则武装试用期 watchdog——试用窗内 register 成功（RegisterAck accepted）commit 清除标记，
+// 窗满标记仍在即回滚。回滚 = install→`.failed`（取证位）+ `.old`→install + 重启；随后节点以旧
+// 版本注册，rollout 轮询 node_version 见未收敛即知发布失败（M16 既有收敛口径，零新协议）。
+// 文件系统即共享状态（pending 存在性 = 未验证），watchdog 与 commit 无内存协调面。
+// fail-open 纪律：保护机制自身 IO 故障绝不阻止节点启动（清标记放弃保护，带伤运行优于死锁）。
+// 手动滚更（scp 换二进制）不经 handle() 无 pending，行为与既往完全一致（向后兼容）。
+
+/// 新二进制最大启动尝试数：超过即判崩溃循环（每次进程启动经 startup_check_and_arm 递增；
+/// 健康路径首次启动 register 即 commit，计数不会累积）。崩溃循环回滚依赖 supervisor 拉起
+/// （systemd/launchd/计划任务/容器 restart policy）——无 supervisor 的裸进程崩了本就无人拉起。
+const MAX_STARTUP_ATTEMPTS: u32 = 3;
+
+/// 试用期缺省时长（秒）：启动后此窗内未完成 register（commit）即回滚。远大于正常注册耗时
+/// （秒级）+ 重连退避上限（30s），容忍 controller 短暂不可达；misfire 无害——回滚到旧版本后
+/// 重推 rollout 即可。env `AURA_SELF_UPDATE_TRIAL_SECS` 可调（e2e 用短窗）。
+const DEFAULT_TRIAL_SECS: u64 = 300;
+
+/// pending 标记：换刀后、新版本验证前的中间态（`<data_dir>/self_update/pending.json`）。
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PendingUpdate {
+    /// 目标版本（换入的新二进制）。
+    version: String,
+    /// 换刀前运行版本（回滚预期回到的版本，取证用）。
+    prev_version: String,
+    /// 新二进制启动尝试计数（startup_check_and_arm 每进程启动 +1）。
+    attempts: u32,
+    /// 换刀时刻（毫秒）。
+    staged_at_ms: i64,
+}
+
+fn pending_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("self_update").join("pending.json")
+}
+
+/// `.failed` 取证位路径：回滚时被换下的坏二进制（同 old_path 的整体追加后缀纪律）。
+fn failed_path(exe: &Path) -> PathBuf {
+    let mut name = exe.file_name().unwrap_or_default().to_os_string();
+    name.push(".failed");
+    exe.with_file_name(name)
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// 试用窗时长：env `AURA_SELF_UPDATE_TRIAL_SECS`（>0 生效），缺省 300s。
+fn trial_window() -> Duration {
+    let secs = std::env::var("AURA_SELF_UPDATE_TRIAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(DEFAULT_TRIAL_SECS);
+    Duration::from_secs(secs)
+}
+
+/// 换刀成功后写 pending 标记（handle() 调用）。best-effort：写失败仅告警——标记缺失只是
+/// 失去健康回滚保护，不阻断更新本身。
+fn write_pending(data_dir: &Path, version: &str) {
+    let p = pending_path(data_dir);
+    let pending = PendingUpdate {
+        version: version.to_string(),
+        prev_version: env!("CARGO_PKG_VERSION").to_string(),
+        attempts: 0,
+        staged_at_ms: now_ms(),
+    };
+    let res = (|| -> Result<()> {
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&p, serde_json::to_vec(&pending)?)?;
+        Ok(())
+    })();
+    if let Err(e) = res {
+        tracing::warn!(error = %format!("{:#}", e), "write self-update pending marker failed; startup-health rollback unarmed");
+    }
+}
+
+/// 启动期健康检查 + 试用期武装（grpc_reverse::run() 早期每进程一次，须在 tokio runtime 内）：
+///   - 无 pending（正常启动/手动滚更）→ no-op 零成本；
+///   - 有 pending：attempts+1 写回 → 超限即回滚（restart 不返回）；未超限 spawn 试用期 watchdog
+///     ——窗满 pending 仍在（register 未 commit）即回滚。ctx 缺失（current_exe 失败）无法回滚，
+///     清标记放弃保护。
+pub fn startup_check_and_arm(data_dir: &Path, ctx: &Option<UpdateContext>) {
+    let p = pending_path(data_dir);
+    let Ok(bytes) = std::fs::read(&p) else {
+        return; // 无标记：正常路径
+    };
+    let Ok(mut pending) = serde_json::from_slice::<PendingUpdate>(&bytes) else {
+        tracing::warn!("self-update pending marker unparsable; clearing (rollback protection off)");
+        let _ = std::fs::remove_file(&p);
+        return;
+    };
+    let Some(ctx) = ctx.clone() else {
+        tracing::warn!("pending self-update but own exe unresolved; clearing marker (rollback unavailable)");
+        let _ = std::fs::remove_file(&p);
+        return;
+    };
+    pending.attempts += 1;
+    if pending.attempts > MAX_STARTUP_ATTEMPTS {
+        tracing::error!(
+            version = %pending.version,
+            attempts = pending.attempts,
+            "new binary exceeded startup attempts (crash loop); rolling back to previous binary"
+        );
+        do_rollback(data_dir, &ctx, &pending, "startup crash loop");
+        return; // do_rollback 正常不返回；返回 = 回滚失败，带伤继续
+    }
+    if let Ok(bytes) = serde_json::to_vec(&pending) {
+        let _ = std::fs::write(&p, bytes);
+    }
+    tracing::info!(
+        version = %pending.version,
+        attempt = pending.attempts,
+        trial_secs = trial_window().as_secs(),
+        "self-update trial period armed; will roll back unless register succeeds in window"
+    );
+    let data_dir = data_dir.to_path_buf();
+    tokio::spawn(async move {
+        tokio::time::sleep(trial_window()).await;
+        let p = pending_path(&data_dir);
+        if !p.exists() {
+            return; // 已 commit（register 成功）：试用通过
+        }
+        let Some(pending) = std::fs::read(&p)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<PendingUpdate>(&b).ok())
+        else {
+            let _ = std::fs::remove_file(&p);
+            return;
+        };
+        tracing::error!(
+            version = %pending.version,
+            trial_secs = trial_window().as_secs(),
+            "self-update trial window expired without successful register; rolling back"
+        );
+        do_rollback(&data_dir, &ctx, &pending, "trial window expired without register");
+    });
+}
+
+/// register 成功（RegisterAck accepted）后 commit（connect_once 调用，幂等）：pending 在即
+/// 「试用通过」清除标记；不在为 no-op（心跳期重连路径零成本）。
+pub fn commit_pending(data_dir: &Path) {
+    let p = pending_path(data_dir);
+    if !p.exists() {
+        return;
+    }
+    match std::fs::remove_file(&p) {
+        Ok(()) => tracing::info!("self-update trial passed (register ok); pending marker committed"),
+        Err(e) => tracing::warn!(error = %e, "commit self-update pending marker failed"),
+    }
+}
+
+/// 执行回滚：文件舞步 → 落盘取证记录 → 清 pending → 重启（不返回）。
+/// 舞步失败仅告警返回（清 pending 防再入死循环，带伤继续运行优于反复重启）。
+fn do_rollback(data_dir: &Path, ctx: &UpdateContext, pending: &PendingUpdate, reason: &str) {
+    if let Err(e) = rollback_files(&ctx.exe) {
+        tracing::error!(error = %format!("{:#}", e), "self-update rollback failed; continuing on current binary");
+        let _ = std::fs::remove_file(pending_path(data_dir));
+        return;
+    }
+    // 取证记录（best-effort）：回滚时无连接可上报，靠落盘 + 重注册后 node_version 回旧双重可见。
+    let note = serde_json::json!({
+        "rolled_back_version": pending.version,
+        "restored_version": pending.prev_version,
+        "reason": reason,
+        "at_ms": now_ms(),
+    });
+    let _ = std::fs::write(data_dir.join("self_update").join("rollback.json"), note.to_string());
+    let _ = std::fs::remove_file(pending_path(data_dir));
+    tracing::error!(
+        from = %pending.version,
+        to = %pending.prev_version,
+        reason,
+        "self-update rolled back; restarting previous binary"
+    );
+    restart(ctx);
+}
+
+/// 回滚文件舞步：install → `.failed`（坏二进制取证）、`.old` → install。第二步失败把 `.failed`
+/// 放回原位（不砖机，镜像 swap 的回滚纪律）。无 `.old` 时无从回滚（诚实报错）。
+fn rollback_files(exe: &Path) -> Result<()> {
+    let old = old_path(exe);
+    if !old.exists() {
+        bail!("no .old binary beside {} to roll back to", exe.display());
+    }
+    let failed = failed_path(exe);
+    let _ = std::fs::remove_file(&failed); // 清上轮取证位
+    std::fs::rename(exe, &failed).with_context(|| {
+        format!("move failed binary aside ({} -> {})", exe.display(), failed.display())
+    })?;
+    if let Err(e) = std::fs::rename(&old, exe) {
+        let restored = std::fs::rename(&failed, exe);
+        return Err(anyhow!(
+            "restore .old to {} failed: {e} (put failed binary back: {})",
+            exe.display(),
+            match restored {
+                Ok(()) => "ok".to_string(),
+                Err(re) => format!("FAILED: {re}"),
+            }
+        ));
+    }
+    Ok(())
+}
+
 /// 回发 SelfUpdateResult 帧（best-effort：出站已断仅告警——控制面兜底超时独立生效，两案纵深）。
 async fn send_result(tx: &mut mpsc::Sender<NodeToController>, version: &str, res: Result<()>) {
     let (ok, error) = match res {
@@ -392,6 +606,94 @@ mod tests {
         let err = swap(&exe, &dir.join(".aura-node.new")).unwrap_err();
         assert!(err.to_string().contains("rollback of .old: ok"), "err={err}");
         assert_eq!(std::fs::read(&exe).unwrap(), b"old-binary");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ===== 启动健康回滚（M17 T2）=====
+
+    /// 独立临时目录（并行测试不串扰）。
+    fn tmp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("aura-hr-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// write_pending → 文件落位 + 字段正确；commit_pending 清除且幂等。
+    #[test]
+    fn pending_write_and_commit_roundtrip() {
+        let dir = tmp_dir("commit");
+        write_pending(&dir, "9.9.9");
+        let p = pending_path(&dir);
+        let pending: PendingUpdate =
+            serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        assert_eq!(pending.version, "9.9.9");
+        assert_eq!(pending.prev_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(pending.attempts, 0);
+
+        commit_pending(&dir);
+        assert!(!p.exists(), "commit 须清除 pending 标记");
+        commit_pending(&dir); // 幂等：不存在时 no-op 不 panic
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 启动检查递增 attempts 并写回（未超限路径；watchdog spawn 需 tokio runtime）。
+    #[tokio::test]
+    async fn startup_check_increments_attempts() {
+        let dir = tmp_dir("attempts");
+        write_pending(&dir, "9.9.9");
+        let ctx = Some(UpdateContext { exe: dir.join("aura-node"), args: vec![] });
+
+        startup_check_and_arm(&dir, &ctx);
+        let pending: PendingUpdate =
+            serde_json::from_slice(&std::fs::read(pending_path(&dir)).unwrap()).unwrap();
+        assert_eq!(pending.attempts, 1, "每次进程启动 +1");
+
+        startup_check_and_arm(&dir, &ctx);
+        let pending: PendingUpdate =
+            serde_json::from_slice(&std::fs::read(pending_path(&dir)).unwrap()).unwrap();
+        assert_eq!(pending.attempts, 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 无 pending 标记（正常启动/手动滚更）→ no-op；ctx 缺失 → 清标记放弃保护（fail-open）。
+    #[tokio::test]
+    async fn startup_check_noop_and_fail_open() {
+        let dir = tmp_dir("failopen");
+        let ctx = Some(UpdateContext { exe: dir.join("aura-node"), args: vec![] });
+        startup_check_and_arm(&dir, &ctx); // 无标记：不得创建任何文件
+        assert!(!pending_path(&dir).exists());
+
+        write_pending(&dir, "9.9.9");
+        startup_check_and_arm(&dir, &None); // ctx 缺失：无法回滚 → 清标记
+        assert!(!pending_path(&dir).exists(), "ctx 缺失须清标记放弃保护");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 回滚文件舞步：坏二进制 → .failed（取证）、.old → 原位。
+    #[test]
+    fn rollback_files_restores_old() {
+        let dir = tmp_dir("rbfiles");
+        let exe = dir.join("aura-node");
+        std::fs::write(&exe, b"bad-new").unwrap();
+        std::fs::write(old_path(&exe), b"good-old").unwrap();
+
+        rollback_files(&exe).unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"good-old");
+        assert_eq!(std::fs::read(failed_path(&exe)).unwrap(), b"bad-new", ".failed 取证位");
+        assert!(!old_path(&exe).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 无 .old 时回滚诚实报错（现网二进制不动）。
+    #[test]
+    fn rollback_files_requires_old() {
+        let dir = tmp_dir("rbmissing");
+        let exe = dir.join("aura-node");
+        std::fs::write(&exe, b"current").unwrap();
+
+        let err = rollback_files(&exe).unwrap_err();
+        assert!(err.to_string().contains("no .old"), "err={err}");
+        assert_eq!(std::fs::read(&exe).unwrap(), b"current");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -166,11 +166,12 @@ fn node_summary(node: &A11yNode) -> String {
 // ===== image 形态：区域视觉 diff（无 baseline，参考图仅来自入参 reference_image_base64）=====
 
 /// 解码后的 RGB 图（若源含 alpha 则剥离归一为 RGB）。裁剪与 diff 均在此裸字节层进行。
-struct RgbImage {
-    w: usize,
-    h: usize,
+/// pub：doctor 自检（aura-node）复用同一解码面做截图单色检测，不另引解码依赖。
+pub struct RgbImage {
+    pub w: usize,
+    pub h: usize,
     /// 长度 = w*h*3（逐像素 R,G,B）。
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 /// image 形态求值核（**纯函数，无 driver 依赖**，便于单测同图 / 异图 / 区域裁剪三路径）：
@@ -216,7 +217,8 @@ pub fn eval_image_assert(
 
 /// base64 WebP → RGB 裸字节（源含 alpha 则剥离）。解码失败 / 尺寸异常落 E_INVALID_ARG。
 /// 复用 aura-platform 截图管线同款 `webp` crate（libwebp），与 M1 编码侧对称，无新重依赖。
-fn decode_webp_rgb(image_base64: &str) -> Result<RgbImage, CapError> {
+/// pub：assert image diff 与 doctor 自检（截图单色检测）共用单一解码面。
+pub fn decode_webp_rgb(image_base64: &str) -> Result<RgbImage, CapError> {
     let bytes = BASE64_STANDARD
         .decode(image_base64.trim())
         .map_err(|e| CapError::InvalidArg(format!("invalid base64 image: {e}")))?;

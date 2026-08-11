@@ -331,6 +331,8 @@ fn keycode_of(name: &str) -> Option<u32> {
         "del" => Some(67),
         "menu" => Some(82),
         "volume_up" => Some(24),
+        // KEYCODE_SHIFT_LEFT：单发无字符/焦点副作用，doctor 输入探针依赖（与 desktop "shift" 对齐）。
+        "shift" => Some(59),
         _ => None,
     }
 }
@@ -1652,6 +1654,7 @@ mod tests {
         assert_eq!(keycode_of("del"), Some(67));
         assert_eq!(keycode_of("menu"), Some(82));
         assert_eq!(keycode_of("volume_up"), Some(24));
+        assert_eq!(keycode_of("shift"), Some(59), "doctor 无副作用探针键");
         assert_eq!(keycode_of("f13"), None, "未列键 → None → 上层 Unsupported");
     }
 
@@ -2167,7 +2170,7 @@ mod contract_matrix {
             present,
             actual: Some(actual.to_string()),
             field: A11yField::Name,
-            query: A11yParams::default(),
+            query: aura_capability::AssertA11yQuery::default(),
             reference_image_base64: None,
             region: None,
             threshold: 0.05,

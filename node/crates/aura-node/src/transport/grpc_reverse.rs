@@ -26,9 +26,9 @@ use super::AuraTools;
 
 use pb::node_control_client::NodeControlClient;
 use pb::{
-    controller_to_node, node_to_controller, AgentActivity, AgentCallEvent, Heartbeat,
-    McpProxyRequest, McpProxyResponse, NodeToController, Register, ToolResponse, UploadComplete,
-    UploadFailed,
+    controller_to_node, node_to_controller, AgentActivity, AgentCallEvent, CapabilityHealth,
+    Heartbeat, McpProxyRequest, McpProxyResponse, NodeToController, Register, ToolResponse,
+    UploadComplete, UploadFailed,
 };
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
@@ -271,13 +271,24 @@ pub async fn run(
     if update_ctx.is_none() {
         tracing::warn!("current_exe unresolved at startup; self-update will be refused on this node");
     }
+    // M17 T2 启动健康回滚检查在 main.rs（driver 装配前）已跑——此处不重复（勿双递增尝试计数）。
+
+    // M17 能力健康巡检：跨重连长驻周期任务（探针纯本地，产出与连接无关）；心跳每拍捎带最近结果。
+    // 结果覆盖写共享态（幂等），controller 侧会话回填 NodeInfo.health。0=禁用则共享态恒空、
+    // 心跳 health 恒空——未滚更 controller 安全忽略未知字段，向后兼容。
+    let health: Arc<Mutex<Vec<CapabilityHealth>>> = Arc::new(Mutex::new(Vec::new()));
+    if let Some(interval) = health_probe_interval() {
+        let tools_probe = tools.clone();
+        let health_out = health.clone();
+        tokio::spawn(async move { health_probe_loop(tools_probe, health_out, interval).await });
+    }
 
     let initial_backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(30);
     let mut backoff = initial_backoff;
 
     loop {
-        match connect_once(&tools, &cfg, &node_id, &reported, &uplink, &update_ctx).await {
+        match connect_once(&tools, &cfg, &node_id, &reported, &uplink, &update_ctx, &health).await {
             Ok(()) => {
                 tracing::warn!("reverse stream closed, reconnecting");
                 backoff = initial_backoff;
@@ -313,6 +324,7 @@ async fn connect_once(
     reported: &SelfReported,
     uplink: &Arc<Mutex<Option<mpsc::Sender<NodeToController>>>>,
     update_ctx: &Option<super::self_update::UpdateContext>,
+    health: &Arc<Mutex<Vec<CapabilityHealth>>>,
 ) -> Result<()> {
     let channel = build_channel(cfg).await?;
     let mut client = NodeControlClient::new(channel)
@@ -389,7 +401,8 @@ async fn connect_once(
     let mut inbound = response.into_inner();
 
     // 心跳任务：周期 Send Heartbeat；AbortOnDrop 保证本次连接结束时回收（不泄漏）。
-    let _heartbeat = AbortOnDrop(spawn_heartbeat(tx.clone(), node_id.clone(), cfg.heartbeat));
+    let _heartbeat =
+        AbortOnDrop(spawn_heartbeat(tx.clone(), node_id.clone(), cfg.heartbeat, health.clone()));
 
     // 收控制面下发帧。
     while let Some(frame) = inbound.next().await {
@@ -399,6 +412,9 @@ async fn connect_once(
                 if !ack.accepted {
                     return Err(anyhow!("registration rejected: {}", ack.message));
                 }
+                // M17 T2：register 成功 = 新二进制试用通过，commit 清除 pending 标记（幂等，
+                // 无标记路径零成本）——试用期 watchdog 醒来见无标记即退出。
+                super::self_update::commit_pending(&cfg.data_dir());
                 if !ack.node_id.is_empty() {
                     let changed = {
                         let mut guard = node_id.lock().unwrap();
@@ -764,11 +780,13 @@ async fn mcp_loopback_post(
     Ok(out)
 }
 
-/// 心跳任务：周期 Send Heartbeat（携当前 node_id）。出站关闭即停止。
+/// 心跳任务：周期 Send Heartbeat（携当前 node_id + 最近能力健康巡检结果）。出站关闭即停止。
+/// health 每拍重复捎带最近一轮巡检（幂等覆盖语义）；巡检禁用/未跑时为空，controller 安全忽略。
 fn spawn_heartbeat(
     mut tx: mpsc::Sender<NodeToController>,
     node_id: Arc<Mutex<String>>,
     interval: Duration,
+    health: Arc<Mutex<Vec<CapabilityHealth>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
@@ -780,6 +798,7 @@ fn spawn_heartbeat(
                 payload: Some(node_to_controller::Payload::Heartbeat(Heartbeat {
                     node_id: id,
                     ts_unix_ms: now_unix_ms(),
+                    health: health.lock().unwrap().clone(),
                 })),
             };
             if tx.send(frame).await.is_err() {
@@ -787,6 +806,46 @@ fn spawn_heartbeat(
             }
         }
     })
+}
+
+/// 能力健康巡检周期解析：`AURA_HEALTH_PROBE_INTERVAL_SECS`（秒），缺省 300；`0` = 禁用（None）。
+fn health_probe_interval() -> Option<Duration> {
+    const DEFAULT_SECS: u64 = 300;
+    let secs = std::env::var("AURA_HEALTH_PROBE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SECS);
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+/// 能力健康巡检长驻任务（M17）：周期跑非侵入探针（doctor::passive_probe 三核心项），结果覆盖写
+/// 共享态供心跳捎带。首拍立即执行（interval 首 tick 即时）——节点起来尽快有健康态可报；探针
+/// 自带单项超时（doctor::CHECK_TIMEOUT），单拍最坏有界不致任务悬死。
+async fn health_probe_loop(
+    tools: AuraTools,
+    out: Arc<Mutex<Vec<CapabilityHealth>>>,
+    interval: Duration,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    loop {
+        ticker.tick().await;
+        let results = crate::doctor::passive_probe(&*tools.driver).await;
+        let now = now_unix_ms();
+        let frames: Vec<CapabilityHealth> = results
+            .into_iter()
+            .map(|(name, status, detail)| CapabilityHealth {
+                name: name.to_string(),
+                status: status.to_string(),
+                detail,
+                checked_at_ms: now,
+            })
+            .collect();
+        tracing::debug!(
+            summary = %frames.iter().map(|c| format!("{}={}", c.name, c.status)).collect::<Vec<_>>().join(","),
+            "capability health probe completed"
+        );
+        *out.lock().unwrap() = frames;
+    }
 }
 
 /// JoinHandle 包装：Drop 时 abort 关联任务，确保本次连接结束时心跳任务被回收（不泄漏）。

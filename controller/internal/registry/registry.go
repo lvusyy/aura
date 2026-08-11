@@ -83,6 +83,10 @@ type NodeSession struct {
 	// 一致 label/location（消除节点重连自报空值覆盖既有 console 编辑的 stale 展示）。
 	label    string
 	location string
+	// M17 能力健康（session-only，同 os_version 先例不入库）：节点心跳捎带的周期巡检结果
+	//（display/screenshot/a11y），SetHealth 整体替换（幂等覆盖）、nodeInfo 回填 NodeInfo.health。
+	// 心跳期持续写 + fleet 快照读，故与 lastSeen 同 mu 守护。
+	health []*aurav1.CapabilityHealth
 
 	// sendCh 是下行帧队列；仅 RunWriter 消费，保证单一发送者。
 	sendCh chan *aurav1.ControllerToNode
@@ -143,6 +147,26 @@ func (s *NodeSession) SetMeta(label, location string) {
 	s.label = label
 	s.location = location
 	s.mu.Unlock()
+}
+
+// SetHealth 整体替换能力健康巡检结果（M17，transport 心跳臂调用）。切片元素为 pb 指针，写方
+// （心跳帧解码产物）此后不再改写元素，整体替换即安全（读方 Health 浅拷贝防迭代期替换竞态）。
+func (s *NodeSession) SetHealth(health []*aurav1.CapabilityHealth) {
+	s.mu.Lock()
+	s.health = health
+	s.mu.Unlock()
+}
+
+// Health 快照能力健康巡检结果（浅拷贝切片；nil=节点未上报——未滚更/巡检禁用）。
+func (s *NodeSession) Health() []*aurav1.CapabilityHealth {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.health == nil {
+		return nil
+	}
+	out := make([]*aurav1.CapabilityHealth, len(s.health))
+	copy(out, s.health)
+	return out
 }
 
 // metaSnapshot 一次 RLock 取会话可变态（lastSeen + label + location），供 nodeInfo 组装免多次加锁。
@@ -565,6 +589,8 @@ func (r *NodeRegistry) nodeInfo(s *NodeSession) *aurav1.NodeInfo {
 		NodeVersion: s.NodeVersion,
 		// M16：二进制宿主平台（在线会话回填；离线走 ListFleet 表分支——已持久化 nodes 表）。
 		HostPlatform: s.HostPlatform,
+		// M17：能力健康（session-only 在线回填；离线无会话恒空——离线节点的能力健康无意义）。
+		Health: s.Health(),
 	}
 }
 

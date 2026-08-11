@@ -17,7 +17,7 @@ pub mod record;
 pub mod audio;
 
 pub use a11y::A11yDriver;
-pub use assert::AssertDriver;
+pub use assert::{decode_webp_rgb, AssertDriver, RgbImage};
 pub use audio::{AudioDriver, AudioInjectParams, AudioInjectResult};
 pub use envelope::{Envelope, ErrObj};
 pub use input::InputDriver;

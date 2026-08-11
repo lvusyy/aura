@@ -4,15 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AURA 管理台</title>
+    <script type="module" crossorigin src="/console/assets/index-CyYA-m4f.js"></script>
+    <link rel="stylesheet" crossorigin href="/console/assets/index-CZT-v4sH.css">
   </head>
   <body>
-    <!-- 占位页：console 前端尚未构建（go:embed 需要本目录存在才能编译 controller）。
-         构建方法：cd console && npm install && npm run generate && npm run build
-         （vite outDir 即本目录），随后重新构建 aura-controller。 -->
-    <p style="font-family: sans-serif; margin: 2em">
-      AURA console assets not built yet. Run
-      <code>cd console &amp;&amp; npm install &amp;&amp; npm run generate &amp;&amp; npm run build</code>,
-      then rebuild <code>aura-controller</code>.
-    </p>
+    <div id="root"></div>
   </body>
 </html>

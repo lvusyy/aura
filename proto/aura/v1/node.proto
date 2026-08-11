@@ -135,6 +135,19 @@ message RegisterAck {
 message Heartbeat {
   string node_id = 1;
   int64 ts_unix_ms = 2;
+  // M17（能力健康巡检，additive）：节点周期非侵入自检结果捎带上报（display/screenshot/a11y
+  // 三核心探针；input/audio 有副作用面不巡检）。空 = 未滚更节点/巡检禁用/首拍未跑，向后兼容。
+  // 心跳每拍重复携带最近一轮结果（幂等覆盖语义），controller 仅内存会话回填不入库
+  // （离线节点的能力健康无意义，同 os_version session-only 先例）。
+  repeated CapabilityHealth health = 3;
+}
+
+// M17：单项能力健康（节点周期巡检产出；语义与 aura-node doctor 一致）。
+message CapabilityHealth {
+  string name = 1;           // 能力名：display | screenshot | a11y
+  string status = 2;         // ok | degraded | warn | skipped（同 NodeInfo.status 的 string 词表先例）
+  string detail = 3;         // 诊断文本（如 "1920x1080 WebP ~5KB" / "near-uniform — screen may be locked"）
+  int64 checked_at_ms = 4;   // 本项巡检时刻（毫秒）
 }
 
 // 工具调用请求（控制面 → 节点，哑管道）。
@@ -282,6 +295,9 @@ message NodeInfo {
   // M16（self-update，additive）：二进制宿主平台（Register.host_platform=16 落库回填；离线节点经表分支
   // 回填最后已知值——rollout 规划与漂移视图需覆盖离线成员，同 runtime_kind 持久语义）。
   string host_platform = 19;      // 二进制宿主平台（linux-x86_64 等；未滚更/未上报空）
+  // M17（能力健康，additive）：节点周期巡检结果（Heartbeat.health 会话回填；session-only 不入库，
+  // 同 os_version/ip 先例——离线节点空）。「在线」之上细分能力面可用性（抓锁屏黑帧/截图后端故障）。
+  repeated CapabilityHealth health = 20;
 }
 
 message ListNodesResponse {
