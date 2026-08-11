@@ -5,6 +5,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 本文件记录项目的重要变更,格式遵循 Keep a Changelog,版本号遵循语义化版本。
 
+## [0.4.0] - 2026-08-11
+
+Reliability release: make "online but silently broken" impossible to miss, and make fleet rollouts safe to automate.
+
+### Added
+
+- **`aura-node doctor`** — one-shot capability self-check. Real-world e2e runs showed a node can stay "online" while a core capability is silently broken (Windows WGC capture failure after a lock/unlock cycle, macOS TCC permission loss, locked-session black frames) — agents can't tell, and a human had to ground-truth screenshots to find out. `doctor` probes each capability for real: display enumeration, screenshot capture with near-uniform-frame detection (catches locked/blank/no-signal screens), a11y tree read, a side-effect-free input injection probe (a single `shift` key, exercising the enigo/adb path for real), a 100 ms silent-WAV audio probe, and process listing. Results are graded `ok` / `degraded` (advertised but broken — the F1-class signal) / `warn` / `skipped` (platform matrix expectation), printed human-readable or `--json`, with exit code 1 when anything core is degraded — usable directly in scripts and CI, and as a first-contact troubleshooting tool for new deployments.
+- **`aura-node doctor`**:一次性能力自检。真机 e2e 实证过节点「在线」但核心能力静默故障(WGC 截图故障、mac TCC 权限被收、锁屏黑帧),agent 无从分辨。doctor 逐项实测:显示器枚举、截图+近单色帧检测(抓锁屏/黑屏/无信号)、无障碍取树、无副作用输入探针(单发 shift,真实走注入通路)、100ms 静音 WAV 音频探针、进程枚举;分级 ok/degraded/warn/skipped,人类可读或 `--json`,存在 degraded 时退出码 1(脚本/CI 可判),也是新部署的首诊排障工具。
+- **Fleet capability health** — nodes now run a non-intrusive probe subset (display / screenshot / a11y — never input or audio) on a period (`AURA_HEALTH_PROBE_INTERVAL_SECS`, default 300 s, `0` disables) and piggyback the latest results on heartbeats. The console fleet page shows an aggregate health tag per node (red "capability degraded N" / gold "notice" / green "healthy") with a per-probe diagnostic popover. A locked-screen or broken-capture node is now visibly unhealthy in the fleet view within a heartbeat cycle instead of masquerading as "online". Session-only (not persisted; offline nodes show nothing), fully backward compatible — old nodes simply don't report.
+- **舰队能力健康巡检**:节点周期(缺省 300s,可调/可禁)跑非侵入探针子集(显示器/截图/无障碍,绝不含输入注入与音频),结果随心跳捎带上报;console 节点卡片显示聚合健康徽章(红「能力异常」/黄「提示」/绿「正常」)+逐项诊断 Popover。锁屏/截图故障节点在一个心跳周期内即在舰队视图现形,不再伪装「在线」。仅会话态不入库,未滚更节点不上报,完全向后兼容。
+- **Self-update startup health rollback** (closes the M16 Phase 3 debt) — a swap succeeding never meant the new version was healthy: a bad release could crash-loop or come up but never reconnect, leaving the node stranded until someone SSH'd in (painful on macOS re-sign / container rebuild paths). The node now writes a pending marker at swap time; the new binary must complete a controller registration within a trial window (`AURA_SELF_UPDATE_TRIAL_SECS`, default 300 s) to commit. Crash loops (> 3 startup attempts) or a trial timeout roll back to the kept `.old` binary automatically, preserve the bad binary as `.failed` for forensics, record `rollback.json`, and restart — the node then re-registers on its previous version, which the existing rollout convergence check surfaces as a failed release. Manual binary swaps are unaffected (no marker, no trial).
+- **self-update 启动健康回滚**(闭合 M16 Phase3 债):换刀成功≠新版本健康——坏版本可能崩溃循环或起而不连,节点搁浅只能人工 SSH 修(mac 重签/容器路径尤痛)。现换刀时写 pending 标记,新二进制须在试用窗(缺省 300s,可调)内完成注册才 commit;崩溃循环(启动尝试>3)或试用窗超时自动回滚 `.old`,坏二进制留 `.failed` 取证、落 `rollback.json` 记录并重启,节点以旧版本重新注册,既有 rollout 收敛检查即可看出发布失败。手动换二进制不受影响(无标记即无试用)。
+- e2e: two new scenarios — capability-health heartbeat reporting, and startup-health rollback (trial-window expiry → `.old` restored, forensics kept).
+- e2e 新增两场景:能力健康心跳上报;启动健康回滚(试用窗超时→回滚 .old+取证落盘)。
+
+### Fixed
+
+- Workspace test compile: the android/ios assert unit tests missed the 0.3.2 `AssertA11yQuery` migration and no longer compiled under `cargo test --workspace` (CI runs `-p aura-node`, which skips other crates' test code — the gap surfaced while validating this release).
+- workspace 测试编译:android/ios 的 assert 单测漏掉了 0.3.2 的 `AssertA11yQuery` 迁移,`cargo test --workspace` 口径下编译失败(CI 只测 `-p aura-node`,不编译其他 crate 的测试代码;本次发布验证时暴露)。
+
 ## [0.3.2] - 2026-07-27
 
 ### Fixed
