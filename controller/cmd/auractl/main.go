@@ -75,6 +75,8 @@ func run(argv []string) error {
 		return cmdLocate(ctx, client, args[1:])
 	case "click-element":
 		return cmdClickElement(ctx, client, args[1:])
+	case "a11y":
+		return cmdA11y(ctx, client, args[1:])
 	case "env":
 		return cmdEnv(ctx, client, args[1:])
 	case "artifact":
@@ -145,6 +147,7 @@ Commands:
   tool call <node-id> <tool> [--args JSON] [--deadline-ms N] [--who W] dispatch a tool call
   locate <node-id> <target> [--force-vision] [--wait-ms N]             hybrid Jev/A11y UI element localization
   click-element <node-id> <target> [--type T] [--key K] [--verify]     one-step UI element locate & click
+  a11y <node-id> [--depth N] [--role R] [--max-nodes N]                inspect node accessibility tree
   env create --kind ephemeral|persistent [--template N]               create an environment
   env destroy <env-id>                                                destroy an environment
   artifact get <key> [--out FILE]                                     download an artifact via controller/presigned URL

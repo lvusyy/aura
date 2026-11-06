@@ -314,6 +314,11 @@ func (s *ControllerAdminServer) GetTrace(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if nodeID != "" {
+		if err := CheckNodeProjectAccess(ctx, s.pg, nodeID); err != nil {
+			return nil, err
+		}
+	}
 
 	pbSteps := make([]*aurav1.TraceStep, 0, len(steps))
 	for _, st := range steps {

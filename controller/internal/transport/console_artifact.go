@@ -47,6 +47,9 @@ func (s *ConsoleServiceServer) GetArtifact(
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("artifact key must be under %v prefixes without traversal segments", artifactKeyPrefixes))
 	}
+	if err := s.checkArtifactProjectAccess(ctx, key); err != nil {
+		return nil, err
+	}
 	if s.minio == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("artifact store not configured"))
 	}
@@ -58,4 +61,39 @@ func (s *ConsoleServiceServer) GetArtifact(
 		Data:        data,
 		ContentType: contentType,
 	}), nil
+}
+
+// checkArtifactProjectAccess 在项目令牌视界下校验产物对象归属的节点是否属于当前项目（全域令牌零成本短路）。
+func (s *ConsoleServiceServer) checkArtifactProjectAccess(ctx context.Context, key string) error {
+	if IdentityFromContext(ctx).Project == "" {
+		return nil
+	}
+	if s.store == nil {
+		return CheckNodeProjectAccess(ctx, nil, "")
+	}
+	if strings.HasPrefix(key, "trace/") {
+		rest := strings.TrimPrefix(key, "trace/")
+		idx := strings.IndexByte(rest, '/')
+		if idx <= 0 {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot verify artifact project ownership"))
+		}
+		traceID := rest[:idx]
+		_, nodeID, _, err := s.store.GetTrace(ctx, traceID, 1, 0)
+		if err != nil || nodeID == "" {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot verify artifact project ownership"))
+		}
+		return CheckNodeProjectAccess(ctx, s.store, nodeID)
+	}
+	if strings.HasPrefix(key, "recordings/") {
+		metas, err := s.store.RecordingMetas(ctx, []string{key})
+		if err != nil {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot verify recording project ownership"))
+		}
+		nodeID := metas[key].NodeID
+		if nodeID == "" {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot verify recording project ownership"))
+		}
+		return CheckNodeProjectAccess(ctx, s.store, nodeID)
+	}
+	return connect.NewError(connect.CodePermissionDenied, errors.New("cannot verify artifact project ownership"))
 }

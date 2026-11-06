@@ -33,7 +33,11 @@ func (s *ConsoleServiceServer) GetDashboard(
 	// 会话的持久身份，nodes_offline 由此真实计数（旧版恒留 0）。离线僵尸经 DeleteNode 手动删 + reap 自动遗忘
 	// 出集，摘要随墙面同步收敛。store 为 nil（纯内存）时 ListFleet 降级为在线-only（同 reg.List() 语义，offline 恒 0）。
 	if s.reg != nil {
-		resp.NodesTotal, resp.NodesOnline, resp.NodesUnhealthy, resp.NodesOffline = countNodes(s.reg.ListFleet(ctx))
+		nodes, err := filterNodesByProject(ctx, s.store, s.reg.ListFleet(ctx))
+		if err != nil {
+			return nil, err
+		}
+		resp.NodesTotal, resp.NodesOnline, resp.NodesUnhealthy, resp.NodesOffline = countNodes(nodes)
 	}
 
 	// 任务/编排/录制计数：真全表 COUNT。任一 store 查询失败即整体 CodeInternal（同一 PG 池，单查失败多因
@@ -179,9 +183,14 @@ func (s *ConsoleServiceServer) ListTraces(
 // GetQueueDepth 返回 per-node 串行队列深度（对抗 G：操作台轮询前查 >0 即跳帧，避让在途工具调用）。
 // 委托 sched.QueueDepth（只读快照，节点无队列返 0）。sched 为 nil 时回 0（纯内存/未装配降级）。
 func (s *ConsoleServiceServer) GetQueueDepth(
-	_ context.Context,
+	ctx context.Context,
 	req *connect.Request[aurav1.GetQueueDepthRequest],
 ) (*connect.Response[aurav1.GetQueueDepthResponse], error) {
+	if nodeID := req.Msg.GetNodeId(); nodeID != "" {
+		if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
+			return nil, err
+		}
+	}
 	if s.sched == nil {
 		return connect.NewResponse(&aurav1.GetQueueDepthResponse{Depth: 0}), nil
 	}

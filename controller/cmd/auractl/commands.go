@@ -178,6 +178,46 @@ func cmdClickElement(ctx context.Context, client aurav1connect.ControllerAdminCl
 	return printJSON(resp.Msg.GetJsonEnvelope())
 }
 
+// cmdA11y 处理 `a11y <node-id>`：便捷读取节点无障碍树（免手写 tool call JSON）。
+func cmdA11y(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: auractl a11y <node-id> [--depth N] [--role ROLE] [--root ROOT] [--max-nodes N] [--deadline-ms N]")
+	}
+	nodeID := args[0]
+	fs := flag.NewFlagSet("a11y", flag.ContinueOnError)
+	depth := fs.Int("depth", 5, "max traversal depth")
+	role := fs.String("role", "", "optional role filter (e.g. Button, Edit)")
+	root := fs.String("root", "", "optional window title / root filter")
+	maxNodes := fs.Int("max-nodes", 1500, "max nodes budget")
+	deadlineMs := fs.Int64("deadline-ms", 10000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	reqArgs := map[string]any{
+		"depth":     *depth,
+		"max_nodes": *maxNodes,
+	}
+	if *role != "" {
+		reqArgs["role"] = *role
+	}
+	if *root != "" {
+		reqArgs["root"] = *root
+	}
+	payload, _ := json.Marshal(reqArgs)
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "get_a11y_tree",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
 // cmdEnv 处理 `env create` / `env destroy`（provisioner 由 TASK-007 实现，此处仅 REST 转发）。
 func cmdEnv(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
 	if len(args) < 1 {

@@ -186,3 +186,32 @@ func TestGetDashboard_NodeCountsNilStore(t *testing.T) {
 			m.GetTasksTotal(), m.GetOrchestrationsTotal(), m.GetTracesTotal())
 	}
 }
+
+func TestProjectScopedTokenGuards(t *testing.T) {
+	srv := NewConsoleServiceServer(nil, nil, nil, nil, nil)
+	projCtx := WithIdentity(context.Background(), TokenIdentity{
+		Name:    "proj-alpha",
+		Scope:   ScopeReadOnly,
+		Project: "alpha",
+	})
+
+	// 1. GetQueueDepth 对带项目视界的令牌做节点归属校验（nil store 下非空项目令牌 fail-closed 拒访）。
+	_, err := srv.GetQueueDepth(projCtx, connect.NewRequest(&aurav1.GetQueueDepthRequest{NodeId: "node-1"}))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("project-scoped GetQueueDepth code = %v, want CodePermissionDenied (err=%v)", connect.CodeOf(err), err)
+	}
+
+	// 2. GetArtifact 对 trace/ 与 recordings/ 产物在项目令牌下同样校验节点归属。
+	_, err = srv.GetArtifact(projCtx, connect.NewRequest(&aurav1.GetArtifactRequest{
+		Key: "trace/00000000-0000-0000-0000-000000000001/1.webp",
+	}))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("project-scoped GetArtifact(trace) code = %v, want CodePermissionDenied (err=%v)", connect.CodeOf(err), err)
+	}
+	_, err = srv.GetArtifact(projCtx, connect.NewRequest(&aurav1.GetArtifactRequest{
+		Key: "recordings/rec-1.mp4",
+	}))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("project-scoped GetArtifact(recordings) code = %v, want CodePermissionDenied (err=%v)", connect.CodeOf(err), err)
+	}
+}

@@ -5,6 +5,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 本文件记录项目的重要变更,格式遵循 Keep a Changelog,版本号遵循语义化版本。
 
+## [0.4.1] - 2026-11-06
+
+Productization, multi-project isolation closure, and hybrid semantic UI automation release.
+
+### Added
+
+- **Hybrid Semantic UI Automation (`locate_element` & `click_element`)** — 3-tier element localization and one-step interaction exposed across Connect-RPC, the MCP gateway (`tools/list` & `tools/call` controller augmentation), `auractl locate` / `auractl click-element`, and the Web Console: Tier 0 deterministic A11y tree matching (< 15 ms) → Tier 1 local k3s GPU YOLO/OmniParser → Tier 2 Jev System-1 (`Noul` existence probability / `Choice` candidate ranking / `Box` bounding-box grounding), with optional `--wait-ms` polling and L1 (A11y tree diff) + L2 (8×8 dHash visual diff) post-click state verification.
+- **混合语义 UI 自动化 (`locate_element` 与 `click_element`)**:在 Connect-RPC、MCP 网关(`tools/list` 与 `tools/call` 控制面增强)、`auractl locate` / `auractl click-element` 及 Web 管理台全链路提供三级渐进定位与一步交互:Tier 0 原生 A11y 树确定性匹配(< 15 ms)→ Tier 1 本地 k3s GPU YOLO/OmniParser → Tier 2 Jev System-1(`Noul` 存在概率 / `Choice` 候选排序 / `Box` 坐标定位),支持 `--wait-ms` 自适应等待及 L1(A11y 树 diff)+ L2(8×8 dHash 像素 diff)点击生效校验。
+- **Web Console Operate & Fleet UX upgrades** — interactive **A11y Tree Inspector** drawer with depth/keyword filtering and one-click canvas highlight/click, real-time display-coordinate HUD on canvas hover, double-click/right-click/quick-key pass-through, one-click `auractl` CLI command copy, and project/IP/OS filtering on the Fleet page; `auractl a11y <node-id>` CLI shortcut for inspecting accessibility trees.
+- **Web 管理台与 CLI 易用性升级**:操作台新增交互式 **A11y 无障碍树检视器**抽屉(支持深度/关键词过滤与一键画布高亮/点击)、画布鼠标悬停实时坐标 HUD、双击/右键/快捷按键透传、一键复制 `auractl` CLI 命令;设备墙新增按项目/IP/系统版本筛选;`auractl` 新增 `a11y <node-id>` 快捷检视命令。
+
+### Fixed
+
+- **Multi-project isolation (`M15`) & RBAC closure** — online node `project` bindings now persist across `UpsertNode RETURNING`, `NodeSession`, `ListFleet`, and `UpdateNodeMeta`; RBAC scope guards (`ro` / `admin`) and project-access checks now cover `UpdateNodeMeta`, `DeleteNode`, `RevokeNodeCert`, `RunOrchestration` (with HA cluster-wide online node resolution), `ListTasks`, `GetTask`, `ListTraces`, `GetTrace`, `ListRecordings`, `WatchFleet` recording states, `GetDashboard`, `GetQueueDepth`, `GetArtifact`, and `/stream/tango`.
+- **多项目隔离(`M15`)与 RBAC 权限收口**:修复在线节点 `project` 归属在 `UpsertNode`、`NodeSession`、`ListFleet` 与 `UpdateNodeMeta` 中的透传与保持;补齐 `UpdateNodeMeta`、`DeleteNode`、`RevokeNodeCert`、`RunOrchestration`(含 HA 跨副本在线节点解析)、`ListTasks`、`GetTask`、`ListTraces`、`GetTrace`、`ListRecordings`、`WatchFleet` 录制态、`GetDashboard`、`GetQueueDepth`、`GetArtifact` 与 `/stream/tango` 的令牌档位及项目视界校验。
+- **Node & HA runtime hardening** — `enroll`/`renew` blocking HTTP runs inside `spawn_blocking` with atomic `.tmp` + rename credential persistence (`node.key` written only after server acceptance); input worker skips timed-out commands via `reply.is_closed()` and guarantees mouse button release on `Drag` error; Windows UIA `get_a11y_tree` propagates root errors and marks `truncated=true` on child walk errors; `self_update` guards `commit_pending` against concurrent rollouts and writes `pending.json` immediately before restart; `stop_recording` preserves the session on transient error; MinIO upload timeout covers response body drain; iOS WDA clears session ID conditionally (`clear_sid_if`); controller `ReapOnce`/`IsActiveInCluster` fail safe when Redis is unreachable; Console canvas guards against out-of-order async frame decode on node switch.
+- **节点端与 HA 运行时稳健性加固**:`enroll`/`renew` 阻塞 HTTP 迁入 `spawn_blocking` 并采用 `.tmp` + rename 原子落盘(服务端签发成功后才写 `node.key`);输入工作线程通过 `reply.is_closed()` 丢弃已超时指令并在 `Drag` 异常时兜底释放鼠标按键;Windows UIA `get_a11y_tree` 传播根节点错误并在子节点遍历失败时标记 `truncated=true`;`self_update` 为 `commit_pending` 加 `IN_FLIGHT` 互斥且在重启前夕才写 `pending.json`;`stop_recording` 在瞬态错误时保留会话、MinIO 上传超时覆盖响应体读取、iOS WDA 条件清理失效 `sid`;控制面 `ReapOnce`/`IsActiveInCluster` 在 Redis 瞬断时保守免驱逐;前端画布修复切换节点时的异步解码乱序覆写。
+
 ## [0.4.0] - 2026-08-11
 
 Reliability release: make "online but silently broken" impossible to miss, and make fleet rollouts safe to automate.

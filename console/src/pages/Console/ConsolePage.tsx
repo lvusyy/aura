@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Drawer,
   Empty,
   Input,
   InputNumber,
@@ -16,10 +17,18 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
-import { AimOutlined, ReloadOutlined, SettingOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import {
+  AimOutlined,
+  ApartmentOutlined,
+  CopyOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { adminClient, consoleClient } from "../../api/transport";
 import type { NodeInfo } from "../../gen/aura/v1/node_pb";
@@ -50,6 +59,76 @@ const T_CLICK = "click";
 const T_DOUBLE_CLICK = "double_click";
 const T_TYPE = "type";
 const T_KEY = "key";
+const T_A11Y = "get_a11y_tree";
+
+type LocatedState = Pick<
+  LocateElementResponse,
+  | "found"
+  | "status"
+  | "message"
+  | "source"
+  | "confidence"
+  | "existenceProb"
+  | "latencyMs"
+  | "snapshotId"
+  | "bounds"
+  | "displayBounds"
+  | "clickPoint"
+  | "displayClickPoint"
+  | "role"
+  | "name"
+  | "caption"
+  | "screenW"
+  | "screenH"
+  | "scale"
+  | "candidates"
+>;
+
+interface RawA11yNode {
+  role?: string;
+  name?: string;
+  value?: string;
+  bounds?: number[];
+  children?: RawA11yNode[];
+}
+
+interface FlatA11yItem {
+  id: string;
+  depth: number;
+  role: string;
+  name: string;
+  value: string;
+  bounds: [number, number, number, number] | null;
+}
+
+function flattenA11yNodes(nodes: RawA11yNode[] | undefined, depth = 0, out: FlatA11yItem[] = []): FlatA11yItem[] {
+  if (!Array.isArray(nodes)) {
+    return out;
+  }
+  for (const n of nodes) {
+    const role = (n.role ?? "").trim();
+    const name = (n.name ?? "").trim();
+    const value = (n.value ?? "").trim();
+    const bounds: [number, number, number, number] | null =
+      Array.isArray(n.bounds) && n.bounds.length === 4
+        ? [Number(n.bounds[0]), Number(n.bounds[1]), Number(n.bounds[2]), Number(n.bounds[3])]
+        : null;
+    if (name || value || (bounds && bounds[2] > 0 && bounds[3] > 0)) {
+      out.push({
+        id: `${out.length}-${role}-${name}`,
+        depth,
+        role: role || "node",
+        name,
+        value,
+        bounds,
+      });
+    }
+    if (Array.isArray(n.children) && n.children.length > 0) {
+      flattenA11yNodes(n.children, depth + 1, out);
+    }
+  }
+  return out;
+}
 
 const QUICK_KEYS: Array<{ label: string; key: string }> = [
   { label: "回车 (Enter)", key: "Return" },
@@ -164,10 +243,19 @@ export function ConsolePage() {
   const [verifyClick, setVerifyClick] = useState(true);
   const [sendEnterAfterType, setSendEnterAfterType] = useState(false);
   const [jevBusy, setJevBusy] = useState(false);
-  const [located, setLocated] = useState<LocateElementResponse | null>(null);
+  const [located, setLocated] = useState<LocatedState | null>(null);
   const [lastClickInfo, setLastClickInfo] = useState<string | null>(null);
   const [lastVerified, setLastVerified] = useState<boolean | null>(null);
+  const [hoverCoord, setHoverCoord] = useState<[number, number] | null>(null);
   const jevAbortRef = useRef<AbortController | null>(null);
+
+  // A11y 无障碍树检视器状态
+  const [a11yDrawerOpen, setA11yDrawerOpen] = useState(false);
+  const [a11yDepth, setA11yDepth] = useState<number>(8);
+  const [a11ySearch, setA11ySearch] = useState("");
+  const [a11yLoading, setA11yLoading] = useState(false);
+  const [a11yTruncated, setA11yTruncated] = useState(false);
+  const [a11yItems, setA11yItems] = useState<FlatA11yItem[]>([]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -191,6 +279,9 @@ export function ConsolePage() {
     setJevBusy(false);
     setLocated(null);
     setLastClickInfo(null);
+    setHoverCoord(null);
+    setA11yItems([]);
+    setA11yTruncated(false);
   }, [nodeId]);
 
   // 选中节点对象（能力子集用于剔除工具防御）。节点下线离开在线列表时 selected=null → 轮询与交互自动停。
@@ -202,6 +293,7 @@ export function ConsolePage() {
   const canDoubleClick = selected !== null && selected.tools.includes(T_DOUBLE_CLICK);
   const canType = selected !== null && selected.tools.includes(T_TYPE);
   const canKey = selected !== null && selected.tools.includes(T_KEY);
+  const canA11y = selected !== null && selected.tools.includes(T_A11Y);
   // Android(Redroid) 节点可切 Tango WebCodecs 实时流（平台串如 "android13"）；非 android 节点仅截图轮询。
   const isAndroid = selected !== null && selected.platform.toLowerCase().startsWith("android");
 
@@ -304,6 +396,128 @@ export function ConsolePage() {
       );
     },
     [canClick, sending, frameRef, dispatchAction],
+  );
+
+  // 画布鼠标悬停实时坐标 HUD（辅助编写自动化脚本与排障）。
+  const onCanvasMouseMove = useCallback(
+    (e: ReactMouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      const frame = frameRef.current;
+      if (!canvas || !frame) {
+        return;
+      }
+      const [cx, cy] = canvasClickToDisplay(canvas, e.clientX, e.clientY, frame);
+      setHoverCoord((prev) => (prev && prev[0] === cx && prev[1] === cy ? prev : [cx, cy]));
+    },
+    [frameRef],
+  );
+
+  const onCanvasMouseLeave = useCallback(() => {
+    setHoverCoord(null);
+  }, []);
+
+  // 一键复制当前目标元素的 auractl CLI 调用命令
+  const onCopyCliCommand = useCallback(() => {
+    const q = targetQuery.trim();
+    if (!nodeId || !q) {
+      return;
+    }
+    const flags = [
+      "click-element",
+      nodeId,
+      JSON.stringify(q),
+      ...(forceVision ? ["--force-vision"] : []),
+      ...(verifyClick ? ["--verify"] : []),
+    ];
+    const cmd = `auractl ${flags.join(" ")}`;
+    void navigator.clipboard.writeText(cmd).then(
+      () => msgApi.success(`已复制 CLI 命令：${cmd}`),
+      () => msgApi.info(`CLI 命令：${cmd}`),
+    );
+  }, [nodeId, targetQuery, forceVision, verifyClick, msgApi]);
+
+  // 拉取节点无障碍树（get_a11y_tree）供检视器展示与画布联动高亮
+  const fetchA11yTree = useCallback(async () => {
+    if (!nodeId || !canA11y || a11yLoading) {
+      return;
+    }
+    setA11yLoading(true);
+    try {
+      const resp = await adminClient.dispatchTool({
+        nodeId,
+        tool: T_A11Y,
+        jsonArgs: encodeToolArgs({ depth: a11yDepth, max_nodes: 1500 }),
+        deadlineMs: ACTION_DEADLINE_MS,
+        who: WHO,
+        traceId: "",
+      });
+      const env = decodeEnvelope(resp.jsonEnvelope);
+      if (env.ok === true && env.data && typeof env.data === "object") {
+        const resObj = env.data as { nodes?: RawA11yNode[]; truncated?: boolean };
+        const flat = flattenA11yNodes(resObj.nodes);
+        setA11yItems(flat);
+        setA11yTruncated(Boolean(resObj.truncated));
+      } else {
+        msgApi.error(`读取无障碍树失败：${envError(env)}`);
+      }
+    } catch (err) {
+      msgApi.error(`读取无障碍树异常：${describeError(err)}`);
+    } finally {
+      setA11yLoading(false);
+    }
+  }, [nodeId, canA11y, a11yLoading, a11yDepth, msgApi]);
+
+  useEffect(() => {
+    if (a11yDrawerOpen && canA11y && a11yItems.length === 0 && !a11yLoading) {
+      void fetchA11yTree();
+    }
+  }, [a11yDrawerOpen, canA11y, a11yItems.length, a11yLoading, fetchA11yTree]);
+
+  const filteredA11yItems = useMemo(() => {
+    const q = a11ySearch.trim().toLowerCase();
+    if (!q) {
+      return a11yItems;
+    }
+    return a11yItems.filter(
+      (it) =>
+        it.role.toLowerCase().includes(q) ||
+        it.name.toLowerCase().includes(q) ||
+        it.value.toLowerCase().includes(q),
+    );
+  }, [a11yItems, a11ySearch]);
+
+  const onHighlightA11yItem = useCallback(
+    (item: FlatA11yItem) => {
+      if (!item.bounds) {
+        return;
+      }
+      const [x, y, w, h] = item.bounds;
+      const cx = Math.round(x + w / 2);
+      const cy = Math.round(y + h / 2);
+      setLocated({
+        found: true,
+        status: "ok",
+        message: "来自 A11y 元素检视器手动高亮",
+        source: "a11y",
+        confidence: 1,
+        existenceProb: 1,
+        latencyMs: 0n,
+        snapshotId: "",
+        bounds: [x, y, w, h],
+        displayBounds: [x, y, w, h],
+        clickPoint: [cx, cy],
+        displayClickPoint: [cx, cy],
+        role: item.role,
+        name: item.name || item.value,
+        caption: "",
+        screenW: 0,
+        screenH: 0,
+        scale: 1,
+        candidates: [],
+      });
+      msgApi.success(`已在画布高亮 [${item.role}] ${item.name || item.value || ""}`);
+    },
+    [msgApi],
   );
 
   // 输入框回车/按钮 → type 透传（成功后自动清空输入框，可选自动发送回车）。
@@ -515,6 +729,13 @@ export function ConsolePage() {
           <Col>
             <Space wrap>
               {visionModeTag(visionSettings)}
+              <Button
+                icon={<ApartmentOutlined />}
+                disabled={!canA11y}
+                onClick={() => setA11yDrawerOpen(true)}
+              >
+                A11y 元素检视器
+              </Button>
               <Button icon={<SettingOutlined />} onClick={() => setVisionDrawerOpen(true)}>
                 Jev 视觉配置
               </Button>
@@ -606,6 +827,15 @@ export function ConsolePage() {
                 >
                   一步点击
                 </Button>
+                <Tooltip title="复制等价的 auractl click-element CLI 命令">
+                  <Button
+                    icon={<CopyOutlined />}
+                    disabled={!selected || !targetQuery.trim()}
+                    onClick={onCopyCliCommand}
+                  >
+                    复制 CLI
+                  </Button>
+                </Tooltip>
                 {located?.found ? (
                   <Button
                     size="small"
@@ -702,6 +932,21 @@ export function ConsolePage() {
         title="设备画面"
         extra={
           <Space>
+            {hoverCoord ? (
+              <Tooltip title="点击复制当前鼠标所在的 display 空间坐标">
+                <Tag
+                  color="cyan"
+                  style={{ fontFamily: "monospace", cursor: "pointer" }}
+                  onClick={() => {
+                    const text = `[${hoverCoord[0]}, ${hoverCoord[1]}]`;
+                    void navigator.clipboard.writeText(text);
+                    msgApi.success(`已复制坐标 ${text}`);
+                  }}
+                >
+                  坐标 [{hoverCoord[0]}, {hoverCoord[1]}]
+                </Tag>
+              </Tooltip>
+            ) : null}
             {effectiveMode === "polling" && canScreenshot ? (
               <Button size="small" icon={<ReloadOutlined />} onClick={() => refreshNow?.()}>
                 刷新画面
@@ -749,6 +994,8 @@ export function ConsolePage() {
                 onClick={onCanvasClick}
                 onDoubleClick={onCanvasDoubleClick}
                 onContextMenu={onCanvasContextMenu}
+                onMouseMove={onCanvasMouseMove}
+                onMouseLeave={onCanvasMouseLeave}
                 style={{
                   display: "block",
                   maxWidth: "100%",
@@ -863,6 +1110,122 @@ export function ConsolePage() {
         onClose={() => setVisionDrawerOpen(false)}
         onSaved={(s) => setVisionSettings(s)}
       />
+
+      <Drawer
+        title="A11y 无障碍树检视器（实时元素定位与调试）"
+        width={620}
+        open={a11yDrawerOpen}
+        onClose={() => setA11yDrawerOpen(false)}
+        extra={
+          <Space>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              采样深度
+            </Typography.Text>
+            <InputNumber
+              size="small"
+              min={1}
+              max={20}
+              value={a11yDepth}
+              onChange={(v) => setA11yDepth(v ?? 8)}
+              style={{ width: 68 }}
+            />
+            <Button
+              size="small"
+              type="primary"
+              icon={<ReloadOutlined />}
+              loading={a11yLoading}
+              disabled={!canA11y}
+              onClick={() => void fetchA11yTree()}
+            >
+              刷新无障碍树
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Input
+            allowClear
+            placeholder="过滤角色 (role) / 名称 (name) / 值 (value)，例如：Button、Edit、Settings"
+            value={a11ySearch}
+            onChange={(e) => setA11ySearch(e.target.value)}
+          />
+          <Space wrap>
+            <Tag color="geekblue">共提取 {a11yItems.length} 个有效控件</Tag>
+            <Tag color="cyan">当前匹配 {filteredA11yItems.length} 个</Tag>
+            {a11yTruncated ? <Tag color="orange">已达节点数/深度上限截断</Tag> : null}
+          </Space>
+          {filteredA11yItems.length === 0 ? (
+            <Empty description={a11yLoading ? "正在读取设备无障碍树…" : "暂无匹配的 A11y 元素"} />
+          ) : (
+            <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto", paddingRight: 4 }}>
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                {filteredA11yItems.slice(0, 150).map((item) => (
+                  <Card key={item.id} size="small" bodyStyle={{ padding: "8px 12px" }}>
+                    <Row justify="space-between" align="middle" gutter={[8, 4]}>
+                      <Col flex="auto">
+                        <Space size={6} wrap>
+                          <Tag color="green" style={{ marginInlineEnd: 0 }}>
+                            {item.role}
+                          </Tag>
+                          <Typography.Text strong>
+                            {item.name || <Typography.Text type="secondary">(无名称)</Typography.Text>}
+                          </Typography.Text>
+                          {item.value ? <Typography.Text code>val={item.value}</Typography.Text> : null}
+                          {item.bounds ? (
+                            <Typography.Text type="secondary" style={{ fontSize: 12, fontFamily: "monospace" }}>
+                              [{item.bounds.join(", ")}]
+                            </Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Col>
+                      <Col>
+                        <Space size={4}>
+                          {item.name || item.value ? (
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                setTargetQuery(item.name || item.value);
+                                msgApi.info(`已填入定位词：${item.name || item.value}`);
+                              }}
+                            >
+                              填入定位
+                            </Button>
+                          ) : null}
+                          {item.bounds && item.bounds[2] > 0 && item.bounds[3] > 0 ? (
+                            <Button size="small" onClick={() => onHighlightA11yItem(item)}>
+                              画布高亮
+                            </Button>
+                          ) : null}
+                          {item.bounds && item.bounds[2] > 0 && item.bounds[3] > 0 && canClick ? (
+                            <Button
+                              size="small"
+                              type="primary"
+                              ghost
+                              disabled={sending}
+                              onClick={() => {
+                                const [x, y, w, h] = item.bounds!;
+                                const cx = Math.round(x + w / 2);
+                                const cy = Math.round(y + h / 2);
+                                void dispatchAction(
+                                  T_CLICK,
+                                  { coordinate: [cx, cy], coord_space: "native" },
+                                  `点击 A11y 元素 ${item.name || item.role} [${cx},${cy}]`,
+                                );
+                              }}
+                            >
+                              直接点击
+                            </Button>
+                          ) : null}
+                        </Space>
+                      </Col>
+                    </Row>
+                  </Card>
+                ))}
+              </Space>
+            </div>
+          )}
+        </Space>
+      </Drawer>
     </Space>
   );
 }

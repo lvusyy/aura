@@ -1035,6 +1035,7 @@ export function FleetPage() {
   const [view, setView] = useState<"card" | "table">("card");
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
   // 默认视图「在线」（M12 T17）：打开即见活跃节点，不再一屏僵尸；用户要看离线再切筛选。
   const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline">("online");
   const [addOpen, setAddOpen] = useState(false);
@@ -1089,7 +1090,17 @@ export function FleetPage() {
     ];
   }, [stream.nodes]);
 
-  // 按状态（在线/离线/全部）+ 平台 + 文本（名称/标签/位置/ID）筛选，解决离线/在线混显（M12 舰队治理）。
+  // 项目筛选选项（M15）：舰队现存项目并集 + 「全部项目」 + 「未归属项目」。
+  const projectOptions = useMemo(() => {
+    const present = [...new Set(stream.nodes.map((n) => n.project).filter(Boolean))].sort();
+    return [
+      { label: "全部项目", value: "" },
+      { label: "未归属项目", value: "__unassigned__" },
+      ...present.map((p) => ({ label: `项目: ${p}`, value: p })),
+    ];
+  }, [stream.nodes]);
+
+  // 按状态（在线/离线/全部）+ 平台 + 项目 + 文本（名称/标签/位置/IP/系统/项目/ID）筛选，解决离线/在线混显（M12 舰队治理）。
   // 状态口径：offline=无活跃会话；online 桶含 unhealthy（亚健康仍在连，与「删除仅 offline」呼应）。offline
   // 节点持久 name/label 同样可搜（TASK-005 List offline）。
   const filteredNodes = useMemo(() => {
@@ -1104,6 +1115,12 @@ export function FleetPage() {
       if (platformFilter && n.platform !== platformFilter) {
         return false;
       }
+      if (projectFilter === "__unassigned__" && n.project !== "") {
+        return false;
+      }
+      if (projectFilter && projectFilter !== "__unassigned__" && n.project !== projectFilter) {
+        return false;
+      }
       if (!q) {
         return true;
       }
@@ -1112,12 +1129,15 @@ export function FleetPage() {
         n.label.toLowerCase().includes(q) ||
         n.location.toLowerCase().includes(q) ||
         n.nodeId.toLowerCase().includes(q) ||
+        n.ipAddress.toLowerCase().includes(q) ||
+        n.osVersion.toLowerCase().includes(q) ||
+        n.project.toLowerCase().includes(q) ||
         // 批D：宿主链/派生服务同步纳入搜索（按基础设施定位设备）。
         n.infraHost.toLowerCase().includes(q) ||
         n.attached.toLowerCase().includes(q)
       );
     });
-  }, [stream.nodes, statusFilter, platformFilter, search]);
+  }, [stream.nodes, statusFilter, platformFilter, projectFilter, search]);
 
   return (
     <NowProvider>
@@ -1167,10 +1187,10 @@ export function FleetPage() {
             <Input
               allowClear
               prefix={<SearchOutlined />}
-              placeholder="搜索名称 / 标签 / 位置 / 宿主 / ID"
+              placeholder="搜索名称 / 标签 / 位置 / IP / 项目 / 宿主 / ID"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ width: 260 }}
+              style={{ width: 290 }}
             />
             <Segmented
               value={statusFilter}
@@ -1185,6 +1205,12 @@ export function FleetPage() {
               value={platformFilter}
               onChange={(v) => setPlatformFilter(v)}
               options={platformOptions}
+              style={{ width: 150 }}
+            />
+            <Select<string>
+              value={projectFilter}
+              onChange={(v) => setProjectFilter(v)}
+              options={projectOptions}
               style={{ width: 160 }}
             />
           </Space>
