@@ -43,6 +43,18 @@ func NewHTTPJevClient(endpoint, token string, timeout time.Duration) *HTTPJevCli
 	}
 }
 
+// NewHTTPJevClientWithClient 构造复用外部 *http.Client 连接池的 Jev HTTP 客户端。
+func NewHTTPJevClientWithClient(endpoint, token string, hc *http.Client) *HTTPJevClient {
+	if hc == nil {
+		return NewHTTPJevClient(endpoint, token, defaultJevTimeout)
+	}
+	return &HTTPJevClient{
+		endpoint: normalizeSystemOneURL(endpoint),
+		token:    strings.TrimSpace(token),
+		hc:       hc,
+	}
+}
+
 func normalizeSystemOneURL(raw string) string {
 	ep := strings.TrimRight(strings.TrimSpace(raw), "/")
 	if ep == "" {
@@ -112,7 +124,7 @@ func (c *HTTPJevClient) Evaluate(ctx context.Context, reqPayload SystemOneReques
 					continue
 				}
 				var ans SystemOneAnswer
-				if err := json.Unmarshal(v, &ans); err == nil && (ans.Type != "" || ans.Choice != "" || ans.Box != nil || ans.Noul > 0 || ans.Score > 0 || len(ans.Probabilities) > 0) {
+				if err := json.Unmarshal(v, &ans); err == nil && (ans.Type != "" || ans.Choice != "" || ans.Box != nil || ans.HasNoul || ans.Noul > 0 || ans.Score > 0 || len(ans.Probabilities) > 0) {
 					out.Answers[k] = ans
 				}
 			}
@@ -210,8 +222,16 @@ func ProbeVisionSettings(ctx context.Context, cfg store.VisionSettings, localDet
 			modelName = "omniparser-florence2"
 		}
 		if serr != nil {
+			if mode == "auto" && strings.TrimSpace(cfg.APIKey) != "" && strings.TrimSpace(cfg.CloudEndpoint) != "" {
+				cloudCfg := cfg
+				cloudCfg.Mode = "cloud"
+				cr := ProbeVisionSettings(ctx, cloudCfg, localDetectorToken)
+				cr.Mode = "auto"
+				cr.Message = fmt.Sprintf("本地 /v1/systemone 异常 (%v)，云端回退链路: %s", serr, cr.Message)
+				return cr
+			}
 			return ProbeResult{
-				OK:           true,
+				OK:           false,
 				Mode:         mode,
 				Endpoint:     base,
 				Device:       h.Device,
@@ -309,7 +329,7 @@ func ProbeVisionSettings(ctx context.Context, cfg store.VisionSettings, localDet
 		return ProbeResult{
 			OK:      false,
 			Mode:    mode,
-			Message: fmt.Sprintf("未知视觉模式 %q（支持 disabled | local | cloud）", mode),
+			Message: fmt.Sprintf("未知视觉模式 %q（支持 disabled | local | cloud | auto）", mode),
 		}
 	}
 }

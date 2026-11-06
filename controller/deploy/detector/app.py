@@ -293,6 +293,10 @@ def _ground_phrase_florence(img, target: str):
     return None
 
 
+MAX_IMAGE_BYTES = int(os.environ.get("DETECTOR_MAX_IMAGE_BYTES", str(15 * 1024 * 1024)))
+MAX_CHOICES = int(os.environ.get("DETECTOR_MAX_CHOICES", "128"))
+
+
 def _extract_state_inputs(payload: dict):
     """Extract (PIL.Image or None, state_text, target_hint) from SystemOne payload."""
     from PIL import Image
@@ -312,19 +316,22 @@ def _extract_state_inputs(payload: dict):
             elif itype == "image":
                 src = item.get("source") or {}
                 b64 = src.get("data") or item.get("data") or ""
-                if b64:
+                if b64 and len(b64) <= (MAX_IMAGE_BYTES * 4 // 3 + 128):
                     raw = base64.b64decode(b64)
-                    im = Image.open(io.BytesIO(raw))
-                    im.load()
-                    img = im.convert("RGB")
+                    if len(raw) <= MAX_IMAGE_BYTES:
+                        im = Image.open(io.BytesIO(raw))
+                        im.load()
+                        img = im.convert("RGB")
             elif itype == "image_url":
                 url = (item.get("image_url") or {}).get("url", "")
                 if ";base64," in url:
                     b64 = url.split(";base64,", 1)[1]
-                    raw = base64.b64decode(b64)
-                    im = Image.open(io.BytesIO(raw))
-                    im.load()
-                    img = im.convert("RGB")
+                    if len(b64) <= (MAX_IMAGE_BYTES * 4 // 3 + 128):
+                        raw = base64.b64decode(b64)
+                        if len(raw) <= MAX_IMAGE_BYTES:
+                            im = Image.open(io.BytesIO(raw))
+                            im.load()
+                            img = im.convert("RGB")
     target = str(payload.get("target") or "").strip()
     if not target:
         questions = payload.get("questions") or {}
@@ -364,27 +371,15 @@ def _systemone_infer(payload: dict) -> dict:
     img, state_text, target = _extract_state_inputs(payload)
     questions = payload.get("questions") or {}
 
-    yolo_kept = _yolo_boxes(img) if img is not None else []
-    grounded = _ground_phrase_florence(img, target) if (img is not None and target) else None
-    if grounded is not None and yolo_kept:
-        gx1, gy1, gx2, gy2, gconf = grounded
-        best_iou, best_box = 0.0, None
-        for (x1, y1, x2, y2, yconf, _) in yolo_kept:
-            iou = _iou_xyxy((gx1, gy1, gx2, gy2), (x1, y1, x2, y2))
-            if iou > best_iou:
-                best_iou = iou
-                best_box = (x1, y1, x2, y2, max(gconf, yconf))
-        if best_box is not None and best_iou >= 0.25:
-            grounded = best_box
-
     # Gather all choices from any choice question to share candidate scoring with noul/score/box
     all_choices = []
     for q in questions.values():
         if isinstance(q, dict) and q.get("type") == "choice":
-            all_choices = [str(c) for c in (q.get("choices") or [])]
+            all_choices = [str(c) for c in (q.get("choices") or [])][:MAX_CHOICES]
             break
 
     choice_scores = []
+    has_choice_bboxes = False
     if all_choices:
         for idx, cstr in enumerate(all_choices):
             clean_label = _strip_choice_meta(cstr)
@@ -392,26 +387,23 @@ def _systemone_infer(payload: dict) -> dict:
             if sim == 0.0:
                 sim = _text_similarity(target, cstr) * 0.6
             cbbox = _parse_choice_bbox(cstr)
+            if cbbox is not None:
+                has_choice_bboxes = True
             choice_scores.append([idx, cstr, cbbox, sim, clean_label])
 
     best_lex = max((item[3] for item in choice_scores), default=0.0)
 
-    # Verify phrase-grounding box and caption top-K unlabeled/small candidate crops in ONE GPU batch when lexical match is weak
-    if best_lex < 0.65 and img is not None:
+    # Skip redundant _yolo_boxes(img) when caller already supplied candidate bounding boxes from /detect
+    needs_yolo = (img is not None) and (not has_choice_bboxes)
+    yolo_kept = _yolo_boxes(img) if needs_yolo else []
+    grounded = None
+
+    # Step 1: When lexical match on supplied labels is weak (<0.65), batch-caption top-K unlabeled/small candidate crops first
+    if best_lex < 0.65 and img is not None and choice_scores:
         w, h = img.size
         batch_crops = []
-        batch_tags = []  # ("grounded", -1) or ("choice", idx)
+        batch_tags = []
 
-        if grounded is not None:
-            gx1 = max(0, min(w - 1, int(grounded[0])))
-            gy1 = max(0, min(h - 1, int(grounded[1])))
-            gx2 = max(gx1 + 1, min(w, int(grounded[2])))
-            gy2 = max(gy1 + 1, min(h, int(grounded[3])))
-            if gx2 - gx1 >= 3 and gy2 - gy1 >= 3:
-                batch_crops.append(img.crop((gx1, gy1, gx2, gy2)))
-                batch_tags.append(("grounded", -1))
-
-        # Prioritize unlabeled visual candidates (clean_label == "") and smaller specific controls over large container boxes
         def _cand_area(cb):
             if cb is None:
                 return 1e12
@@ -423,7 +415,7 @@ def _systemone_infer(payload: dict) -> dict:
         )
         for item in candidate_order:
             idx, cstr, cbbox, sim, clean_label = item
-            if cbbox is None or len(batch_crops) >= max(TOP_K_ICON_CAPTIONS, 12) + 1:
+            if cbbox is None or len(batch_crops) >= max(TOP_K_ICON_CAPTIONS, 12):
                 continue
             x1 = max(0, min(w - 1, int(cbbox[0])))
             y1 = max(0, min(h - 1, int(cbbox[1])))
@@ -433,27 +425,51 @@ def _systemone_infer(payload: dict) -> dict:
             if bw < 3 or bh < 3 or (bw * bh) > 0.30 * (w * h):
                 continue
             batch_crops.append(img.crop((x1, y1, x2, y2)))
-            batch_tags.append(("choice", idx))
+            batch_tags.append(idx)
 
         if batch_crops:
             caps = _caption(batch_crops)
-            grounded_verified = False
-            for (tag_kind, tag_idx), cap in zip(batch_tags, caps):
+            for tag_idx, cap in zip(batch_tags, caps):
                 cap_sim = _text_similarity(target, cap)
-                if tag_kind == "grounded":
-                    if cap_sim >= 0.30:
-                        grounded_verified = True
-                        grounded = (grounded[0], grounded[1], grounded[2], grounded[3], max(0.75, cap_sim))
-                elif tag_kind == "choice" and cap_sim > choice_scores[tag_idx][3]:
+                if cap_sim > choice_scores[tag_idx][3]:
                     choice_scores[tag_idx][3] = cap_sim
-            if grounded is not None and not grounded_verified:
-                # Check if grounded overlaps any candidate that now has >=0.35 similarity
+
+    best_after_crops = max((item[3] for item in choice_scores), default=0.0)
+
+    # Step 2: Only invoke full-image phrase grounding when candidate crop captions still lack a confident match (<0.55)
+    if best_after_crops < 0.55 and img is not None and target:
+        grounded = _ground_phrase_florence(img, target)
+        if grounded is not None:
+            w, h = img.size
+            gx1 = max(0, min(w - 1, int(grounded[0])))
+            gy1 = max(0, min(h - 1, int(grounded[1])))
+            gx2 = max(gx1 + 1, min(w, int(grounded[2])))
+            gy2 = max(gy1 + 1, min(h, int(grounded[3])))
+            grounded_verified = False
+            if gx2 - gx1 >= 3 and gy2 - gy1 >= 3:
+                g_caps = _caption([img.crop((gx1, gy1, gx2, gy2))])
+                if g_caps:
+                    g_sim = _text_similarity(target, g_caps[0])
+                    if g_sim >= 0.30:
+                        grounded_verified = True
+                        grounded = (grounded[0], grounded[1], grounded[2], grounded[3], max(0.75, g_sim))
+            if not grounded_verified:
                 overlaps_match = any(
                     it[2] is not None and it[3] >= 0.35 and _iou_xyxy((grounded[0], grounded[1], grounded[2], grounded[3]), it[2]) >= 0.25
                     for it in choice_scores
                 )
                 if not overlaps_match:
                     grounded = None
+            if grounded is not None and yolo_kept:
+                gx1, gy1, gx2, gy2, gconf = grounded
+                best_iou, best_box = 0.0, None
+                for (x1, y1, x2, y2, yconf, _) in yolo_kept:
+                    iou = _iou_xyxy((gx1, gy1, gx2, gy2), (x1, y1, x2, y2))
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_box = (x1, y1, x2, y2, max(gconf, yconf))
+                if best_box is not None and best_iou >= 0.25:
+                    grounded = best_box
 
     # Apply verified grounded box IoU boost to choice_scores
     if grounded is not None and choice_scores:
@@ -660,6 +676,15 @@ async def healthz():
     }
 
 
+def _decode_and_infer(body: bytes, with_caption: bool) -> dict:
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(body))
+    img.load()
+    img = img.convert("RGB")
+    return _infer(img, with_caption)
+
+
 @app.post("/detect")
 async def detect(request: Request):
     if not _check_bearer(request):
@@ -681,21 +706,18 @@ async def detect(request: Request):
         with_caption = CAPTION_MODE == "florence"
 
     body = await request.body()
-    try:
-        from PIL import Image
-
-        img = Image.open(io.BytesIO(body))
-        img.load()
-        img = img.convert("RGB")
-    except Exception:
-        return JSONResponse({"detail": "invalid image payload"}, status_code=400)
+    if not body or len(body) > MAX_IMAGE_BYTES:
+        return JSONResponse({"detail": "image payload empty or exceeds limit"}, status_code=413 if body else 400)
 
     if QUEUE_SEM.locked():
         return JSONResponse({"detail": "detector queue saturated"}, status_code=429)
 
-    async with QUEUE_SEM:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(EXECUTOR, _infer, img, with_caption)
+    try:
+        async with QUEUE_SEM:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(EXECUTOR, _decode_and_infer, body, with_caption)
+    except Exception:
+        return JSONResponse({"detail": "invalid image payload"}, status_code=400)
     return JSONResponse(result)
 
 

@@ -292,6 +292,9 @@ func (f *Forwarder) forward(ctx context.Context, peer peerTarget, nodeID, tool s
 // 方法只作只读分支的并列实现。hop 防环同 header：console 面经 InboundForwardMarker 同款包裹
 // （main.go 装配），owner 侧 Ready 失败不查 owner 不三次转发。
 func (f *Forwarder) TryForwardReadOnly(ctx context.Context, nodeID, tool string, jsonArgs []byte, deadlineMs int64, who string) (env []byte, err error, attempted bool) {
+	if tool != "screenshot" {
+		return f.TryForward(ctx, nodeID, tool, jsonArgs, deadlineMs, who, "")
+	}
 	owner, oerr := f.owners.GetNodeOwner(ctx, nodeID)
 	if oerr != nil {
 		slog.Warn("node owner lookup failed; treating as no owner", "node_id", nodeID, "err", oerr)

@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/fusion"
 	"github.com/aura/controller/internal/store"
 )
@@ -19,7 +21,21 @@ import (
 const (
 	defaultLocateDeadlineMs = 25_000
 	defaultClickDeadlineMs  = 30_000
+	candidateCacheTTL       = 15 * time.Second
+	maxCandidateCacheNodes  = 32
 )
+
+type readOnlyDispatcher interface {
+	DispatchReadOnly(ctx context.Context, nodeID, tool string, jsonArgs []byte, deadlineMs int64, who string) (*aurav1.ToolResponse, string, error)
+}
+
+type cachedVisualBoxes struct {
+	exactHash   uint64
+	dHash       uint64
+	withCaption bool
+	boxes       []fusion.VisualBox
+	at          time.Time
+}
 
 // SelectorEngine 编排三层混合定位（Tier 0 A11y → Tier 1 YOLO+Jev Choice/Noul → Tier 2 Jev Box）与一步点击。
 type SelectorEngine struct {
@@ -27,11 +43,13 @@ type SelectorEngine struct {
 	st                   *store.PGStore
 	defaultLocalEndpoint string
 	localDetectorToken   string
+	httpClient           *http.Client
 
 	mu          sync.RWMutex
 	memSettings store.VisionSettings
 	jevOverride JevClient
 	detOverride fusion.DetectorClient
+	candCache   map[string]cachedVisualBoxes
 }
 
 // NewSelectorEngine 构造 SelectorEngine。st 可为 nil（纯内存模式兜底）。
@@ -46,7 +64,9 @@ func NewSelectorEngine(
 		st:                   st,
 		defaultLocalEndpoint: strings.TrimRight(strings.TrimSpace(defaultLocalEndpoint), "/"),
 		localDetectorToken:   strings.TrimSpace(localDetectorToken),
+		httpClient:           &http.Client{Timeout: 20 * time.Second},
 		memSettings:          store.DefaultVisionSettings(defaultLocalEndpoint),
+		candCache:            make(map[string]cachedVisualBoxes),
 	}
 }
 
@@ -212,23 +232,38 @@ type nodeEnv struct {
 type shotPayload struct {
 	ImageBase64 string `json:"image_base64"`
 	Mime        string `json:"mime"`
+	SnapshotID  string `json:"snapshot_id"`
 	Meta        struct {
-		NativeW  int32   `json:"native_w"`
-		NativeH  int32   `json:"native_h"`
-		DisplayW int32   `json:"display_w"`
-		DisplayH int32   `json:"display_h"`
-		Scale    float64 `json:"scale"`
+		NativeW    int32   `json:"native_w"`
+		NativeH    int32   `json:"native_h"`
+		DisplayW   int32   `json:"display_w"`
+		DisplayH   int32   `json:"display_h"`
+		Scale      float64 `json:"scale"`
+		SnapshotID string  `json:"snapshot_id"`
 	} `json:"meta"`
 }
 
-func (e *SelectorEngine) dispatchNodeTool(ctx context.Context, nodeID, tool string, args []byte, deadlineMs int64, who string) (json.RawMessage, error) {
+func (e *SelectorEngine) dispatchNodeTool(ctx context.Context, nodeID, tool string, args []byte, deadlineMs int64, who, traceID string) (json.RawMessage, error) {
 	if e.disp == nil {
 		return nil, errors.New("selection: dispatcher not configured")
 	}
 	if len(args) == 0 {
 		args = []byte("{}")
 	}
-	resp, code, err := e.disp.Dispatch(ctx, nodeID, tool, args, deadlineMs, who, "")
+	var (
+		resp *aurav1.ToolResponse
+		code string
+		err  error
+	)
+	if traceID == "" && (tool == "screenshot" || tool == "get_a11y_tree") {
+		if ro, ok := e.disp.(readOnlyDispatcher); ok {
+			resp, code, err = ro.DispatchReadOnly(ctx, nodeID, tool, args, deadlineMs, who)
+		} else {
+			resp, code, err = e.disp.Dispatch(ctx, nodeID, tool, args, deadlineMs, who, "")
+		}
+	} else {
+		resp, code, err = e.disp.Dispatch(ctx, nodeID, tool, args, deadlineMs, who, traceID)
+	}
 	if code != "" || err != nil {
 		return nil, fmt.Errorf("dispatch %s to node %s failed (code=%s): %v", tool, nodeID, code, err)
 	}
@@ -245,21 +280,43 @@ func (e *SelectorEngine) dispatchNodeTool(ctx context.Context, nodeID, tool stri
 	return env.Data, nil
 }
 
-// matchA11yCandidate 在扁平化 A11y 元素中寻找最佳语义匹配。
+func isInteractiveRole(role string) bool {
+	switch role {
+	case "button", "push button", "toggle button", "radio button",
+		"check box", "checkbox", "link", "menuitem", "menu item",
+		"tab", "page tab", "entry", "text", "textbox", "searchbox",
+		"combobox", "combo box", "slider", "spinbutton", "switch":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasNegationIntent(q string) bool {
+	for _, neg := range []string{"not ", "except ", "other than ", "非", "除了", "不要"} {
+		if strings.Contains(q, neg) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchA11yCandidate 在扁平化 A11y 元素中寻找最佳语义匹配（带可交互角色加权与否定词守卫）。
 func matchA11yCandidate(flat []fusion.FusedElement, target string) (fusion.FusedElement, float64, bool) {
 	q := strings.ToLower(strings.TrimSpace(target))
-	if q == "" || len(flat) == 0 {
+	if q == "" || len(flat) == 0 || hasNegationIntent(q) {
 		return fusion.FusedElement{}, 0, false
 	}
 	var best fusion.FusedElement
 	bestScore := 0.0
+	bestArea := int64(math.MaxInt64)
 	for _, el := range flat {
 		name := strings.ToLower(strings.TrimSpace(el.Name))
 		role := strings.ToLower(strings.TrimSpace(el.Role))
 		score := 0.0
 		switch {
 		case name != "" && name == q:
-			score = 1.0
+			score = 0.97
 		case name != "" && strings.Contains(name, q):
 			score = 0.88
 		case role != "" && (role == q || (name != "" && strings.Contains(role+" "+name, q))):
@@ -267,12 +324,92 @@ func matchA11yCandidate(flat []fusion.FusedElement, target string) (fusion.Fused
 		case name != "" && strings.Contains(q, name) && len(name) >= 2:
 			score = 0.78
 		}
-		if score > bestScore {
+		if score > 0 && isInteractiveRole(role) {
+			score = math.Min(1.0, score+0.03)
+		}
+		area := int64(max(1, el.Bounds[2])) * int64(max(1, el.Bounds[3]))
+		if score > bestScore+1e-6 || (math.Abs(score-bestScore) <= 1e-6 && score > 0 && area < bestArea) {
 			bestScore = score
 			best = el
+			bestArea = area
 		}
 	}
 	return best, bestScore, bestScore > 0
+}
+
+func (e *SelectorEngine) getCachedBoxes(nodeID string, exactHash uint64, withCaption bool) ([]fusion.VisualBox, bool) {
+	if exactHash == 0 {
+		return nil, false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	entry, ok := e.candCache[nodeID]
+	if !ok || entry.exactHash != exactHash || entry.withCaption != withCaption {
+		return nil, false
+	}
+	if time.Since(entry.at) > candidateCacheTTL {
+		return nil, false
+	}
+	out := make([]fusion.VisualBox, len(entry.boxes))
+	copy(out, entry.boxes)
+	return out, true
+}
+
+func (e *SelectorEngine) putCachedBoxes(nodeID string, exactHash, dHash uint64, withCaption bool, boxes []fusion.VisualBox) {
+	if nodeID == "" || exactHash == 0 {
+		return
+	}
+	cp := make([]fusion.VisualBox, len(boxes))
+	copy(cp, boxes)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.candCache) >= maxCandidateCacheNodes {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range e.candCache {
+			if oldestKey == "" || v.at.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.at
+			}
+		}
+		if oldestKey != "" {
+			delete(e.candCache, oldestKey)
+		}
+	}
+	e.candCache[nodeID] = cachedVisualBoxes{
+		exactHash:   exactHash,
+		dHash:       dHash,
+		withCaption: withCaption,
+		boxes:       cp,
+		at:          time.Now(),
+	}
+}
+
+func (e *SelectorEngine) getLastShotHashes(nodeID string) (exactHash, dHash uint64, ok bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	entry, exists := e.candCache[nodeID]
+	if !exists || entry.exactHash == 0 {
+		return 0, 0, false
+	}
+	return entry.exactHash, entry.dHash, true
+}
+
+func (e *SelectorEngine) invalidateNodeCache(nodeID string) {
+	e.mu.Lock()
+	delete(e.candCache, nodeID)
+	e.mu.Unlock()
+}
+
+func computeA11yFingerprint(elems []fusion.FusedElement) string {
+	var b strings.Builder
+	for _, el := range elems {
+		if el.Source != "" && el.Source != "a11y" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s|%s|%d,%d,%d,%d;", el.Role, el.Name, el.Bounds[0], el.Bounds[1], el.Bounds[2], el.Bounds[3])
+	}
+	return b.String()
 }
 
 // Locate 执行三层混合元素定位。
@@ -296,15 +433,31 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 
 	cfg, err := e.GetSettings(ctx)
 	if err != nil {
+		// Fail-closed：当持久层发生非 NotFound 故障时，回落到 disabled（仅 A11y 确定性匹配），防止违背管理员已保存的禁用策略误发起外部视觉调用。
 		cfg = store.DefaultVisionSettings(e.defaultLocalEndpoint)
+		cfg.Mode = "disabled"
 	}
 
 	// 1. 采集 A11y 树（容错：若平台不支持 A11y 或采集失败，不阻断后续视觉分支）
 	var flatA11y []fusion.FusedElement
-	if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", nil, deadlineMs, who); aerr == nil {
+	var a11yTruncated bool
+	if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", nil, deadlineMs, who, in.TraceID); aerr == nil {
 		var tree fusion.A11yTree
 		if json.Unmarshal(treeRaw, &tree) == nil {
 			flatA11y = fusion.FlattenA11y(tree)
+			a11yTruncated = tree.Truncated
+		}
+	}
+
+	// 若默认 300 节点被截断且尚未命中高置信度候选，自动扩窗至 max_nodes=1000 重采一次
+	if a11yTruncated {
+		if _, score, ok := matchA11yCandidate(flatA11y, target); !ok || score < 0.85 {
+			if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", []byte(`{"max_nodes":1000}`), deadlineMs, who, in.TraceID); aerr == nil {
+				var tree fusion.A11yTree
+				if json.Unmarshal(treeRaw, &tree) == nil {
+					flatA11y = fusion.FlattenA11y(tree)
+				}
+			}
 		}
 	}
 
@@ -366,7 +519,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 	}
 
 	// 2. 采集节点屏幕截图
-	shotRaw, err := e.dispatchNodeTool(ctx, in.NodeID, "screenshot", nil, deadlineMs, who)
+	shotRaw, err := e.dispatchNodeTool(ctx, in.NodeID, "screenshot", nil, deadlineMs, who, in.TraceID)
 	if err != nil {
 		return LocateOutput{}, fmt.Errorf("locate screenshot: %w", err)
 	}
@@ -382,22 +535,33 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 	if meta.Scale <= 0 {
 		meta.Scale = 1.0
 	}
+	snapshotID := strings.TrimSpace(meta.SnapshotID)
+	if snapshotID == "" {
+		snapshotID = strings.TrimSpace(shot.SnapshotID)
+	}
 	mime := shot.Mime
 	if mime == "" {
 		mime = "image/webp"
 	}
+	exactHash := ComputeExactHash(imgBytes)
+	dHash, _ := ComputeDHash(imgBytes)
 
-	// 3. Tier 1: 快速 YOLO 几何框检测 (?caption=0 跳过全框 Florence 自回归生成) + A11y 合并
+	// 3. Tier 1: 快速 YOLO 几何框检测 (?caption=0 跳过全框 Florence 自回归生成，支持同屏感知缓存) + A11y 合并
 	candidates := flatA11y
 	detClient := e.resolveDetector(cfg)
 	if detClient != nil {
 		withCaption := cfg.CaptionMode == "florence"
-		var boxes []fusion.VisualBox
+		boxes, cached := e.getCachedBoxes(in.NodeID, exactHash, withCaption)
 		var derr error
-		if hd, ok := detClient.(*fusion.HTTPDetector); ok {
-			boxes, derr = hd.DetectWithOpts(ctx, imgBytes, mime, withCaption)
-		} else {
-			boxes, derr = detClient.Detect(ctx, imgBytes, mime)
+		if !cached {
+			if od, ok := detClient.(fusion.OptsDetectorClient); ok {
+				boxes, derr = od.DetectWithOpts(ctx, imgBytes, mime, withCaption)
+			} else {
+				boxes, derr = detClient.Detect(ctx, imgBytes, mime)
+			}
+			if derr == nil {
+				e.putCachedBoxes(in.NodeID, exactHash, dHash, withCaption, boxes)
+			}
 		}
 		if derr == nil && len(boxes) > 0 {
 			aligned := make([]fusion.VisualBoxNative, 0, len(boxes))
@@ -411,6 +575,8 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 			}
 			candidates = fusion.Merge(flatA11y, aligned, fusion.DefaultIoUThreshold)
 		}
+	} else {
+		e.putCachedBoxes(in.NodeID, exactHash, dHash, false, nil)
 	}
 
 	// 4. 组装 Jev SystemOne 请求（单次并发询问 Noul + Choice + Box）
@@ -472,9 +638,9 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 		if jerr == nil && sresp != nil {
 			noulProb := 1.0
 			if exAns, ok := sresp.Answers["exists"]; ok {
-				if exAns.Noul > 0 || len(exAns.Probabilities) > 0 {
+				if exAns.HasNoul || exAns.Type == QuestionNoul || exAns.Noul > 0 || len(exAns.Probabilities) > 0 {
 					noulProb = exAns.Noul
-					if yesP, ok := exAns.Probabilities["yes"]; ok && yesP > noulProb {
+					if yesP, ok := exAns.Probabilities["yes"]; ok && (!exAns.HasNoul || yesP > noulProb) {
 						noulProb = yesP
 					}
 				}
@@ -495,6 +661,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 					ScreenW:       meta.NativeW,
 					ScreenH:       meta.NativeH,
 					Scale:         meta.Scale,
+					SnapshotID:    snapshotID,
 					LatencyMs:     time.Since(t0).Milliseconds(),
 					Candidates:    candidates,
 					Message:       fmt.Sprintf("Jev Noul 存在概率 %.2f 低于阈值 %.2f，判定目标 %q 不存在", noulProb, cfg.NoulThreshold, target),
@@ -504,8 +671,12 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 			// 优先消费 Choice 候选选择结果
 			if pickAns, ok := sresp.Answers["pick"]; ok && len(candidates) > 0 {
 				idx := pickAns.ChoiceIndex
-				if (idx < 0 || idx >= len(candidates)) && pickAns.Choice != "" {
-					idx = parseChoiceIndex(pickAns.Choice, choices)
+				if (!pickAns.HasChoiceIndex && pickAns.Choice != "" && idx == 0) || idx < 0 || idx >= len(candidates) {
+					if parsed := parseChoiceIndex(pickAns.Choice, choices); parsed >= 0 {
+						idx = parsed
+					} else if !pickAns.HasChoiceIndex && pickAns.Choice != "" {
+						idx = -1
+					}
 				}
 				selProb := pickAns.Confidence
 				if selProb <= 0 && pickAns.Choice != "" {
@@ -534,6 +705,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 						ScreenW:           meta.NativeW,
 						ScreenH:           meta.NativeH,
 						Scale:             meta.Scale,
+						SnapshotID:        snapshotID,
 						LatencyMs:         time.Since(t0).Milliseconds(),
 						Candidates:        candidates,
 						Message:           fmt.Sprintf("Jev Choice 选中候选 #%d (noul=%.2f, prob=%.2f)", idx, noulProb, selProb),
@@ -587,6 +759,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 						ScreenW:           meta.NativeW,
 						ScreenH:           meta.NativeH,
 						Scale:             meta.Scale,
+						SnapshotID:        snapshotID,
 						LatencyMs:         time.Since(t0).Milliseconds(),
 						Candidates:        candidates,
 						Message:           fmt.Sprintf("Jev Box 视觉定位命中 (noul=%.2f, conf=%.2f)", noulProb, bconf),
@@ -620,6 +793,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 				ScreenW:           meta.NativeW,
 				ScreenH:           meta.NativeH,
 				Scale:             meta.Scale,
+				SnapshotID:        snapshotID,
 				LatencyMs:         time.Since(t0).Milliseconds(),
 				Candidates:        candidates,
 				Message:           fmt.Sprintf("融合候选 #%d 语义匹配命中", idx),
@@ -633,6 +807,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 		ScreenW:    meta.NativeW,
 		ScreenH:    meta.NativeH,
 		Scale:      meta.Scale,
+		SnapshotID: snapshotID,
 		LatencyMs:  time.Since(t0).Milliseconds(),
 		Candidates: candidates,
 		Message:    fmt.Sprintf("未定位到匹配 %q 的 UI 元素（共扫描 %d 个候选框）", target, len(candidates)),
@@ -642,7 +817,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 // Click 执行「定位 → 门控 → 点击 → 可选校验」一步闭环。
 //
 // 坐标传递策略：
-//   - 若 Locate 经过了 screenshot（Scale > 0 且 DisplayClickPoint 非零），同时传入 display 坐标与默认空间，
+//   - 若 Locate 经过了 screenshot（Scale > 0 且 DisplayClickPoint 非零），同时传入 display 坐标与 snapshot_id，
 //     或若仅经 Tier 0 A11y 命中（未触发 screenshot 更新节点 current_scale），显式传 coord_space="native"，
 //     彻底根除 scale!=1.0 时的二次缩放偏移。
 func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput, error) {
@@ -662,6 +837,7 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		ForceVision: in.ForceVision,
 		DeadlineMs:  deadlineMs,
 		Who:         who,
+		TraceID:     in.TraceID,
 	})
 	if err != nil {
 		return ClickOutput{}, err
@@ -677,13 +853,15 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		}, nil
 	}
 
+	preA11yFP := computeA11yFingerprint(loc.Candidates)
+	preExactHash, preDHash, hasPreShot := e.getLastShotHashes(in.NodeID)
+
 	btn := strings.ToLower(strings.TrimSpace(in.Button))
 	if btn == "" {
 		btn = "left"
 	}
 
-	// 若本次 Locate 采集过 screenshot（Source != "a11y"），节点侧 current_scale 已被本次 screenshot 刷新为 loc.Scale，
-	// 传 DisplayClickPoint（兼容旧版未升级 coord_space 的节点与新版节点）；
+	// 若本次 Locate 采集过 screenshot（Source != "a11y"），传入 DisplayClickPoint + snapshot_id；
 	// 若走 Tier 0 纯 A11y 命中（未调 screenshot），传原生坐标 ClickPoint + coord_space="native"。
 	clickArgs := map[string]any{
 		"button": btn,
@@ -694,10 +872,13 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 	} else {
 		clickArgs["coordinate"] = []int32{loc.DisplayClickPoint[0], loc.DisplayClickPoint[1]}
 		clickArgs["coord_space"] = "display"
+		if loc.SnapshotID != "" {
+			clickArgs["snapshot_id"] = loc.SnapshotID
+		}
 	}
 	rawArgs, _ := json.Marshal(clickArgs)
 
-	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who); cerr != nil {
+	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who, in.TraceID); cerr != nil {
 		return ClickOutput{
 			Located:        loc,
 			Clicked:        false,
@@ -708,11 +889,18 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		}, nil
 	}
 
+	// 点击已发生，立即失效该节点同屏候选缓存
+	e.invalidateNodeCache(in.NodeID)
+
 	verified := false
+	verifyNote := ""
 	if in.Verify {
-		if _, verr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", nil, 5_000, who); verr == nil {
-			verified = true
-		}
+		verified, verifyNote = e.verifyPostClickState(ctx, in.NodeID, preA11yFP, preExactHash, preDHash, hasPreShot, who, in.TraceID)
+	}
+
+	msg := fmt.Sprintf("已点击 %q @ native(%d,%d) / display(%d,%d)", in.Target, loc.ClickPoint[0], loc.ClickPoint[1], loc.DisplayClickPoint[0], loc.DisplayClickPoint[1])
+	if verifyNote != "" {
+		msg += " · " + verifyNote
 	}
 
 	return ClickOutput{
@@ -721,8 +909,54 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		Verified:       verified,
 		Status:         "clicked",
 		TotalLatencyMs: time.Since(t0).Milliseconds(),
-		Message:        fmt.Sprintf("已点击 %q @ native(%d,%d) / display(%d,%d)", in.Target, loc.ClickPoint[0], loc.ClickPoint[1], loc.DisplayClickPoint[0], loc.DisplayClickPoint[1]),
+		Message:        msg,
 	}, nil
+}
+
+// verifyPostClickState 执行点击后双层真实状态差分校验（L1 A11y 结构指纹对比 + L2 视觉感知哈希对比）。
+func (e *SelectorEngine) verifyPostClickState(
+	ctx context.Context,
+	nodeID string,
+	preA11yFP string,
+	preExactHash, preDHash uint64,
+	hasPreShot bool,
+	who, traceID string,
+) (bool, string) {
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return false, "后置校验超时"
+			case <-time.After(150 * time.Millisecond):
+			}
+		}
+		if preA11yFP != "" {
+			if treeRaw, aerr := e.dispatchNodeTool(ctx, nodeID, "get_a11y_tree", nil, 5_000, who, traceID); aerr == nil {
+				var tree fusion.A11yTree
+				if json.Unmarshal(treeRaw, &tree) == nil {
+					postFP := computeA11yFingerprint(fusion.FlattenA11y(tree))
+					if postFP != preA11yFP {
+						return true, "A11y 状态差分校验通过"
+					}
+				}
+			}
+		}
+		if hasPreShot {
+			if shotRaw, serr := e.dispatchNodeTool(ctx, nodeID, "screenshot", nil, 5_000, who, traceID); serr == nil {
+				var shot shotPayload
+				if json.Unmarshal(shotRaw, &shot) == nil {
+					if postBytes, derr := base64.StdEncoding.DecodeString(shot.ImageBase64); derr == nil && len(postBytes) > 0 {
+						postExact := ComputeExactHash(postBytes)
+						postDHash, ok := ComputeDHash(postBytes)
+						if (ok && HammingDistance(preDHash, postDHash) >= 1) || postExact != preExactHash {
+							return true, "视觉帧差分校验通过"
+						}
+					}
+				}
+			}
+		}
+	}
+	return false, "点击后界面状态未见显著变化"
 }
 
 func (e *SelectorEngine) resolveDetector(cfg store.VisionSettings) fusion.DetectorClient {
@@ -754,17 +988,17 @@ func (e *SelectorEngine) resolveJevClient(cfg store.VisionSettings) JevClient {
 		if cfg.CloudEndpoint == "" || cfg.APIKey == "" {
 			return nil
 		}
-		return NewHTTPJevClient(cfg.CloudEndpoint, cfg.APIKey, 20*time.Second)
+		return NewHTTPJevClientWithClient(cfg.CloudEndpoint, cfg.APIKey, e.httpClient)
 	case "local", "auto":
 		ep := normalizeBaseURL(cfg.LocalEndpoint)
 		if ep == "" {
 			ep = e.defaultLocalEndpoint
 		}
 		if ep != "" {
-			return NewHTTPJevClient(ep, e.localDetectorToken, 20*time.Second)
+			return NewHTTPJevClientWithClient(ep, e.localDetectorToken, e.httpClient)
 		}
 		if cfg.Mode == "auto" && cfg.CloudEndpoint != "" && cfg.APIKey != "" {
-			return NewHTTPJevClient(cfg.CloudEndpoint, cfg.APIKey, 20*time.Second)
+			return NewHTTPJevClientWithClient(cfg.CloudEndpoint, cfg.APIKey, e.httpClient)
 		}
 		return nil
 	default:
@@ -776,7 +1010,7 @@ func (e *SelectorEngine) resolveCloudFallbackJevClient(cfg store.VisionSettings)
 	if cfg.Mode != "auto" || cfg.CloudEndpoint == "" || cfg.APIKey == "" {
 		return nil
 	}
-	return NewHTTPJevClient(cfg.CloudEndpoint, cfg.APIKey, 20*time.Second)
+	return NewHTTPJevClientWithClient(cfg.CloudEndpoint, cfg.APIKey, e.httpClient)
 }
 
 func parseChoiceIndex(choice string, choices []string) int {

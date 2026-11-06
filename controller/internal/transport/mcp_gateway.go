@@ -3,8 +3,9 @@
 // 唯一对外入口——测试机保持纯内网（节点 /mcp 可只绑 loopback 或关闭对外暴露），controller 是
 // 单点鉴权/审计/观测面。
 //
-// 哑管道纪律：网关不解析 JSON-RPC——initialize/tools/list/tools/call 的语义、schema、协议版本
-// 协商全部由节点 rmcp 面单一承载，网关语义与 agent 直连节点严格一致（未来 MCP 演进零跟进成本）。
+// 哑管道纪律与合成扩展：节点原生 MCP 请求（initialize/tools/call 等）保持透传至节点 rmcp 面；
+// 当装配了 SelectorEngine 时，网关在 tools/list 追加合成高层语义工具（locate_element / click_element）
+// 并在 tools/call 拦截此二工具，在控制面完成三层混合定位闭环。
 package transport
 
 import (
@@ -239,9 +240,23 @@ func tryServeGatewayJevTool(
 		ForceVision bool   `json:"force_vision"`
 		Verify      bool   `json:"verify"`
 		DeadlineMs  int64  `json:"deadline_ms"`
+		TraceID     string `json:"trace_id"`
 	}
 	if len(rpcReq.Params.Arguments) > 0 {
-		_ = json.Unmarshal(rpcReq.Params.Arguments, &args)
+		if err := json.Unmarshal(rpcReq.Params.Arguments, &args); err != nil {
+			errResp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"error": map[string]any{
+					"code":    -32602,
+					"message": "Invalid params: " + err.Error(),
+				},
+			}
+			outBytes, _ := json.Marshal(errResp)
+			writeMcpProxyReply(w, http.StatusOK, "application/json", outBytes)
+			auditMcpGateway(r, nodeID, http.StatusOK, len(body), "jev-invalid-params")
+			return true
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), mcpGatewayTimeout)
@@ -253,6 +268,7 @@ func tryServeGatewayJevTool(
 	}
 
 	var payload any
+	isToolErr := false
 	switch toolName {
 	case "locate_element":
 		out, err := selector.Locate(ctx, selection.LocateInput{
@@ -261,8 +277,10 @@ func tryServeGatewayJevTool(
 			ForceVision: args.ForceVision,
 			DeadlineMs:  args.DeadlineMs,
 			Who:         who,
+			TraceID:     args.TraceID,
 		})
 		if err != nil {
+			isToolErr = true
 			payload = map[string]any{
 				"ok":    false,
 				"error": map[string]any{"code": "E_LOCATE_FAILED", "message": err.Error()},
@@ -282,8 +300,10 @@ func tryServeGatewayJevTool(
 			Verify:      args.Verify,
 			DeadlineMs:  args.DeadlineMs,
 			Who:         who,
+			TraceID:     args.TraceID,
 		})
 		if err != nil {
+			isToolErr = true
 			payload = map[string]any{
 				"ok":    false,
 				"error": map[string]any{"code": "E_CLICK_ELEMENT_FAILED", "message": err.Error()},
@@ -305,7 +325,7 @@ func tryServeGatewayJevTool(
 				{"type": "text", "text": string(textBytes)},
 			},
 			"structuredContent": payload,
-			"isError":           false,
+			"isError":           isToolErr,
 		},
 	}
 	outBytes, _ := json.Marshal(rpcResp)

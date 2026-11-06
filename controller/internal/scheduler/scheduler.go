@@ -294,7 +294,8 @@ func (s *Scheduler) dispatch(ctx context.Context, nodeID, tool string, jsonArgs 
 // base64）——三条全满足才可绕 per-node 队列直达会话（未来扩 get_a11y_tree 等按同准则准入）。
 // 串行约束的真源是控制面 per-node 队列（node 侧每请求独立 spawn 本就并发），故旁路只动控制面单侧。
 var readOnlyTools = map[string]struct{}{
-	"screenshot": {},
+	"screenshot":    {},
+	"get_a11y_tree": {},
 }
 
 // readOnlyDefaultTimeout 是读旁路 deadline_ms<=0 时的兜底超时：截图秒级往返，无需 defaultTimeout

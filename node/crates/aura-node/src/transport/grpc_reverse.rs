@@ -867,10 +867,11 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// 缺省工具执行超时上限（当 deadline_ms <= 0 未显式指定时生效，防挂起任务无限期滞留）。
-const DEFAULT_TOOL_DEADLINE: Duration = Duration::from_secs(30);
+/// 缺省工具执行超时上限（当 deadline_ms <= 0 未显式指定时生效，防挂起任务无限期滞留；
+/// 取 300s 以容纳大文件 file_push / stop_recording / 长耗时命令等节点操作）。
+const DEFAULT_TOOL_DEADLINE: Duration = Duration::from_secs(300);
 
-/// 按 deadline_ms 在节点侧强制工具超时（控制面另有兜底 timer）。deadline_ms<=0 采用 30s 缺省超时。
+/// 按 deadline_ms 在节点侧强制工具超时（控制面另有兜底 timer）。deadline_ms<=0 采用 300s 缺省超时。
 async fn execute_with_deadline(
     tools: &AuraTools,
     tool: &str,

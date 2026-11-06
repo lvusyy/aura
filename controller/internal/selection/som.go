@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"image/color"
 	"image/draw"
 	_ "image/jpeg"
 	"image/png"
 	"math"
+	"math/bits"
+	"strconv"
 	"strings"
 
 	"github.com/aura/controller/internal/fusion"
@@ -102,6 +105,7 @@ func RenderSoMOverlay(rawImage []byte, mime string, candidates []fusion.FusedEle
 			canvas.Set(x2, y, col)
 			canvas.Set(max(b.Min.X, x2-1), y, col)
 		}
+		drawIndexBadge(canvas, b, x1, y1, i, col)
 	}
 
 	var buf bytes.Buffer
@@ -109,4 +113,144 @@ func RenderSoMOverlay(rawImage []byte, mime string, candidates []fusion.FusedEle
 		return base64.StdEncoding.EncodeToString(rawImage), mime
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), "image/png"
+}
+
+// digitGlyphs 是 3x5 极简数字点阵，用于在 SoM 候选框左上角绘制候选序号角标。
+var digitGlyphs = [10][5]uint8{
+	{0b111, 0b101, 0b101, 0b101, 0b111}, // 0
+	{0b010, 0b110, 0b010, 0b010, 0b111}, // 1
+	{0b111, 0b001, 0b111, 0b100, 0b111}, // 2
+	{0b111, 0b001, 0b111, 0b001, 0b111}, // 3
+	{0b101, 0b101, 0b111, 0b001, 0b001}, // 4
+	{0b111, 0b100, 0b111, 0b001, 0b111}, // 5
+	{0b111, 0b100, 0b111, 0b101, 0b111}, // 6
+	{0b111, 0b001, 0b010, 0b010, 0b010}, // 7
+	{0b111, 0b101, 0b111, 0b101, 0b111}, // 8
+	{0b111, 0b101, 0b111, 0b001, 0b111}, // 9
+}
+
+func drawIndexBadge(canvas *image.RGBA, bounds image.Rectangle, x1, y1, idx int, bg color.RGBA) {
+	label := strconv.Itoa(idx)
+	badgeW := len(label)*4 + 3
+	badgeH := 7
+	bx0 := max(bounds.Min.X, x1)
+	by0 := max(bounds.Min.Y, y1)
+	bx1 := min(bounds.Max.X-1, bx0+badgeW)
+	by1 := min(bounds.Max.Y-1, by0+badgeH)
+	for y := by0; y <= by1; y++ {
+		for x := bx0; x <= bx1; x++ {
+			canvas.Set(x, y, bg)
+		}
+	}
+	fg := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	for ci, ch := range label {
+		if ch < '0' || ch > '9' {
+			continue
+		}
+		glyph := digitGlyphs[ch-'0']
+		gx := bx0 + 2 + ci*4
+		gy := by0 + 1
+		for row := 0; row < 5; row++ {
+			for col := 0; col < 3; col++ {
+				if (glyph[row]>>(2-col))&1 == 1 {
+					px, py := gx+col, gy+row
+					if px >= bounds.Min.X && px < bounds.Max.X && py >= bounds.Min.Y && py < bounds.Max.Y {
+						canvas.Set(px, py, fg)
+					}
+				}
+			}
+		}
+	}
+}
+
+// ComputeExactHash 计算图像字节的 64 位 FNV-1a 摘要，用于同屏候选框缓存键。
+func ComputeExactHash(rawImage []byte) uint64 {
+	if len(rawImage) == 0 {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write(rawImage)
+	return h.Sum64()
+}
+
+// ComputeDHash 计算图像的 64 位感知差分哈希（9x8 亮度网格水平梯度）。
+// 若输入格式可被标准库解码（PNG/JPEG），计算真实像素级 dHash；
+// 若为 WebP 等压缩流，计算 65 段分块强度梯度哈希，供点击前后视觉变化判定。
+func ComputeDHash(rawImage []byte) (uint64, bool) {
+	if len(rawImage) == 0 {
+		return 0, false
+	}
+	if img, _, err := image.Decode(bytes.NewReader(rawImage)); err == nil {
+		b := img.Bounds()
+		w, h := b.Dx(), b.Dy()
+		if w >= 9 && h >= 8 {
+			var grid [8][9]float64
+			for gy := 0; gy < 8; gy++ {
+				y0 := b.Min.Y + (gy*h)/8
+				y1 := max(y0+1, b.Min.Y+((gy+1)*h)/8)
+				for gx := 0; gx < 9; gx++ {
+					x0 := b.Min.X + (gx*w)/9
+					x1 := max(x0+1, b.Min.X+((gx+1)*w)/9)
+					var sum float64
+					var count int
+					stepY := max(1, (y1-y0)/4)
+					stepX := max(1, (x1-x0)/4)
+					for y := y0; y < y1; y += stepY {
+						for x := x0; x < x1; x += stepX {
+							r, g, bl, _ := img.At(x, y).RGBA()
+							sum += 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(bl)
+							count++
+						}
+					}
+					if count > 0 {
+						grid[gy][gx] = sum / float64(count)
+					}
+				}
+			}
+			var hash uint64
+			var bit uint
+			for gy := 0; gy < 8; gy++ {
+				for gx := 0; gx < 8; gx++ {
+					if grid[gy][gx] > grid[gy][gx+1] {
+						hash |= 1 << bit
+					}
+					bit++
+				}
+			}
+			return hash, true
+		}
+	}
+	payload := rawImage
+	if len(payload) > 12 {
+		payload = payload[12:]
+	}
+	if len(payload) < 65 {
+		return ComputeExactHash(rawImage), true
+	}
+	var segAvg [65]float64
+	segLen := len(payload) / 65
+	for i := 0; i < 65; i++ {
+		start := i * segLen
+		end := start + segLen
+		if i == 64 {
+			end = len(payload)
+		}
+		var sum uint64
+		for _, b := range payload[start:end] {
+			sum += uint64(b)
+		}
+		segAvg[i] = float64(sum) / float64(max(1, end-start))
+	}
+	var hash uint64
+	for i := 0; i < 64; i++ {
+		if segAvg[i] > segAvg[i+1] {
+			hash |= 1 << uint(i)
+		}
+	}
+	return hash, true
+}
+
+// HammingDistance 返回两个 64 位感知哈希之间的汉明距离（0–64）。
+func HammingDistance(a, b uint64) int {
+	return bits.OnesCount64(a ^ b)
 }

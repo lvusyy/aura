@@ -53,6 +53,9 @@ func MaskAPIKeyHint(key string) string {
 	if k == "" {
 		return ""
 	}
+	if len(k) < 2 {
+		return k + "…"
+	}
 	if len(k) <= 8 {
 		return k[:2] + "…"
 	}

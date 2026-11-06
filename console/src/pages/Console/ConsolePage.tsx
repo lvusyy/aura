@@ -150,6 +150,7 @@ export function ConsolePage() {
   const [jevBusy, setJevBusy] = useState(false);
   const [located, setLocated] = useState<LocateElementResponse | null>(null);
   const [lastClickInfo, setLastClickInfo] = useState<string | null>(null);
+  const jevAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -166,8 +167,11 @@ export function ConsolePage() {
     return () => ac.abort();
   }, []);
 
-  // 切换节点时清空上一次元素定位框
+  // 切换节点时取消在途定位请求并清空上一次元素定位框
   useEffect(() => {
+    jevAbortRef.current?.abort();
+    jevAbortRef.current = null;
+    setJevBusy(false);
     setLocated(null);
     setLastClickInfo(null);
   }, [nodeId]);
@@ -260,16 +264,25 @@ export function ConsolePage() {
     if (!nodeId || !q) {
       return;
     }
+    jevAbortRef.current?.abort();
+    const ac = new AbortController();
+    jevAbortRef.current = ac;
     setJevBusy(true);
     setLastClickInfo(null);
     try {
-      const resp = await consoleClient.locateElement({
-        nodeId,
-        target: q,
-        forceVision,
-        deadlineMs: JEV_DEADLINE_MS,
-        who: WHO,
-      });
+      const resp = await consoleClient.locateElement(
+        {
+          nodeId,
+          target: q,
+          forceVision,
+          deadlineMs: JEV_DEADLINE_MS,
+          who: WHO,
+        },
+        { signal: ac.signal },
+      );
+      if (jevAbortRef.current !== ac) {
+        return;
+      }
       setLocated(resp);
       if (resp.found) {
         msgApi.success(
@@ -279,9 +292,14 @@ export function ConsolePage() {
         msgApi.warning(`未定位到 "${q}"：${resp.message || resp.status}`);
       }
     } catch (err) {
+      if (ac.signal.aborted || isAbortError(err)) {
+        return;
+      }
       msgApi.error(`定位异常：${describeError(err)}`);
     } finally {
-      setJevBusy(false);
+      if (jevAbortRef.current === ac) {
+        setJevBusy(false);
+      }
     }
   }, [nodeId, targetQuery, forceVision, msgApi]);
 
@@ -291,18 +309,27 @@ export function ConsolePage() {
     if (!nodeId || !q) {
       return;
     }
+    jevAbortRef.current?.abort();
+    const ac = new AbortController();
+    jevAbortRef.current = ac;
     setJevBusy(true);
     setLastClickInfo(null);
     try {
-      const resp = await consoleClient.clickElement({
-        nodeId,
-        target: q,
-        button: "left",
-        forceVision,
-        verify: false,
-        deadlineMs: JEV_DEADLINE_MS,
-        who: WHO,
-      });
+      const resp = await consoleClient.clickElement(
+        {
+          nodeId,
+          target: q,
+          button: "left",
+          forceVision,
+          verify: false,
+          deadlineMs: JEV_DEADLINE_MS,
+          who: WHO,
+        },
+        { signal: ac.signal },
+      );
+      if (jevAbortRef.current !== ac) {
+        return;
+      }
       if (resp.located) {
         setLocated(resp.located);
       }
@@ -315,13 +342,18 @@ export function ConsolePage() {
         msgApi.warning(`一步点击未执行：${resp.message || resp.status}`);
       }
     } catch (err) {
+      if (ac.signal.aborted || isAbortError(err)) {
+        return;
+      }
       msgApi.error(`一步点击异常：${describeError(err)}`);
     } finally {
-      setJevBusy(false);
+      if (jevAbortRef.current === ac) {
+        setJevBusy(false);
+      }
     }
   }, [nodeId, targetQuery, forceVision, msgApi]);
 
-  // 计算画布上定位框的百分比位置（优先按 displayBounds 对齐 frame.displayW/displayH，兜底按 bounds 对齐 screenW/screenH）
+  // 计算画布上定位框的百分比位置（优先按 displayBounds 对齐 frame.displayW/displayH，Tier 0 原生坐标自动按 frame.scale 折算）
   const overlayStyle = (() => {
     if (!located || !located.found) {
       return null;
@@ -329,10 +361,15 @@ export function ConsolePage() {
     const frame = frameRef.current;
     const db = located.displayBounds;
     const nb = located.bounds;
+    const isA11yNative = located.source === "a11y" && (!located.screenW || located.scale <= 1) && (frame?.scale ?? 1) > 1;
+    const scaleDiv = isA11yNative ? (frame?.scale ?? 1) : 1;
     const refW = frame?.displayW || (located.scale > 0 ? Math.round(located.screenW / located.scale) : located.screenW);
     const refH = frame?.displayH || (located.scale > 0 ? Math.round(located.screenH / located.scale) : located.screenH);
     if (db && db.length === 4 && refW > 0 && refH > 0) {
-      const [x, y, w, h] = db;
+      const x = db[0] / scaleDiv;
+      const y = db[1] / scaleDiv;
+      const w = db[2] / scaleDiv;
+      const h = db[3] / scaleDiv;
       return {
         left: `${Math.max(0, Math.min(100, (x / refW) * 100))}%`,
         top: `${Math.max(0, Math.min(100, (y / refH) * 100))}%`,

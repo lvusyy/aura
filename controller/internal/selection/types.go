@@ -10,6 +10,7 @@ package selection
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/aura/controller/internal/fusion"
 )
@@ -60,14 +61,39 @@ type NormalizedBox struct {
 
 // SystemOneAnswer 是单个问题的返回结果（兼容云端顶层/嵌套字段与本地 GPU 端）。
 type SystemOneAnswer struct {
-	Type          string             `json:"type,omitempty"`
-	Noul          float64            `json:"noul,omitempty"`
-	Score         float64            `json:"score,omitempty"`
-	Choice        string             `json:"choice,omitempty"`
-	ChoiceIndex   int                `json:"choice_index,omitempty"`
-	Confidence    float64            `json:"confidence,omitempty"`
-	Probabilities map[string]float64 `json:"probabilities,omitempty"`
-	Box           *NormalizedBox     `json:"box,omitempty"`
+	Type           string             `json:"type,omitempty"`
+	Noul           float64            `json:"noul,omitempty"`
+	HasNoul        bool               `json:"-"`
+	Score          float64            `json:"score,omitempty"`
+	Choice         string             `json:"choice,omitempty"`
+	ChoiceIndex    int                `json:"choice_index,omitempty"`
+	HasChoiceIndex bool               `json:"-"`
+	Confidence     float64            `json:"confidence,omitempty"`
+	Probabilities  map[string]float64 `json:"probabilities,omitempty"`
+	Box            *NormalizedBox     `json:"box,omitempty"`
+}
+
+// UnmarshalJSON 解析 SystemOneAnswer 并记录 noul / choice_index 是否显式存在于 JSON 中，
+// 防止 {"noul": 0.0} 被误判为未返回、或未返回 choice_index 时默认落到 0 号候选。
+func (a *SystemOneAnswer) UnmarshalJSON(data []byte) error {
+	type alias SystemOneAnswer
+	var aux alias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*a = SystemOneAnswer(aux)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if _, ok := raw["noul"]; ok {
+			a.HasNoul = true
+		}
+		if _, ok := raw["choice_index"]; ok {
+			a.HasChoiceIndex = true
+		} else if a.Choice != "" {
+			a.ChoiceIndex = -1
+		}
+	}
+	return nil
 }
 
 // SystemOneResponse 是 POST /v1/systemone 的响应体。
@@ -85,54 +111,56 @@ type JevClient interface {
 
 // LocateInput 是 SelectorEngine.Locate 的入参。
 type LocateInput struct {
-	NodeID      string
-	Target      string
-	ForceVision bool
-	DeadlineMs  int64
-	Who         string
+	NodeID      string `json:"node_id"`
+	Target      string `json:"target"`
+	ForceVision bool   `json:"force_vision"`
+	DeadlineMs  int64  `json:"deadline_ms"`
+	Who         string `json:"who"`
+	TraceID     string `json:"trace_id,omitempty"`
 }
 
 // LocateOutput 是 SelectorEngine.Locate 的结构化输出（同时携带 native 与 display 坐标防二次缩放）。
 type LocateOutput struct {
-	Found             bool
-	Status            string // matched | not_found | low_confidence | vision_disabled
-	Source            string // a11y | vision_jev | vision_local | vision_heuristic
-	Bounds            [4]int32
-	DisplayBounds     [4]int32
-	ClickPoint        [2]int32
-	DisplayClickPoint [2]int32
-	Role              string
-	Name              string
-	Caption           string
-	ExistenceProb     float64
-	SelectionProb     float64
-	Confidence        float64
-	ScreenW           int32
-	ScreenH           int32
-	Scale             float64
-	SnapshotID        string
-	LatencyMs         int64
-	Candidates        []fusion.FusedElement
-	Message           string
+	Found             bool                  `json:"found"`
+	Status            string                `json:"status"` // matched | not_found | low_confidence | vision_disabled
+	Source            string                `json:"source"` // a11y | vision_jev | vision_local | vision_heuristic
+	Bounds            [4]int32              `json:"bounds"`
+	DisplayBounds     [4]int32              `json:"display_bounds"`
+	ClickPoint        [2]int32              `json:"click_point"`
+	DisplayClickPoint [2]int32              `json:"display_click_point"`
+	Role              string                `json:"role"`
+	Name              string                `json:"name"`
+	Caption           string                `json:"caption"`
+	ExistenceProb     float64               `json:"existence_prob"`
+	SelectionProb     float64               `json:"selection_prob"`
+	Confidence        float64               `json:"confidence"`
+	ScreenW           int32                 `json:"screen_w"`
+	ScreenH           int32                 `json:"screen_h"`
+	Scale             float64               `json:"scale"`
+	SnapshotID        string                `json:"snapshot_id,omitempty"`
+	LatencyMs         int64                 `json:"latency_ms"`
+	Candidates        []fusion.FusedElement `json:"candidates"`
+	Message           string                `json:"message"`
 }
 
 // ClickInput 是 SelectorEngine.Click 的入参。
 type ClickInput struct {
-	NodeID      string
-	Target      string
-	Button      string
-	ForceVision bool
-	Verify      bool
-	DeadlineMs  int64
-	Who         string
+	NodeID      string `json:"node_id"`
+	Target      string `json:"target"`
+	Button      string `json:"button"`
+	ForceVision bool   `json:"force_vision"`
+	Verify      bool   `json:"verify"`
+	DeadlineMs  int64  `json:"deadline_ms"`
+	Who         string `json:"who"`
+	TraceID     string `json:"trace_id,omitempty"`
 }
 
 // ClickOutput 是 SelectorEngine.Click 的结构化输出。
 type ClickOutput struct {
-	Located        LocateOutput
-	Clicked        bool
-	Verified       bool
-	Status         string // clicked | not_found | low_confidence | click_failed
-	TotalLatencyMs int64
-	Message        string
+	Located        LocateOutput `json:"located"`
+	Clicked        bool         `json:"clicked"`
+	Verified       bool         `json:"verified"`
+	Status         string       `json:"status"` // clicked | not_found | low_confidence | click_failed
+	TotalLatencyMs int64        `json:"total_latency_ms"`
+	Message        string       `json:"message"`
 }

@@ -109,10 +109,32 @@ async fn dispatch_screenshot(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let opts = super::screen_tools::clamp_opts(p.quality, p.max_dim, false);
     let env = tools.guard(tools.driver.screenshot(Some(display), opts)).await;
     // 成功后记录本次 display→native 缩放系数与几何快照，供 input 域坐标回映射；失败信封无 data 时保持既有 scale。
-    if let Some(result) = env.data.as_ref() {
-        let _ = tools.record_snapshot(display, &result.meta);
+    let sid = env
+        .data
+        .as_ref()
+        .map(|result| tools.record_snapshot(display, &result.meta));
+    encode_screenshot_with_snapshot(&env, sid)
+}
+
+/// 编码 screenshot 信封字节，并在成功信封的 `data.snapshot_id` 与 `data.meta.snapshot_id` 注入快照 ID。
+fn encode_screenshot_with_snapshot<T: Serialize>(env: &Envelope<T>, sid: Option<String>) -> Vec<u8> {
+    if let Some(sid) = sid {
+        if let Ok(mut val) = serde_json::to_value(env) {
+            if let Some(data_obj) = val.get_mut("data").and_then(|d| d.as_object_mut()) {
+                data_obj.insert(
+                    "snapshot_id".to_string(),
+                    serde_json::Value::String(sid.clone()),
+                );
+                if let Some(meta_obj) = data_obj.get_mut("meta").and_then(|m| m.as_object_mut()) {
+                    meta_obj.insert("snapshot_id".to_string(), serde_json::Value::String(sid));
+                }
+            }
+            if let Ok(bytes) = serde_json::to_vec(&val) {
+                return bytes;
+            }
+        }
     }
-    encode(&env)
+    encode(env)
 }
 
 /// zoom：quality/max_dim 同 clamp 透传（缺省不降采样语义在 driver 层）；output 同上显式忽略。
@@ -587,5 +609,43 @@ mod tests {
             "fail path envelope must still be ok:true (failure is data)"
         );
         assert_eq!(v["data"]["passed"], false);
+    }
+
+    /// M18/Jev 快照闭环守卫：gRPC 反连侧 dispatch_screenshot 成功后必须在回传 JSON 的
+    /// `data.snapshot_id` 与 `data.meta.snapshot_id` 携带 `record_snapshot` 分配的 `snap-N`，
+    /// 供控制面 LocateElement → ClickElement 跨帧锁定同一套缩放快照。
+    #[test]
+    fn dispatch_screenshot_injects_snapshot_id_into_envelope() {
+        use aura_capability::{ScreenshotMeta, ScreenshotResult};
+
+        let tools = AuraTools::new(aura_platform::build_driver(
+            aura_platform::DriverKind::Desktop,
+            None,
+            None,
+        ));
+        let meta = ScreenshotMeta {
+            native_w: 1920,
+            native_h: 1080,
+            display_w: 1280,
+            display_h: 720,
+            scale: 1.5,
+        };
+        let sid = tools.record_snapshot(0, &meta);
+        let env = Envelope::ok(ScreenshotResult {
+            image_base64: "QUJDRA==".to_string(),
+            mime: "image/webp".to_string(),
+            meta,
+        });
+        let out = encode_screenshot_with_snapshot(&env, Some(sid.clone()));
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["data"]["meta"]["snapshot_id"].as_str(), Some(sid.as_str()));
+        assert_eq!(v["data"]["snapshot_id"].as_str(), Some(sid.as_str()));
+
+        // 即使后续 current_scale 被覆写为 2.0，携带 snapshot_id 的 resolve_coord 仍按 1.5x 快照回映射
+        tools.set_scale(2.0);
+        let pt = tools.resolve_coord(100, 200, Some("display"), Some(&sid));
+        assert_eq!(pt.x, 150);
+        assert_eq!(pt.y, 300);
     }
 }

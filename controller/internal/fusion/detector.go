@@ -55,10 +55,18 @@ type DetectorClient interface {
 	Detect(ctx context.Context, image []byte, mime string) ([]VisualBox, error)
 }
 
+// OptsDetectorClient 扩展 DetectorClient，允许调用方按需控制是否启用全框 Florence caption。
+type OptsDetectorClient interface {
+	DetectorClient
+	DetectWithOpts(ctx context.Context, image []byte, mime string, withCaption bool) ([]VisualBox, error)
+}
+
 // 编译期接口符合性断言：实现漂移在此编译失败，不外泄到消费方。
 var (
-	_ DetectorClient = (*HTTPDetector)(nil)
-	_ DetectorClient = (*MockDetector)(nil)
+	_ DetectorClient     = (*HTTPDetector)(nil)
+	_ DetectorClient     = (*MockDetector)(nil)
+	_ OptsDetectorClient = (*HTTPDetector)(nil)
+	_ OptsDetectorClient = (*MockDetector)(nil)
 )
 
 // HTTPDetector 是 DetectorClient 的 HTTP 实现：POST {endpoint}/detect + bearer 鉴权。
@@ -219,8 +227,9 @@ func (d *HTTPDetector) detectAt(ctx context.Context, url string, image []byte, m
 // MockDetector 是 DetectorClient 的离线测试替身（T8 融合引擎单测注入，不触网）：
 // 返回固定框或固定错误。
 type MockDetector struct {
-	Boxes []VisualBox
-	Err   error
+	Boxes      []VisualBox
+	Err        error
+	DetectOpts []bool
 }
 
 // Detect 实现 DetectorClient：Err 非 nil 时返回之，否则返回 Boxes。
@@ -229,4 +238,10 @@ func (m *MockDetector) Detect(_ context.Context, _ []byte, _ string) ([]VisualBo
 		return nil, m.Err
 	}
 	return m.Boxes, nil
+}
+
+// DetectWithOpts 实现 OptsDetectorClient，记录 withCaption 调用参数供单测断言。
+func (m *MockDetector) DetectWithOpts(ctx context.Context, image []byte, mime string, withCaption bool) ([]VisualBox, error) {
+	m.DetectOpts = append(m.DetectOpts, withCaption)
+	return m.Detect(ctx, image, mime)
 }
