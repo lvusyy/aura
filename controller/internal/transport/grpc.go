@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/observability"
@@ -333,6 +334,15 @@ func (s *NodeControlServer) setOwner(ctx context.Context, nodeID string) {
 	}
 	if err := s.redis.SetNodeOwner(ctx, nodeID, replicaID, nodeOwnerTTL); err != nil {
 		slog.Debug("redis owner refresh failed", "node_id", nodeID, "replica_id", replicaID, "err", err)
+	}
+	if s.registry != nil {
+		if info, ok := s.registry.SnapshotNodeInfo(nodeID); ok {
+			if raw, merr := protojson.Marshal(info); merr == nil {
+				if serr := s.redis.SetNodeSnapshot(ctx, nodeID, raw, nodeOwnerTTL); serr != nil {
+					slog.Debug("redis node snapshot refresh failed", "node_id", nodeID, "err", serr)
+				}
+			}
+		}
 	}
 }
 

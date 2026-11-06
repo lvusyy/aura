@@ -30,6 +30,7 @@ func (s *RedisStore) Close() error { return s.client.Close() }
 func healthKey(nodeID string) string { return "node:health:" + nodeID }
 func lockKey(nodeID string) string   { return "node:lock:" + nodeID }
 func ownerKey(nodeID string) string  { return "node:owner:" + nodeID }
+func infoKey(nodeID string) string   { return "node:info:" + nodeID }
 
 // Heartbeat 以 TTL 刷新 node:health:{id} 键，驱动分布式 unhealthy 判定（键过期即视为失联）。
 func (s *RedisStore) Heartbeat(ctx context.Context, nodeID string, ttl time.Duration) error {
@@ -75,9 +76,27 @@ func (s *RedisStore) GetNodeOwner(ctx context.Context, nodeID string) (string, e
 	return v, err
 }
 
-// ClearNodeOwner 仅当归属仍为 replicaID 时删除（Lua compare-and-del，防误清他副本新写入）。
+// ClearNodeOwner 仅当归属仍为 replicaID 时删除归属键与关联会话快照（Lua compare-and-del，防误清他副本新写入）。
 func (s *RedisStore) ClearNodeOwner(ctx context.Context, nodeID, replicaID string) error {
-	return scriptCompareAndDel.Run(ctx, s.client, []string{ownerKey(nodeID)}, replicaID).Err()
+	return scriptClearOwnerAndInfo.Run(ctx, s.client, []string{ownerKey(nodeID), infoKey(nodeID)}, replicaID).Err()
+}
+
+// SetNodeSnapshot 缓存节点会话级 NodeInfo 快照（tools/ip/os/health/connected_at 等未入 PG 维度），
+// 供非 owner 副本在 ListFleet / ListNodes 中展示完整在线节点信息（TTL 与 node:owner 同源）。
+func (s *RedisStore) SetNodeSnapshot(ctx context.Context, nodeID string, rawJSON []byte, ttl time.Duration) error {
+	if len(rawJSON) == 0 {
+		return nil
+	}
+	return s.client.Set(ctx, infoKey(nodeID), rawJSON, ttl).Err()
+}
+
+// GetNodeSnapshot 读取节点会话级 NodeInfo 快照；键不存在返回 (nil, nil)。
+func (s *RedisStore) GetNodeSnapshot(ctx context.Context, nodeID string) ([]byte, error) {
+	v, err := s.client.Get(ctx, infoKey(nodeID)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	return v, err
 }
 
 // —— T4 trace 租约外置（ha-contract §3.2）——————————————————————————————————————————
@@ -91,10 +110,18 @@ func nodeLeaseKey(nodeID string) string  { return "node:lease:" + nodeID }
 func traceNodeKey(traceID string) string { return "trace:node:" + traceID }
 func traceSeqKey(traceID string) string  { return "trace:seq:" + traceID }
 
-// scriptCompareAndDel：GET==期望值才 DEL（compare-and-del）。T4 先建、T6 复用（ClearNodeOwner/
-// ReleaseNodeLock 防误删他副本新写入，ha-contract §1.1/§1.3）。
+// scriptCompareAndDel：GET==期望值才 DEL（compare-and-del）。T4 先建、T6 复用（ReleaseNodeLock 防误删他副本新写入）。
 var scriptCompareAndDel = redis.NewScript(`
 if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`)
+
+// scriptClearOwnerAndInfo：当 node:owner 仍归属本副本时，原子删除 node:owner 与 node:info 快照。
+var scriptClearOwnerAndInfo = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('DEL', KEYS[2])
   return redis.call('DEL', KEYS[1])
 end
 return 0

@@ -43,13 +43,13 @@ func NewControllerAdminServer(reg *registry.NodeRegistry, gw *gateway.Gateway, s
 	return &ControllerAdminServer{registry: reg, gateway: gw, scheduler: sched, provisioner: prov, pg: pg}
 }
 
-// ListNodes 返回所有在线节点及其 online/unhealthy 状态。M15：项目令牌仅见本项目节点（按
-// nodes.project 集合过滤；全域令牌零成本全量）。
+// ListNodes 返回集群范围内所有在线节点及其 online/unhealthy 状态（本机会话 + 跨副本活跃会话）。
+// M15：项目令牌仅见本项目节点（按 nodes.project 集合过滤；全域令牌零成本全量）。
 func (s *ControllerAdminServer) ListNodes(
 	ctx context.Context,
 	_ *connect.Request[aurav1.ListNodesRequest],
 ) (*connect.Response[aurav1.ListNodesResponse], error) {
-	nodes := s.registry.List()
+	nodes := s.registry.ListOnlineCluster(ctx)
 	nodes, err := filterNodesByProject(ctx, s.pg, nodes)
 	if err != nil {
 		return nil, err

@@ -637,8 +637,9 @@ func TestSelfUpdateVersionEcho(t *testing.T) {
 }
 
 type fakePeerLiveness struct {
-	owners map[string]string
-	alive  map[string]bool
+	owners    map[string]string
+	alive     map[string]bool
+	snapshots map[string][]byte
 }
 
 func (f *fakePeerLiveness) GetNodeOwner(_ context.Context, nodeID string) (string, error) {
@@ -653,8 +654,16 @@ func (f *fakePeerLiveness) IsAlive(_ context.Context, nodeID string) (bool, erro
 	return v, nil
 }
 
-// TestListFleetAndReapCrossReplicaPeerLiveness 验证跨副本视野聚合（闭合 ISS-20260713-002）：
-// 本副本（replica-2）无会话但 Redis Owner 指向对端（replica-1）时，ListFleet 显示为 online/unhealthy，
+func (f *fakePeerLiveness) GetNodeSnapshot(_ context.Context, nodeID string) ([]byte, error) {
+	if f.snapshots == nil {
+		return nil, nil
+	}
+	return f.snapshots[nodeID], nil
+}
+
+// TestListFleetAndReapCrossReplicaPeerLiveness 验证跨副本视野聚合与会话快照富化（闭合 ISS-20260713-002）：
+// 本副本（replica-2）无会话但 Redis Owner 指向对端（replica-1）时，ListFleet 与 ListOnlineCluster 显示为
+// online/unhealthy 并回填对端缓存的 tools/contract_version/os_version/ip_address，
 // IsActiveInCluster 返回 true，且 ReapOnce 将其纳入保护集绝不误删。
 func TestListFleetAndReapCrossReplicaPeerLiveness(t *testing.T) {
 	fs := newFakeStore()
@@ -675,15 +684,28 @@ func TestListFleetAndReapCrossReplicaPeerLiveness(t *testing.T) {
 			"peer-online":    true,
 			"peer-unhealthy": false,
 		},
+		snapshots: map[string][]byte{
+			"peer-online": []byte(`{"nodeId":"peer-online","tools":["screenshot","click"],"contractVersion":"0.4.0","osVersion":"Ubuntu 24.04","ipAddress":"192.168.252.25","connectedAtMs":"1700000000000"}`),
+		},
 	}, "replica-2")
 
 	fleet := reg.ListFleet(ctx)
 	statusByID := make(map[string]string, len(fleet))
+	nodeByID := make(map[string]*aurav1.NodeInfo, len(fleet))
 	for _, n := range fleet {
 		statusByID[n.GetNodeId()] = n.GetStatus()
+		nodeByID[n.GetNodeId()] = n
 	}
 	if statusByID["peer-online"] != "online" {
 		t.Fatalf("peer-online status = %q, want online", statusByID["peer-online"])
+	}
+	peerNode := nodeByID["peer-online"]
+	if len(peerNode.GetTools()) != 2 || peerNode.GetIpAddress() != "192.168.252.25" || peerNode.GetContractVersion() != "0.4.0" {
+		t.Fatalf("peer-online snapshot enrichment failed: got tools=%v ip=%q cv=%q", peerNode.GetTools(), peerNode.GetIpAddress(), peerNode.GetContractVersion())
+	}
+	onlineCluster := reg.ListOnlineCluster(ctx)
+	if len(onlineCluster) != 2 {
+		t.Fatalf("ListOnlineCluster len = %d, want 2 (peer-online + peer-unhealthy)", len(onlineCluster))
 	}
 	if statusByID["peer-unhealthy"] != "unhealthy" {
 		t.Fatalf("peer-unhealthy status = %q, want unhealthy", statusByID["peer-unhealthy"])

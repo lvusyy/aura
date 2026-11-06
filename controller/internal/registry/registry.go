@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/observability"
@@ -455,10 +456,68 @@ type PeerLiveness interface {
 	IsAlive(ctx context.Context, nodeID string) (bool, error)
 }
 
+// PeerSnapshotReader 是 PeerLiveness 的可选扩展：当底层存储（如 RedisStore）支持缓存会话级 NodeInfo 快照时，
+// 非 owner 副本可回填对端在线节点的 tools/contract_version/os_version/ip_address/connected_at_ms/health。
+type PeerSnapshotReader interface {
+	GetNodeSnapshot(ctx context.Context, nodeID string) ([]byte, error)
+}
+
 // SetPeerLiveness 注入跨副本节点归属与心跳探活读取器（装配期一次性调用）。
 func (r *NodeRegistry) SetPeerLiveness(peer PeerLiveness, selfReplicaID string) {
 	r.peerLiveness = peer
 	r.selfReplicaID = selfReplicaID
+}
+
+// SnapshotNodeInfo 返回指定本机在线会话的 NodeInfo 快照（供 transport 层随心跳/注册写入 Redis 跨副本缓存）。
+func (r *NodeRegistry) SnapshotNodeInfo(nodeID string) (*aurav1.NodeInfo, bool) {
+	r.mu.RLock()
+	s, ok := r.sessions[nodeID]
+	if !ok {
+		r.mu.RUnlock()
+		return nil, false
+	}
+	info := r.nodeInfo(s)
+	r.mu.RUnlock()
+	return info, true
+}
+
+// enrichPeerNode 用 Redis 缓存的会话级快照补齐非本机连接节点在 PG 表中未持久化的 live 字段。
+func (r *NodeRegistry) enrichPeerNode(ctx context.Context, row *aurav1.NodeInfo) {
+	sr, ok := r.peerLiveness.(PeerSnapshotReader)
+	if !ok || row == nil || row.GetNodeId() == "" {
+		return
+	}
+	pctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	raw, err := sr.GetNodeSnapshot(pctx, row.GetNodeId())
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var snap aurav1.NodeInfo
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &snap); err != nil {
+		return
+	}
+	if len(row.Tools) == 0 {
+		row.Tools = snap.Tools
+	}
+	if row.ContractVersion == "" {
+		row.ContractVersion = snap.ContractVersion
+	}
+	if row.OsVersion == "" {
+		row.OsVersion = snap.OsVersion
+	}
+	if row.IpAddress == "" {
+		row.IpAddress = snap.IpAddress
+	}
+	if row.ConnectedAtMs == 0 {
+		row.ConnectedAtMs = snap.ConnectedAtMs
+	}
+	if len(row.Health) == 0 {
+		row.Health = snap.Health
+	}
+	if snap.LastSeenMs > row.LastSeenMs {
+		row.LastSeenMs = snap.LastSeenMs
+	}
 }
 
 // IsActiveInCluster 报告节点在集群任一副本上是否处于活跃连接态（本机会话优先，miss 时查跨副本 owner）。
@@ -691,12 +750,31 @@ func (r *NodeRegistry) ListFleet(ctx context.Context) []*aurav1.NodeInfo {
 			out = append(out, live) // 在线：live 态（label/location 已由会话与库同步）
 		} else {
 			row.Status = r.peerNodeStatus(ctx, id) // 跨副本探活：对端持有活跃会话则为 online/unhealthy，否则 offline
+			if row.Status != "offline" {
+				r.enrichPeerNode(ctx, row)
+			}
 			out = append(out, row)
 		}
 	}
 	for id, live := range online { // 会话尚未入表（注册落库与展示间竞态）者并入，防漏
 		if _, ok := seen[id]; !ok {
 			out = append(out, live)
+		}
+	}
+	return out
+}
+
+// ListOnlineCluster 返回集群范围内全部活跃（online/unhealthy）节点快照（本机会话 + 对端副本活跃会话）。
+// 当未配置 store 或 peerLiveness 时直接回退 List()（单副本零开销）。供 ControllerAdmin.ListNodes 消费。
+func (r *NodeRegistry) ListOnlineCluster(ctx context.Context) []*aurav1.NodeInfo {
+	if r.store == nil || r.peerLiveness == nil {
+		return r.List()
+	}
+	fleet := r.ListFleet(ctx)
+	out := make([]*aurav1.NodeInfo, 0, len(fleet))
+	for _, n := range fleet {
+		if n.GetStatus() != "offline" {
+			out = append(out, n)
 		}
 	}
 	return out
