@@ -192,6 +192,22 @@ func (s *MinioStore) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
+// ResolveZone 结合节点上报的 network_zone 与注册 IP 选定最优预签名域：
+// 当跨网段节点（如 192.168.252.x）未上报 zone 或因 TCP 假阳性误报 lan 且配置了 jump 跳板域时，
+// 自动分派至 jump 域（收口 ISS-20260714-003）。
+func (s *MinioStore) ResolveZone(zone, nodeIP string) string {
+	ip := strings.TrimSpace(nodeIP)
+	if strings.HasPrefix(ip, "192.168.252.") {
+		if _, hasJump := s.presignClients["jump"]; hasJump {
+			return "jump"
+		}
+	}
+	if _, ok := s.presignClients[zone]; ok {
+		return zone
+	}
+	return defaultZoneKey
+}
+
 // presignClientFor 按网络域 zone 选预签名 client：命中对应 zone 则用之，空/未知 zone 回落默认 zone
 //（defaultZoneKey，即 AURA_MINIO_PUBLIC_ENDPOINT 或内部 endpoint）——兼容未上报 network_zone 的旧节点。
 func (s *MinioStore) presignClientFor(zone string) *minio.Client {

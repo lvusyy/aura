@@ -114,10 +114,14 @@ export async function runReplay(opts: {
   targetNodeId: string;
   targetTools: string[]; // 目标节点广告工具集；空数组=子集未知，跳过预检（交节点侧兜底，仿 nodeToolset nil）
   deadlineMs: number;
+  preloadedDetail?: TraceDetail | null; // 已加载的步序详情（存在则直接复用，免二次分页拉取 GetTrace）
   onProgress?: (report: ReplayReport) => void;
 }): Promise<ReplayReport> {
-  const { traceId, targetNodeId, targetTools, deadlineMs, onProgress } = opts;
-  const detail = await fetchAllTraceSteps(traceId);
+  const { traceId, targetNodeId, targetTools, deadlineMs, preloadedDetail, onProgress } = opts;
+  const detail =
+    preloadedDetail && preloadedDetail.steps.length > 0
+      ? preloadedDetail
+      : await fetchAllTraceSteps(traceId);
   if (detail.steps.length === 0) {
     throw new Error(`trace ${traceId} 无步序可回放`);
   }

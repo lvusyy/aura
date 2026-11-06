@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -502,5 +503,61 @@ func TestHTTPJevClientRetryAndCircuitBreaker(t *testing.T) {
 	}
 	if atomic.LoadInt32(&hits) != beforeBreakerHits {
 		t.Fatalf("circuit breaker must short-circuit without HTTP round-trip: hits before=%d after=%d", beforeBreakerHits, atomic.LoadInt32(&hits))
+	}
+}
+
+func TestCompositeClickAndCandidatesHint(t *testing.T) {
+	b1 := [4]int32{200, 120, 160, 36}
+	disp := &mockNodeDisp{
+		tree: fusion.A11yTree{
+			Nodes: []fusion.A11yNode{
+				{Role: "entry", Name: "SearchBox", Bounds: &b1},
+			},
+		},
+	}
+	eng := NewSelectorEngine(disp, nil, "http://127.0.0.1:30808", "tok")
+	_, _ = eng.UpdateSettings(context.Background(), store.VisionSettings{
+		Mode:          "disabled",
+		LocalEndpoint: "http://127.0.0.1:30808",
+		CloudEndpoint: "https://api.typesafe.ai/v1/systemone",
+		Model:         "jev-latest",
+		CaptionMode:   "none",
+		NoulThreshold: 0.50,
+	}, "keep", "")
+
+	// 1. Not found -> should include visible interactive candidates hint in Message
+	missOut, err := eng.Locate(context.Background(), LocateInput{
+		NodeID: "node-1",
+		Target: "NonExistentButton",
+	})
+	if err != nil {
+		t.Fatalf("Locate miss: %v", err)
+	}
+	if missOut.Found || !strings.Contains(missOut.Message, "可见元素参考") || !strings.Contains(missOut.Message, "SearchBox") {
+		t.Fatalf("expected candidates hint containing SearchBox in miss message, got %q", missOut.Message)
+	}
+
+	// 2. Composite Click (DoubleClick + TypeText + PressKey)
+	clickOut, err := eng.Click(context.Background(), ClickInput{
+		NodeID:      "node-1",
+		Target:      "SearchBox",
+		DoubleClick: true,
+		TypeText:    "aura query",
+		PressKey:    "Return",
+	})
+	if err != nil {
+		t.Fatalf("Composite Click: %v", err)
+	}
+	if !clickOut.Clicked || !clickOut.DoubleClicked || !clickOut.Typed || clickOut.KeyPressed != "Return" {
+		t.Fatalf("expected Clicked/DoubleClicked/Typed/KeyPressed, got %+v", clickOut)
+	}
+	if _, ok := disp.lastArgs["double_click"]; !ok {
+		t.Fatalf("expected double_click tool to be dispatched, got args keys: %+v", disp.lastArgs)
+	}
+	if string(disp.lastArgs["type"]) != `{"text":"aura query"}` {
+		t.Fatalf("unexpected type args: %s", string(disp.lastArgs["type"]))
+	}
+	if string(disp.lastArgs["key"]) != `{"key":"Return"}` {
+		t.Fatalf("unexpected key args: %s", string(disp.lastArgs["key"]))
 	}
 }

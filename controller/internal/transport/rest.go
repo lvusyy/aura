@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/aura/controller/internal/provisioner"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/selection"
 	"github.com/aura/controller/internal/storage"
 	"github.com/aura/controller/internal/store"
 )
@@ -30,9 +32,15 @@ type ControllerAdminServer struct {
 	registry    *registry.NodeRegistry
 	gateway     *gateway.Gateway
 	scheduler   *scheduler.Scheduler
-	provisioner provisioner.EnvProvider // 可为 nil（未配置任何 provider 时环境接口返回 Unavailable）
-	pg          *store.PGStore          // 可为 nil（M15 项目隔离判据源；nil=节点视同未归属，见 CheckNodeProjectAccess）
-	artifacts   *storage.MinioStore     // 可为 nil（M16 self-update 制品签发源；经 SetArtifacts 装配期注入）
+	provisioner provisioner.EnvProvider   // 可为 nil（未配置任何 provider 时环境接口返回 Unavailable）
+	pg          *store.PGStore            // 可为 nil（M15 项目隔离判据源；nil=节点视同未归属，见 CheckNodeProjectAccess）
+	artifacts   *storage.MinioStore       // 可为 nil（M16 self-update 制品签发源；经 SetArtifacts 装配期注入）
+	selector    *selection.SelectorEngine // 可为 nil（装配期注入以支持 auractl / REST 调用 locate_element / click_element）
+}
+
+// SetSelectorEngine 注入视觉混合定位引擎，使 ControllerAdmin.DispatchTool 支持合成工具 locate_element / click_element。
+func (s *ControllerAdminServer) SetSelectorEngine(sel *selection.SelectorEngine) {
+	s.selector = sel
 }
 
 // NewControllerAdminServer 构造管理面服务。prov 是 EnvProvider（PVE 或 K8s，单选装配），
@@ -105,8 +113,107 @@ func (s *ControllerAdminServer) DispatchTool(
 		req.Msg.Who = id.Name
 	}
 	auditDispatch(ctx, "DispatchTool", req.Msg.GetWho(), req.Msg.GetNodeId(), req.Msg.GetTool(), len(req.Msg.GetJsonArgs()))
+	if s.selector != nil {
+		if env, handled := s.tryDispatchSelectorTool(ctx, req.Msg); handled {
+			return connect.NewResponse(&aurav1.DispatchToolResponse{JsonEnvelope: env}), nil
+		}
+	}
 	env := s.gateway.Dispatch(ctx, req.Msg)
 	return connect.NewResponse(&aurav1.DispatchToolResponse{JsonEnvelope: env}), nil
+}
+
+func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg *aurav1.DispatchToolRequest) ([]byte, bool) {
+	tool := msg.GetTool()
+	if tool != "locate_element" && tool != "click_element" {
+		return nil, false
+	}
+	var args struct {
+		Target      string `json:"target"`
+		Button      string `json:"button"`
+		DoubleClick bool   `json:"double_click"`
+		TypeText    string `json:"type_text"`
+		PressKey    string `json:"press_key"`
+		WaitMs      int64  `json:"wait_ms"`
+		ForceVision bool   `json:"force_vision"`
+		Verify      bool   `json:"verify"`
+	}
+	if len(msg.GetJsonArgs()) > 0 {
+		if err := json.Unmarshal(msg.GetJsonArgs(), &args); err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_INVALID_ARGS", "message": err.Error()},
+			})
+			return b, true
+		}
+	}
+	who := msg.GetWho()
+	if who == "" {
+		who = "admin-dispatch"
+	}
+	switch tool {
+	case "locate_element":
+		out, err := s.selector.Locate(ctx, selection.LocateInput{
+			NodeID:      msg.GetNodeId(),
+			Target:      args.Target,
+			ForceVision: args.ForceVision,
+			WaitMs:      args.WaitMs,
+			DeadlineMs:  msg.GetDeadlineMs(),
+			Who:         who,
+			TraceID:     msg.GetTraceId(),
+		})
+		out.Candidates = compactMcpCandidates(out.Candidates, 16)
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_LOCATE_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		if !out.Found {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_ELEMENT_NOT_FOUND", "message": out.Message},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	case "click_element":
+		out, err := s.selector.Click(ctx, selection.ClickInput{
+			NodeID:      msg.GetNodeId(),
+			Target:      args.Target,
+			Button:      args.Button,
+			DoubleClick: args.DoubleClick,
+			TypeText:    args.TypeText,
+			PressKey:    args.PressKey,
+			WaitMs:      args.WaitMs,
+			ForceVision: args.ForceVision,
+			Verify:      args.Verify,
+			DeadlineMs:  msg.GetDeadlineMs(),
+			Who:         who,
+			TraceID:     msg.GetTraceId(),
+		})
+		out.Located.Candidates = compactMcpCandidates(out.Located.Candidates, 16)
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_CLICK_ELEMENT_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		if !out.Clicked {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_CLICK_ELEMENT_NOT_FOUND", "message": out.Message},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	}
+	return nil, false
 }
 
 // CreateEnvironment 从 PVE 模板克隆并置备一个环境（ephemeral 建基线快照 / persistent 保留）。

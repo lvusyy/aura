@@ -417,8 +417,88 @@ func computeA11yFingerprint(elems []fusion.FusedElement) string {
 	return b.String()
 }
 
-// Locate 执行三层混合元素定位。
+// summarizeCandidatesHint 提炼屏幕上可见的具名/可交互元素摘要，供未命中时辅助 Agent/操作员快速自愈改写查询。
+func summarizeCandidatesHint(elems []fusion.FusedElement, scale float64, maxItems int) string {
+	if len(elems) == 0 || maxItems <= 0 {
+		return ""
+	}
+	if scale <= 0 {
+		scale = 1.0
+	}
+	var items []string
+	seen := make(map[string]struct{})
+	// 优先收集可交互具名元素，再收集普通具名/带描述元素
+	for pass := 0; pass < 2 && len(items) < maxItems; pass++ {
+		for _, el := range elems {
+			role := strings.ToLower(strings.TrimSpace(el.Role))
+			if pass == 0 && !isInteractiveRole(role) {
+				continue
+			}
+			label := strings.TrimSpace(el.Name)
+			if label == "" {
+				label = strings.TrimSpace(el.Caption)
+			}
+			if label == "" {
+				continue
+			}
+			if len([]rune(label)) > 28 {
+				label = string([]rune(label)[:28]) + "…"
+			}
+			key := role + "|" + strings.ToLower(label)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			db := NativeToDisplayBounds(el.Bounds, scale)
+			dcp := CenterPoint(db)
+			if role != "" {
+				items = append(items, fmt.Sprintf("[%s] %q @(%d,%d)", role, label, dcp[0], dcp[1]))
+			} else {
+				items = append(items, fmt.Sprintf("%q @(%d,%d)", label, dcp[0], dcp[1]))
+			}
+			if len(items) >= maxItems {
+				break
+			}
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return "可见元素参考: " + strings.Join(items, ", ")
+}
+
+// Locate 执行三层混合元素定位（支持可选 WaitMs 条件轮询等待动态元素出现）。
 func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutput, error) {
+	if in.WaitMs <= 0 {
+		return e.locateOnce(ctx, in)
+	}
+	waitCap := in.WaitMs
+	if waitCap > 15_000 {
+		waitCap = 15_000
+	}
+	start := time.Now()
+	waitDur := time.Duration(waitCap) * time.Millisecond
+	for {
+		out, err := e.locateOnce(ctx, in)
+		if err != nil || out.Found || out.Status == "vision_disabled" {
+			out.LatencyMs = time.Since(start).Milliseconds()
+			return out, err
+		}
+		if time.Since(start) >= waitDur {
+			out.LatencyMs = time.Since(start).Milliseconds()
+			return out, nil
+		}
+		// 轮询等待期间失效同屏缓存以确保重采最新画面
+		e.invalidateNodeCache(in.NodeID)
+		select {
+		case <-ctx.Done():
+			return out, ctx.Err()
+		case <-time.After(350 * time.Millisecond):
+		}
+	}
+}
+
+func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (LocateOutput, error) {
 	t0 := time.Now()
 	target := strings.TrimSpace(in.Target)
 	if in.NodeID == "" {
@@ -454,10 +534,10 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 		}
 	}
 
-	// 若默认 300 节点被截断且尚未命中高置信度候选，自动扩窗至 max_nodes=1000 重采一次
+	// 若默认 depth=3 / max_nodes=200 被截断且尚未命中高置信度候选，自动扩窗至 depth=16, max_nodes=1000 重采一次（修复深层控件漏检）
 	if a11yTruncated {
 		if _, score, ok := matchA11yCandidate(flatA11y, target); !ok || score < 0.85 {
-			if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", []byte(`{"max_nodes":1000}`), deadlineMs, who, in.TraceID); aerr == nil {
+			if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", []byte(`{"depth":16,"max_nodes":1000}`), deadlineMs, who, in.TraceID); aerr == nil {
 				var tree fusion.A11yTree
 				if json.Unmarshal(treeRaw, &tree) == nil {
 					flatA11y = fusion.FlattenA11y(tree)
@@ -519,7 +599,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 			Status:     "vision_disabled",
 			LatencyMs:  time.Since(t0).Milliseconds(),
 			Candidates: flatA11y,
-			Message:    "A11y 未命中目标且视觉推理当前设为禁用 (disabled)",
+			Message:    appendHint("A11y 未命中目标且视觉推理当前设为禁用 (disabled)", summarizeCandidatesHint(flatA11y, 1.0, 10)),
 		}, nil
 	}
 
@@ -669,7 +749,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 					SnapshotID:    snapshotID,
 					LatencyMs:     time.Since(t0).Milliseconds(),
 					Candidates:    candidates,
-					Message:       fmt.Sprintf("Jev Noul 存在概率 %.2f 低于阈值 %.2f，判定目标 %q 不存在", noulProb, cfg.NoulThreshold, target),
+					Message:       appendHint(fmt.Sprintf("Jev Noul 存在概率 %.2f 低于阈值 %.2f，判定目标 %q 不存在", noulProb, cfg.NoulThreshold, target), summarizeCandidatesHint(candidates, meta.Scale, 10)),
 				}, nil
 			}
 
@@ -815,11 +895,18 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 		SnapshotID: snapshotID,
 		LatencyMs:  time.Since(t0).Milliseconds(),
 		Candidates: candidates,
-		Message:    fmt.Sprintf("未定位到匹配 %q 的 UI 元素（共扫描 %d 个候选框）", target, len(candidates)),
+		Message:    appendHint(fmt.Sprintf("未定位到匹配 %q 的 UI 元素（共扫描 %d 个候选框）", target, len(candidates)), summarizeCandidatesHint(candidates, meta.Scale, 10)),
 	}, nil
 }
 
-// Click 执行「定位 → 门控 → 点击 → 可选校验」一步闭环。
+func appendHint(base, hint string) string {
+	if hint == "" {
+		return base
+	}
+	return base + "（" + hint + "）"
+}
+
+// Click 执行「定位 → 门控 → 点击/双击 → 可选输入/按键 → 可选校验」一步闭环。
 //
 // 坐标传递策略：
 //   - 若 Locate 经过了 screenshot（Scale > 0 且 DisplayClickPoint 非零），同时传入 display 坐标与 snapshot_id，
@@ -840,6 +927,7 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		NodeID:      in.NodeID,
 		Target:      in.Target,
 		ForceVision: in.ForceVision,
+		WaitMs:      in.WaitMs,
 		DeadlineMs:  deadlineMs,
 		Who:         who,
 		TraceID:     in.TraceID,
@@ -883,7 +971,11 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 	}
 	rawArgs, _ := json.Marshal(clickArgs)
 
-	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who, in.TraceID); cerr != nil {
+	clickTool := "click"
+	if in.DoubleClick {
+		clickTool = "double_click"
+	}
+	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, clickTool, rawArgs, deadlineMs, who, in.TraceID); cerr != nil {
 		return ClickOutput{
 			Located:        loc,
 			Clicked:        false,
@@ -897,13 +989,39 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 	// 点击已发生，立即失效该节点同屏候选缓存
 	e.invalidateNodeCache(in.NodeID)
 
+	typed := false
+	if in.TypeText != "" {
+		typeArgs, _ := json.Marshal(map[string]any{"text": in.TypeText})
+		if _, terr := e.dispatchNodeTool(ctx, in.NodeID, "type", typeArgs, deadlineMs, who, in.TraceID); terr == nil {
+			typed = true
+		}
+	}
+
+	keyPressed := ""
+	if k := strings.TrimSpace(in.PressKey); k != "" {
+		keyArgs, _ := json.Marshal(map[string]any{"key": k})
+		if _, kerr := e.dispatchNodeTool(ctx, in.NodeID, "key", keyArgs, deadlineMs, who, in.TraceID); kerr == nil {
+			keyPressed = k
+		}
+	}
+
 	verified := false
 	verifyNote := ""
 	if in.Verify {
 		verified, verifyNote = e.verifyPostClickState(ctx, in.NodeID, preA11yFP, preExactHash, preDHash, hasPreShot, who, in.TraceID)
 	}
 
-	msg := fmt.Sprintf("已点击 %q @ native(%d,%d) / display(%d,%d)", in.Target, loc.ClickPoint[0], loc.ClickPoint[1], loc.DisplayClickPoint[0], loc.DisplayClickPoint[1])
+	actionLabel := "已点击"
+	if in.DoubleClick {
+		actionLabel = "已双击"
+	}
+	msg := fmt.Sprintf("%s %q @ native(%d,%d) / display(%d,%d)", actionLabel, in.Target, loc.ClickPoint[0], loc.ClickPoint[1], loc.DisplayClickPoint[0], loc.DisplayClickPoint[1])
+	if typed {
+		msg += fmt.Sprintf(" · 已输入 %q", in.TypeText)
+	}
+	if keyPressed != "" {
+		msg += fmt.Sprintf(" · 已按键 %s", keyPressed)
+	}
 	if verifyNote != "" {
 		msg += " · " + verifyNote
 	}
@@ -911,6 +1029,9 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 	return ClickOutput{
 		Located:        loc,
 		Clicked:        true,
+		DoubleClicked:  in.DoubleClick,
+		Typed:          typed,
+		KeyPressed:     keyPressed,
 		Verified:       verified,
 		Status:         "clicked",
 		TotalLatencyMs: time.Since(t0).Milliseconds(),
@@ -936,7 +1057,7 @@ func (e *SelectorEngine) verifyPostClickState(
 			}
 		}
 		if preA11yFP != "" {
-			if treeRaw, aerr := e.dispatchNodeTool(ctx, nodeID, "get_a11y_tree", nil, 5_000, who, traceID); aerr == nil {
+			if treeRaw, aerr := e.dispatchNodeTool(ctx, nodeID, "get_a11y_tree", []byte(`{"depth":16,"max_nodes":1000}`), 5_000, who, traceID); aerr == nil {
 				var tree fusion.A11yTree
 				if json.Unmarshal(treeRaw, &tree) == nil {
 					postFP := computeA11yFingerprint(fusion.FlattenA11y(tree))

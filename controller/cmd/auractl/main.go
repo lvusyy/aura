@@ -71,10 +71,14 @@ func run(argv []string) error {
 		return cmdNode(ctx, client, args[1:])
 	case "tool":
 		return cmdTool(ctx, client, args[1:])
+	case "locate":
+		return cmdLocate(ctx, client, args[1:])
+	case "click-element":
+		return cmdClickElement(ctx, client, args[1:])
 	case "env":
 		return cmdEnv(ctx, client, args[1:])
 	case "artifact":
-		return cmdArtifact(ctx, args[1:], minioConfig{*minioEndpoint, *minioAccess, *minioSecret, *minioSecure})
+		return cmdArtifact(ctx, args[1:], minioConfig{*minioEndpoint, *minioAccess, *minioSecret, *minioSecure}, restConfig{httpClient: httpClient, server: *server, token: *token})
 	case "trace":
 		return cmdTrace(ctx, client, args[1:])
 	case "replay":
@@ -139,9 +143,11 @@ Usage:
 Commands:
   node list                                                            list registered nodes
   tool call <node-id> <tool> [--args JSON] [--deadline-ms N] [--who W] dispatch a tool call
+  locate <node-id> <target> [--force-vision] [--wait-ms N]             hybrid Jev/A11y UI element localization
+  click-element <node-id> <target> [--type T] [--key K] [--verify]     one-step UI element locate & click
   env create --kind ephemeral|persistent [--template N]               create an environment
   env destroy <env-id>                                                destroy an environment
-  artifact get <key> [--out FILE]                                     download an artifact via presigned URL
+  artifact get <key> [--out FILE]                                     download an artifact via controller/presigned URL
   trace start <node-id> [--who W] | trace stop <trace-id>             start/stop a recording lease (trace)
   replay <trace-id> [--node <id>] [--platform <p>] [--deadline-ms N]  replay a recorded trace against a target
   release upload --platform P --version V <file>                      upload a node release artifact (admin)

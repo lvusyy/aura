@@ -20,7 +20,9 @@ package transport
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -83,11 +85,19 @@ type NodeAliveReader interface {
 // TangoBridge 是 Tango 实时流 WS↔TCP 桥的 handler 依赖集（挂 /stream/tango，见 NewRESTHandler）。
 type TangoBridge struct {
 	token       string              // REST bearer（与 BearerMiddleware 同源）；空串一律拒绝（fail closed）
+	scopes      TokenScopes         // 可选：多档静态令牌集（ro/ops/admin）
+	tokens      ApiTokenSource      // 可选：M15 数据库令牌源（aura_...）
 	resolve     AdbEndpointResolver // (node,serial) → adb dial 端点
 	scrcpy      scrcpyLifecycle     // 第三方 scrcpy/adb 窄 adapter：push v3.3.4 server jar + 探活（L1/L2）
 	dialTimeout time.Duration       // L2 探活 dial 超时
 	upgrader    websocket.Upgrader
 	logger      *slog.Logger
+}
+
+// SetAuthSources 注入附加的多档静态令牌与 M15 数据库令牌鉴权源（使 aura_... 数据库令牌同样可打开 Android 实时流）。
+func (b *TangoBridge) SetAuthSources(scopes TokenScopes, tokens ApiTokenSource) {
+	b.scopes = scopes
+	b.tokens = tokens
 }
 
 // NewTangoBridge 用注入的 resolver + scrcpyLifecycle 构造桥（依赖倒置：生产装配见 NewConfiguredTangoBridge，
@@ -181,8 +191,23 @@ func tangoToken(r *http.Request) string {
 // upgrade → 透明双向字节泵。任何前置校验失败均在 upgrade 前以 HTTP 状态码明确拒绝（不 101）。
 func (b *TangoBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// —— 1. bearer 鉴权（upgrade 前；空 token fail closed，与 BearerMiddleware 同纪律）。token 绝不落日志 ——
+	got := []byte(tangoToken(r))
 	want := []byte(b.token)
-	if len(want) == 0 || subtle.ConstantTimeCompare([]byte(tangoToken(r)), want) != 1 {
+	authed := len(got) > 0 && len(want) > 0 && subtle.ConstantTimeCompare(got, want) == 1
+	if !authed && len(got) > 0 {
+		for tok := range b.scopes {
+			if subtle.ConstantTimeCompare(got, []byte(tok)) == 1 {
+				authed = true
+			}
+		}
+		if !authed && b.tokens != nil {
+			sum := sha256.Sum256(got)
+			if _, err := b.tokens.LookupApiToken(r.Context(), hex.EncodeToString(sum[:])); err == nil {
+				authed = true
+			}
+		}
+	}
+	if !authed {
 		observability.IncAuthFailure("tango")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return

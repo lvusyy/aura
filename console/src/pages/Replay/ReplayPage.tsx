@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -129,14 +129,17 @@ function FrameCard({ step }: { step: TraceStep }) {
               width: 160,
               height: 120,
               overflow: "auto",
-              background: "#fafafa",
+              background: recorded.status === "FAIL" ? "#fff2f0" : "#fafafa",
+              color: recorded.status === "FAIL" ? "#cf1322" : undefined,
               borderRadius: 6,
               padding: 6,
               fontSize: 11,
               whiteSpace: "pre-wrap",
             }}
           >
-            {args || "（无参数）"}
+            {recorded.status === "FAIL"
+              ? `执行/抓屏失败：\n${recorded.detail}\n${args ? `\n入参：${args}` : ""}`
+              : args || "（本步无截图 / 无参数）"}
           </pre>
         )}
         <Text type="secondary" style={{ fontSize: 11 }}>
@@ -253,6 +256,7 @@ export function ReplayPage() {
         targetNodeId: targetNode,
         targetTools: target?.tools ?? [],
         deadlineMs: REPLAY_DEADLINE_MS,
+        preloadedDetail: detail,
         onProgress: (rep) => setReport(rep), // 逐步实时标注
       });
       setReport(r);
@@ -408,6 +412,12 @@ export function ReplayPage() {
                   录制源：{detail.nodeId || "-"} · {detail.platform || "-"}
                 </Text>
                 <Text type="secondary">步数：{detail.steps.length}</Text>
+                <Text type="secondary">
+                  说明：本栏展示 trace 逐步截图胶片；若需播放连续 MP4 屏幕录像，请前往{" "}
+                  <Link to={detail.nodeId ? `/recordings?node=${detail.nodeId}` : "/recordings"}>
+                    录屏回放
+                  </Link>
+                </Text>
               </Space>
               <FilmTimeline detail={detail} />
             </Space>

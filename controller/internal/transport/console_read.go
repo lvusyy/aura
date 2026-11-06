@@ -30,7 +30,11 @@ func (s *ConsoleServiceServer) ReadNodeScreen(
 	if err := CheckNodeProjectAccess(ctx, s.store, req.Msg.GetNodeId()); err != nil {
 		return nil, err
 	}
-	resp, code, err := s.sched.DispatchReadOnly(ctx, req.Msg.GetNodeId(), readScreenTool, req.Msg.GetJsonArgs(), req.Msg.GetDeadlineMs(), req.Msg.GetWho())
+	tool := readScreenTool
+	if hTool := req.Header().Get("X-Aura-Read-Tool"); hTool == "screenshot" || hTool == "get_a11y_tree" {
+		tool = hTool
+	}
+	resp, code, err := s.sched.DispatchReadOnly(ctx, req.Msg.GetNodeId(), tool, req.Msg.GetJsonArgs(), req.Msg.GetDeadlineMs(), req.Msg.GetWho())
 	if code != "" {
 		return connect.NewResponse(&aurav1.ReadNodeScreenResponse{JsonEnvelope: synthReadErrorEnvelope(code, err)}), nil
 	}

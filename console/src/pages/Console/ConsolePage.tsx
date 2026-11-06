@@ -19,7 +19,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { AimOutlined, SettingOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { AimOutlined, ReloadOutlined, SettingOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { adminClient, consoleClient } from "../../api/transport";
 import type { NodeInfo } from "../../gen/aura/v1/node_pb";
@@ -47,7 +47,21 @@ const NODE_REFRESH_MS = 8000;
 // 交互所依赖的工具名（剔除工具防御：node.tools 缺失即禁用对应交互）。
 const T_SCREENSHOT = "screenshot";
 const T_CLICK = "click";
+const T_DOUBLE_CLICK = "double_click";
 const T_TYPE = "type";
+const T_KEY = "key";
+
+const QUICK_KEYS: Array<{ label: string; key: string }> = [
+  { label: "回车 (Enter)", key: "Return" },
+  { label: "退格 (Backspace)", key: "BackSpace" },
+  { label: "Tab", key: "Tab" },
+  { label: "Esc", key: "Escape" },
+  { label: "空格 (Space)", key: "space" },
+  { label: "↑", key: "Up" },
+  { label: "↓", key: "Down" },
+  { label: "←", key: "Left" },
+  { label: "→", key: "Right" },
+];
 
 // —— connect 错误归一（fleet.ts 同款判定，本页局部复用，避免跨文件耦合）——
 function isAbortError(err: unknown): boolean {
@@ -79,9 +93,9 @@ function useOnlineNodes(refreshMs = NODE_REFRESH_MS): OnlineNodesState {
     const load = async () => {
       try {
         const resp = await adminClient.listNodes({}, { signal: ac.signal });
-        // online 过滤 + 按 node_id 稳定排序（避免选择器选项抖动重排）。
+        // 保留 online 与短暂 unhealthy 节点（防心跳瞬抖卸空画布）+ 按 node_id 稳定排序。
         const online = resp.nodes
-          .filter((n) => n.status === "online")
+          .filter((n) => n.status === "online" || n.status === "unhealthy")
           .sort((a, b) => a.nodeId.localeCompare(b.nodeId));
         setNodes(online);
         setError(null);
@@ -147,9 +161,12 @@ export function ConsolePage() {
   const [visionSettings, setVisionSettings] = useState<VisionSettings | null>(null);
   const [targetQuery, setTargetQuery] = useState("");
   const [forceVision, setForceVision] = useState(false);
+  const [verifyClick, setVerifyClick] = useState(true);
+  const [sendEnterAfterType, setSendEnterAfterType] = useState(false);
   const [jevBusy, setJevBusy] = useState(false);
   const [located, setLocated] = useState<LocateElementResponse | null>(null);
   const [lastClickInfo, setLastClickInfo] = useState<string | null>(null);
+  const [lastVerified, setLastVerified] = useState<boolean | null>(null);
   const jevAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -182,7 +199,9 @@ export function ConsolePage() {
   // 剔除工具防御：ios12/android17/desktop20 均含 click/type/screenshot，此为能力协商兜底。
   const canScreenshot = selected !== null && selected.tools.includes(T_SCREENSHOT);
   const canClick = selected !== null && selected.tools.includes(T_CLICK);
+  const canDoubleClick = selected !== null && selected.tools.includes(T_DOUBLE_CLICK);
   const canType = selected !== null && selected.tools.includes(T_TYPE);
+  const canKey = selected !== null && selected.tools.includes(T_KEY);
   // Android(Redroid) 节点可切 Tango WebCodecs 实时流（平台串如 "android13"）；非 android 节点仅截图轮询。
   const isAndroid = selected !== null && selected.platform.toLowerCase().startsWith("android");
 
@@ -203,13 +222,13 @@ export function ConsolePage() {
     enabled: isAndroid && effectiveMode === "stream",
   });
   const surface: DisplaySurfaceState = effectiveMode === "stream" ? stream : polling;
-  const { busy, error: pollError, live, frameRef } = surface;
+  const { busy, error: pollError, live, frameRef, refreshNow } = surface;
 
-  // 统一下发 click/type 并按信封 ok/error 反馈（操作反馈）。
+  // 统一下发 click/type/key 并按信封 ok/error 反馈（动作成功后立即触发 refreshNow 抓屏）。
   const dispatchAction = useCallback(
-    async (tool: string, args: unknown, label: string) => {
-      if (!nodeId) {
-        return;
+    async (tool: string, args: unknown, label: string): Promise<boolean> => {
+      if (!nodeId || sending) {
+        return false;
       }
       setSending(true);
       try {
@@ -224,39 +243,114 @@ export function ConsolePage() {
         const env = decodeEnvelope(resp.jsonEnvelope);
         if (env.ok === true) {
           msgApi.success(`${label} 已下发`);
+          refreshNow?.();
+          return true;
         } else {
           msgApi.error(`${label} 失败：${envError(env)}`);
+          return false;
         }
       } catch (err) {
         msgApi.error(`${label} 异常：${describeError(err)}`);
+        return false;
       } finally {
         setSending(false);
       }
     },
-    [nodeId, msgApi],
+    [nodeId, sending, msgApi, refreshNow],
   );
 
-  // 画布点击 → canvas 坐标回映射 XGA(display) 坐标 → click 透传（仿 m6-e2e:290-298 坐标 + 下发）。
+  // 画布左键单击 → canvas 坐标回映射 XGA(display) 坐标 → click 透传。
   const onCanvasClick = useCallback(
     (e: ReactMouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
       const frame = frameRef.current;
-      if (!canClick || !canvas || !frame) {
+      if (!canClick || sending || !canvas || !frame) {
         return;
       }
       const [cx, cy] = canvasClickToDisplay(canvas, e.clientX, e.clientY, frame);
       void dispatchAction(T_CLICK, { coordinate: [cx, cy], coord_space: "display" }, `点击 [${cx},${cy}]`);
     },
-    [canClick, frameRef, dispatchAction],
+    [canClick, sending, frameRef, dispatchAction],
   );
 
-  // 输入框回车/按钮 → type 透传（键盘输入透传）。
-  const onSendType = useCallback(() => {
-    if (!canType || typeText.length === 0) {
+  // 画布双击 → double_click 透传。
+  const onCanvasDoubleClick = useCallback(
+    (e: ReactMouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      const frame = frameRef.current;
+      if (!canDoubleClick || sending || !canvas || !frame) {
+        return;
+      }
+      const [cx, cy] = canvasClickToDisplay(canvas, e.clientX, e.clientY, frame);
+      void dispatchAction(T_DOUBLE_CLICK, { coordinate: [cx, cy], coord_space: "display" }, `双击 [${cx},${cy}]`);
+    },
+    [canDoubleClick, sending, frameRef, dispatchAction],
+  );
+
+  // 画布右键 → click (button=right) 透传。
+  const onCanvasContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      const frame = frameRef.current;
+      if (!canClick || sending || !canvas || !frame) {
+        return;
+      }
+      e.preventDefault();
+      const [cx, cy] = canvasClickToDisplay(canvas, e.clientX, e.clientY, frame);
+      void dispatchAction(
+        T_CLICK,
+        { coordinate: [cx, cy], button: "right", coord_space: "display" },
+        `右键点击 [${cx},${cy}]`,
+      );
+    },
+    [canClick, sending, frameRef, dispatchAction],
+  );
+
+  // 输入框回车/按钮 → type 透传（成功后自动清空输入框，可选自动发送回车）。
+  const onSendType = useCallback(async () => {
+    if (!canType || typeText.length === 0 || sending) {
       return;
     }
-    void dispatchAction(T_TYPE, { text: typeText }, `输入 "${typeText.slice(0, 20)}"`);
-  }, [canType, typeText, dispatchAction]);
+    const textToSend = typeText;
+    const ok = await dispatchAction(T_TYPE, { text: textToSend }, `输入 "${textToSend.slice(0, 20)}"`);
+    if (ok) {
+      setTypeText("");
+      if (sendEnterAfterType && canKey) {
+        await dispatchAction(T_KEY, { key: "Return" }, "按键 Return");
+      }
+    }
+  }, [canType, canKey, typeText, sending, sendEnterAfterType, dispatchAction]);
+
+  // 快捷按键透传
+  const onSendKey = useCallback(
+    (keyName: string, label: string) => {
+      if (!canKey || sending) {
+        return;
+      }
+      void dispatchAction(T_KEY, { key: keyName }, `按键 ${label}`);
+    },
+    [canKey, sending, dispatchAction],
+  );
+
+  // 直接点击已定位到的坐标（免二次视觉推理）
+  const onClickLocatedPoint = useCallback(() => {
+    if (!located || !located.found || !canClick || sending) {
+      return;
+    }
+    const isNative = located.source === "a11y";
+    const pt = isNative ? located.clickPoint : located.displayClickPoint;
+    if (!pt || pt.length < 2) {
+      return;
+    }
+    const args: Record<string, unknown> = {
+      coordinate: [pt[0], pt[1]],
+      coord_space: isNative ? "native" : "display",
+    };
+    if (!isNative && located.snapshotId) {
+      args.snapshot_id = located.snapshotId;
+    }
+    void dispatchAction(T_CLICK, args, `点击已定位点 [${pt[0]},${pt[1]}]`);
+  }, [located, canClick, sending, dispatchAction]);
 
   // Jev 快速元素定位（LocateElement）
   const onLocateElement = useCallback(async () => {
@@ -269,6 +363,7 @@ export function ConsolePage() {
     jevAbortRef.current = ac;
     setJevBusy(true);
     setLastClickInfo(null);
+    setLastVerified(null);
     try {
       const resp = await consoleClient.locateElement(
         {
@@ -314,6 +409,7 @@ export function ConsolePage() {
     jevAbortRef.current = ac;
     setJevBusy(true);
     setLastClickInfo(null);
+    setLastVerified(null);
     try {
       const resp = await consoleClient.clickElement(
         {
@@ -321,7 +417,7 @@ export function ConsolePage() {
           target: q,
           button: "left",
           forceVision,
-          verify: false,
+          verify: verifyClick,
           deadlineMs: JEV_DEADLINE_MS,
           who: WHO,
         },
@@ -337,7 +433,9 @@ export function ConsolePage() {
         const pt = resp.located?.clickPoint ?? [];
         const summary = `已点击 [${pt.join(",")}]（总耗时 ${Number(resp.totalLatencyMs)} ms）`;
         setLastClickInfo(summary);
+        setLastVerified(verifyClick ? resp.verified : null);
         msgApi.success(`一步点击 "${q}" 成功（${Number(resp.totalLatencyMs)} ms）`);
+        refreshNow?.();
       } else {
         msgApi.warning(`一步点击未执行：${resp.message || resp.status}`);
       }
@@ -351,7 +449,7 @@ export function ConsolePage() {
         setJevBusy(false);
       }
     }
-  }, [nodeId, targetQuery, forceVision, msgApi]);
+  }, [nodeId, targetQuery, forceVision, verifyClick, msgApi, refreshNow]);
 
   // 计算画布上定位框的百分比位置（优先按 displayBounds 对齐 frame.displayW/displayH，Tier 0 原生坐标自动按 frame.scale 折算）
   const overlayStyle = (() => {
@@ -484,6 +582,13 @@ export function ConsolePage() {
                 >
                   强制走视觉 (跳过纯 A11y)
                 </Checkbox>
+                <Checkbox
+                  checked={verifyClick}
+                  disabled={!selected || jevBusy}
+                  onChange={(e) => setVerifyClick(e.target.checked)}
+                >
+                  校验点击生效 (L1/L2)
+                </Checkbox>
                 <Button
                   icon={<AimOutlined />}
                   disabled={!selected || !targetQuery.trim()}
@@ -501,12 +606,22 @@ export function ConsolePage() {
                 >
                   一步点击
                 </Button>
+                {located?.found ? (
+                  <Button
+                    size="small"
+                    disabled={!canClick || sending || jevBusy}
+                    onClick={onClickLocatedPoint}
+                  >
+                    点击已定位点
+                  </Button>
+                ) : null}
                 {located ? (
                   <Button
                     size="small"
                     onClick={() => {
                       setLocated(null);
                       setLastClickInfo(null);
+                      setLastVerified(null);
                     }}
                   >
                     清除高亮
@@ -529,6 +644,7 @@ export function ConsolePage() {
                   <Tag color="cyan">置信度 {(located.confidence * 100).toFixed(0)}%</Tag>
                   <Tag>存在概率 Noul {(located.existenceProb * 100).toFixed(0)}%</Tag>
                   <Tag color="purple">耗时 {Number(located.latencyMs)} ms</Tag>
+                  {located.snapshotId ? <Tag color="blue">{located.snapshotId}</Tag> : null}
                   {located.bounds.length === 4 ? (
                     <Typography.Text code>native [{located.bounds.join(", ")}]</Typography.Text>
                   ) : null}
@@ -542,9 +658,41 @@ export function ConsolePage() {
                     </Typography.Text>
                   ) : null}
                   {lastClickInfo ? <Tag color="success">{lastClickInfo}</Tag> : null}
+                  {lastVerified !== null ? (
+                    <Tag color={lastVerified ? "success" : "warning"}>
+                      {lastVerified ? "状态校验通过" : "状态未见显著变化"}
+                    </Tag>
+                  ) : null}
                 </Space>
               }
-              description={located.message ? located.message : undefined}
+              description={
+                <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                  {located.message ? <span>{located.message}</span> : null}
+                  {!located.found && located.candidates.length > 0 ? (
+                    <Space size={4} wrap>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        点击候选填入：
+                      </Typography.Text>
+                      {located.candidates
+                        .filter((c) => (c.name || c.caption).trim().length > 0)
+                        .slice(0, 8)
+                        .map((c, idx) => {
+                          const label = (c.name || c.caption).trim();
+                          return (
+                            <Tag
+                              key={`${idx}-${label}`}
+                              style={{ cursor: "pointer" }}
+                              onClick={() => setTargetQuery(label)}
+                            >
+                              {c.role ? `[${c.role}] ` : ""}
+                              {label.length > 20 ? `${label.slice(0, 20)}…` : label}
+                            </Tag>
+                          );
+                        })}
+                    </Space>
+                  ) : null}
+                </Space>
+              }
             />
           ) : null}
         </Space>
@@ -554,6 +702,11 @@ export function ConsolePage() {
         title="设备画面"
         extra={
           <Space>
+            {effectiveMode === "polling" && canScreenshot ? (
+              <Button size="small" icon={<ReloadOutlined />} onClick={() => refreshNow?.()}>
+                刷新画面
+              </Button>
+            ) : null}
             {isAndroid ? (
               <Segmented
                 size="small"
@@ -594,6 +747,8 @@ export function ConsolePage() {
               <canvas
                 ref={canvasRef}
                 onClick={onCanvasClick}
+                onDoubleClick={onCanvasDoubleClick}
+                onContextMenu={onCanvasContextMenu}
                 style={{
                   display: "block",
                   maxWidth: "100%",
@@ -658,20 +813,49 @@ export function ConsolePage() {
           批E B4：透传选中节点自报 IP，入口 URL 随节点自适应预填（此前硬编码单一 k3s IP）。 */}
       <SelkiesLaunch platform={selected?.platform ?? null} ipAddress={selected?.ipAddress ?? ""} />
 
-      <Card title="键盘输入透传">
-        <Input.Search
-          placeholder={canType ? "输入要发送到设备的文本，回车或点按钮下发 type" : "该节点不支持 type 工具"}
-          enterButton="发送 type"
-          value={typeText}
-          disabled={!canType || sending}
-          loading={sending}
-          onChange={(e) => setTypeText(e.target.value)}
-          onSearch={onSendType}
-        />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-          点击上方画面 = 向设备透传 click（画面点击点按 display 尺寸回映射为 XGA 坐标）；
-          {canClick ? "" : "（当前节点不支持 click，已禁用画面点击）"}
-        </Typography.Paragraph>
+      <Card
+        title="键盘输入与快捷按键透传"
+        extra={
+          <Checkbox
+            checked={sendEnterAfterType}
+            disabled={!canType || !canKey || sending}
+            onChange={(e) => setSendEnterAfterType(e.target.checked)}
+          >
+            发送文本后自动回车
+          </Checkbox>
+        }
+      >
+        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+          <Input.Search
+            placeholder={canType ? "输入要发送到设备的文本，回车或点按钮下发 type（发送成功后自动清空）" : "该节点不支持 type 工具"}
+            enterButton="发送 type"
+            value={typeText}
+            disabled={!canType || sending}
+            loading={sending}
+            onChange={(e) => setTypeText(e.target.value)}
+            onSearch={() => void onSendType()}
+            allowClear
+          />
+          <Space size={6} wrap>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              快捷按键：
+            </Typography.Text>
+            {QUICK_KEYS.map((item) => (
+              <Button
+                key={item.key}
+                size="small"
+                disabled={!canKey || sending}
+                onClick={() => onSendKey(item.key, item.label)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </Space>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
+            画面左键单击 = click，双击 = double_click，右键 = 右键点击（坐标自动对齐 display 空间并在动作后立即刷新画面）；
+            {canClick ? "" : "（当前节点不支持 click，已禁用画面点击）"}
+          </Typography.Paragraph>
+        </Space>
       </Card>
 
       <VisionSettingsDrawer

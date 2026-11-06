@@ -146,7 +146,8 @@ func (s *NodeControlServer) GrantUpload(ctx context.Context, nodeID, key string)
 	// 按节点上报的网络域签发预签名 URL（T07/REC-6）：不同网络域节点（如 252.x 经跳板 vs lan 直连）
 	// 可达 MinIO 端点不同，据 sess.NetworkZone 选对应端点——空/未知域回落默认（AURA_MINIO_PUBLIC_ENDPOINT），
 	// 兼容未探测上报的旧节点。收口 ISS-20260714-003（252.x 上传腿指向其可达跳板端点）。
-	u, err := s.artifacts.PresignedPut(ctx, key, grantUploadTTL, sess.NetworkZone)
+	zone := s.artifacts.ResolveZone(sess.NetworkZone, sess.IpAddress)
+	u, err := s.artifacts.PresignedPut(ctx, key, grantUploadTTL, zone)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +162,7 @@ func (s *NodeControlServer) GrantUpload(ctx context.Context, nodeID, key string)
 	if err := sess.Send(ctx, frame); err != nil {
 		return nil, err
 	}
-	slog.Info("upload url granted", "node_id", nodeID, "key", key, "zone", sess.NetworkZone, "ttl_secs", grant.GetTtlSecs())
+	slog.Info("upload url granted", "node_id", nodeID, "key", key, "zone", zone, "ttl_secs", grant.GetTtlSecs())
 	return grant, nil
 }
 

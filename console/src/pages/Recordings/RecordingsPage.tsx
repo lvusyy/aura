@@ -194,11 +194,16 @@ export function RecordingsPage() {
       title: "操作",
       key: "action",
       width: 120,
-      render: (_, r) => (
-        <Button type="link" size="small" icon={<VideoCameraOutlined />} onClick={() => setSelected(r)}>
-          播放
-        </Button>
-      ),
+      render: (_, r) =>
+        r.sizeBytes > 0n ? (
+          <Button type="link" size="small" icon={<VideoCameraOutlined />} onClick={() => setSelected(r)}>
+            播放
+          </Button>
+        ) : (
+          <Tooltip title="该历史录屏文件大小为 0 字节（录制上传未完成），无法播放">
+            <Tag color="default">空文件 (0 B)</Tag>
+          </Tooltip>
+        ),
     },
   ];
 

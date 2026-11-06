@@ -237,6 +237,10 @@ func tryServeGatewayJevTool(
 	var args struct {
 		Target      string `json:"target"`
 		Button      string `json:"button"`
+		DoubleClick bool   `json:"double_click"`
+		TypeText    string `json:"type_text"`
+		PressKey    string `json:"press_key"`
+		WaitMs      int64  `json:"wait_ms"`
 		ForceVision bool   `json:"force_vision"`
 		Verify      bool   `json:"verify"`
 		DeadlineMs  int64  `json:"deadline_ms"`
@@ -275,15 +279,24 @@ func tryServeGatewayJevTool(
 			NodeID:      nodeID,
 			Target:      args.Target,
 			ForceVision: args.ForceVision,
+			WaitMs:      args.WaitMs,
 			DeadlineMs:  args.DeadlineMs,
 			Who:         who,
 			TraceID:     args.TraceID,
 		})
+		out.Candidates = compactMcpCandidates(out.Candidates, 16)
 		if err != nil {
 			isToolErr = true
 			payload = map[string]any{
 				"ok":    false,
 				"error": map[string]any{"code": "E_LOCATE_FAILED", "message": err.Error()},
+			}
+		} else if !out.Found {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_ELEMENT_NOT_FOUND", "message": out.Message},
 			}
 		} else {
 			payload = map[string]any{
@@ -296,17 +309,29 @@ func tryServeGatewayJevTool(
 			NodeID:      nodeID,
 			Target:      args.Target,
 			Button:      args.Button,
+			DoubleClick: args.DoubleClick,
+			TypeText:    args.TypeText,
+			PressKey:    args.PressKey,
+			WaitMs:      args.WaitMs,
 			ForceVision: args.ForceVision,
 			Verify:      args.Verify,
 			DeadlineMs:  args.DeadlineMs,
 			Who:         who,
 			TraceID:     args.TraceID,
 		})
+		out.Located.Candidates = compactMcpCandidates(out.Located.Candidates, 16)
 		if err != nil {
 			isToolErr = true
 			payload = map[string]any{
 				"ok":    false,
 				"error": map[string]any{"code": "E_CLICK_ELEMENT_FAILED", "message": err.Error()},
+			}
+		} else if !out.Clicked {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_CLICK_ELEMENT_NOT_FOUND", "message": out.Message},
 			}
 		} else {
 			payload = map[string]any{
@@ -332,6 +357,13 @@ func tryServeGatewayJevTool(
 	writeMcpProxyReply(w, http.StatusOK, "application/json", outBytes)
 	auditMcpGateway(r, nodeID, http.StatusOK, len(body), "jev-"+toolName)
 	return true
+}
+
+func compactMcpCandidates[T any](items []T, capN int) []T {
+	if len(items) <= capN {
+		return items
+	}
+	return items[:capN]
 }
 
 func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
@@ -364,12 +396,15 @@ func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
 	if !seen["locate_element"] {
 		toolsSlice = append(toolsSlice, map[string]any{
 			"name":        "locate_element",
-			"description": "Fast hybrid UI element localization (A11y + YOLO geometry + Jev Choice/Noul/Box). Returns both native Bounds/ClickPoint and DisplayBounds/DisplayClickPoint.",
+			"description": "Fast hybrid UI element localization (Tier 0 A11y -> Tier 1 YOLO + Jev Choice/Noul -> Tier 2 Jev Box). Supports wait_ms polling and returns native/display coordinates plus visible candidate hints when not found.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"target":       map[string]any{"type": "string", "description": "Natural-language target element description (e.g. 'Submit button', 'Settings icon')"},
 					"force_vision": map[string]any{"type": "boolean", "description": "Skip Tier 0 A11y shortcut and force visual inference"},
+					"wait_ms":      map[string]any{"type": "integer", "description": "Optional max time in ms (up to 15000) to poll until the target element appears"},
+					"deadline_ms":  map[string]any{"type": "integer", "description": "Optional per-attempt deadline in ms"},
+					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
 				},
 				"required": []string{"target"},
 			},
@@ -378,14 +413,20 @@ func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
 	if !seen["click_element"] {
 		toolsSlice = append(toolsSlice, map[string]any{
 			"name":        "click_element",
-			"description": "One-step UI element localization and click via Jev (A11y + YOLO + Jev Choice/Noul/Box -> confidence gate -> click with exact coordinate alignment).",
+			"description": "One-step UI element localization, click/double-click, optional text input & key press, and post-click state verification via Jev.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"target":       map[string]any{"type": "string", "description": "Natural-language target element description"},
 					"button":       map[string]any{"type": "string", "description": "Mouse button: left (default) | right | middle"},
+					"double_click": map[string]any{"type": "boolean", "description": "Perform a double-click instead of a single click"},
+					"type_text":    map[string]any{"type": "string", "description": "Optional text to type immediately after clicking the target element"},
+					"press_key":    map[string]any{"type": "string", "description": "Optional key to press after clicking/typing (e.g. 'Return', 'Tab', 'Escape')"},
+					"wait_ms":      map[string]any{"type": "integer", "description": "Optional max time in ms (up to 15000) to wait for the element to appear before clicking"},
 					"force_vision": map[string]any{"type": "boolean", "description": "Force visual inference"},
-					"verify":       map[string]any{"type": "boolean", "description": "Verify UI responsiveness after click"},
+					"verify":       map[string]any{"type": "boolean", "description": "Verify UI state change (L1 A11y + L2 perceptual dHash) after click"},
+					"deadline_ms":  map[string]any{"type": "integer", "description": "Optional deadline in ms"},
+					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
 				},
 				"required": []string{"target"},
 			},

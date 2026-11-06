@@ -2,7 +2,7 @@
 // DisplayRenderer 契约——各渲染实现（截图轮询 / 未来 Tango 实时流）自行落 canvas 并暴露统一 DisplaySurfaceState，
 // 使 ConsolePage 的画布/点击/输入路径与具体渲染实现解耦。PollingRenderer 为现状实现（行为与原 useScreenPolling
 // 逐字一致）；StreamRenderer（TASK-003 Tango WebCodecs）实现同一 DisplaySurfaceState 输出契约即可零 churn 挂入。
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { consoleClient } from "../../api/transport";
@@ -46,6 +46,7 @@ export interface DisplaySurfaceState {
   error: string | null; // 渲染错误摘要
   live: boolean; // 是否已成功渲染至少一帧
   frameRef: RefObject<ScreenFrame | null>; // 最近成功帧 meta（canvasClickToDisplay 坐标回映射用；display 坐标系独立于渲染缩放）
+  refreshNow?: () => void; // 交互动作完成后主动触发立即抓屏，消除等待下一轮轮询周期的感知延迟
 }
 
 // PollingRenderer 入参。
@@ -64,8 +65,9 @@ export type DisplayRenderer<P> = (params: P) => DisplaySurfaceState;
 /**
  * usePollingRenderer 对选中节点做截图轮询画布——DisplaySurface 的现状实现：
  *   - 递归 setTimeout（非 setInterval）：每帧等上一帧完成再排下一帧，避免慢帧堆积；
- *   - 取帧走 ReadNodeScreen 读旁路（M10 T11 读写分离：绕 per-node 队列+租约豁免），录制期与队列
- *     积压期仍有帧；GetQueueDepth 跳帧从必要避让降级为可选的负载礼让 + busy badge 信号（见 tick 内注释）；
+ *   - 取帧走 ReadNodeScreen 读旁路（M10 T11 读写分离：绕 per-node 队列+租约豁免），无需前置 GetQueueDepth
+ *     串行 RTT，消除每帧双倍 RPC 与任务期画面卡死；
+ *   - 支持 refreshNow() 供点击/输入后 120ms 立即抓帧反馈；
  *   - 失焦暂停：document.hidden（tab 切走/最小化）时跳过本 tick，可见后下一 tick 自动恢复；
  *   - 卸载/切节点/停用：AbortController 取消在途请求 + 清定时器 + 抹残帧，无泄漏。
  */
@@ -79,10 +81,16 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
   const frameRef = useRef<ScreenFrame | null>(null);
+  const triggerRef = useRef<(() => void) | null>(null);
+
+  const refreshNow = useCallback(() => {
+    triggerRef.current?.();
+  }, []);
 
   useEffect(() => {
     // 切节点/停轮询：复位状态 + 抹掉上一节点残帧。
     frameRef.current = null;
+    triggerRef.current = null;
     setLive(false);
     setBusy(false);
     setError(null);
@@ -95,11 +103,16 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
 
     const ac = new AbortController();
     let cancelled = false;
+    let inFlight = false;
+    let pendingImmediate = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const schedule = () => {
+    const schedule = (delay = intervalMs) => {
       if (!cancelled) {
-        timer = setTimeout(() => void tick(), intervalMs);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        timer = setTimeout(() => void tick(), delay);
       }
     };
 
@@ -107,27 +120,18 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
       if (cancelled) {
         return;
       }
+      if (inFlight) {
+        pendingImmediate = true;
+        return;
+      }
       // 失焦暂停：tab 隐藏时不发任何请求，下一 tick 恢复。
       if (document.hidden) {
         schedule();
         return;
       }
+      inFlight = true;
       try {
-        // —— 跳帧判断（M10 T11 起降级为可选保留）：读通道已切 ReadNodeScreen 读旁路（绕 per-node
-        // 队列+租约豁免，不再与 agent 任务互挤 E_BUSY），queue depth>0 跳帧不再是防抢队列的必要
-        // 避让，仅作设备侧负载礼让 +「设备忙」badge 的 UX 信号。注意 depth 为 per-replica 语义
-        // （非 owner 副本恒 0，VIP 单活下 console 流量收敛 active 副本，失真自然消解）。——
-        const qd = await consoleClient.getQueueDepth({ nodeId }, { signal: ac.signal });
-        if (qd.depth > 0) {
-          if (!cancelled) {
-            setBusy(true);
-          }
-          schedule();
-          return;
-        }
-        if (!cancelled) {
-          setBusy(false);
-        }
+        setBusy(false);
         // 读旁路取帧（M10 T11 读写分离）：ReadNodeScreen 绕队列直达节点会话——录制租约期与队列
         // 积压期仍有帧，任务队列时延不受读流量影响；错误仍是同构 envelope，解析路径零改。
         const resp = await consoleClient.readNodeScreen(
@@ -155,13 +159,25 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
         if (!cancelled && !ac.signal.aborted && !isAbortError(err)) {
           setError(describeError(err));
         }
+      } finally {
+        inFlight = false;
       }
-      schedule();
+      if (pendingImmediate && !cancelled) {
+        pendingImmediate = false;
+        schedule(80);
+      } else {
+        schedule();
+      }
+    };
+
+    triggerRef.current = () => {
+      schedule(100);
     };
 
     void tick(); // 首帧立即拉取，不等首个间隔
     return () => {
       cancelled = true;
+      triggerRef.current = null;
       ac.abort();
       if (timer) {
         clearTimeout(timer);
@@ -169,5 +185,5 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
     };
   }, [nodeId, intervalMs, enabled, canvasRef]);
 
-  return { busy, error, live, frameRef };
+  return { busy, error, live, frameRef, refreshNow };
 };

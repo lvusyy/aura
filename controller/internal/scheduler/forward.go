@@ -292,7 +292,7 @@ func (f *Forwarder) forward(ctx context.Context, peer peerTarget, nodeID, tool s
 // 方法只作只读分支的并列实现。hop 防环同 header：console 面经 InboundForwardMarker 同款包裹
 // （main.go 装配），owner 侧 Ready 失败不查 owner 不三次转发。
 func (f *Forwarder) TryForwardReadOnly(ctx context.Context, nodeID, tool string, jsonArgs []byte, deadlineMs int64, who string) (env []byte, err error, attempted bool) {
-	if tool != "screenshot" {
+	if tool != "screenshot" && tool != "get_a11y_tree" {
 		return f.TryForward(ctx, nodeID, tool, jsonArgs, deadlineMs, who, "")
 	}
 	owner, oerr := f.owners.GetNodeOwner(ctx, nodeID)
@@ -312,7 +312,7 @@ func (f *Forwarder) TryForwardReadOnly(ctx context.Context, nodeID, tool string,
 	if f.peerRecentlyDown(owner) {
 		return nil, fmt.Errorf("forward read-only %s for node %s: replica %s (%s) recently unreachable (fast-fail within %s)", tool, nodeID, owner, peer.endpoint, peerFailTTL), true
 	}
-	env, err = f.forwardReadOnly(ctx, peer, nodeID, jsonArgs, deadlineMs, who)
+	env, err = f.forwardReadOnly(ctx, peer, nodeID, tool, jsonArgs, deadlineMs, who)
 	if err != nil {
 		f.markPeerDown(owner, err)
 		return nil, fmt.Errorf("forward read-only %s for node %s to replica %s (%s): %w", tool, nodeID, owner, peer.endpoint, err), true
@@ -323,7 +323,7 @@ func (f *Forwarder) TryForwardReadOnly(ctx context.Context, nodeID, tool string,
 // forwardReadOnly 执行一次到 peer 的 ReadNodeScreen 转发调用（hop 标记 + bearer 与写路径同源）。
 // 兜底硬超时不含 awaitUploadCap 项：只读白名单准入即排除 needs_upload 大产物旁路，读窗=执行上限+
 // 网络余量。
-func (f *Forwarder) forwardReadOnly(ctx context.Context, peer peerTarget, nodeID string, jsonArgs []byte, deadlineMs int64, who string) ([]byte, error) {
+func (f *Forwarder) forwardReadOnly(ctx context.Context, peer peerTarget, nodeID, tool string, jsonArgs []byte, deadlineMs int64, who string) ([]byte, error) {
 	execCap := readOnlyDefaultTimeout
 	if d := time.Duration(deadlineMs) * time.Millisecond; d > execCap {
 		execCap = d
@@ -339,6 +339,9 @@ func (f *Forwarder) forwardReadOnly(ctx context.Context, peer peerTarget, nodeID
 	})
 	req.Header().Set("Authorization", "Bearer "+f.bearerToken)
 	req.Header().Set(ForwardedByHeader, f.selfID)
+	if tool != "" && tool != "screenshot" {
+		req.Header().Set("X-Aura-Read-Tool", tool)
+	}
 	resp, err := peer.console.ReadNodeScreen(fctx, req)
 	if err != nil {
 		return nil, err

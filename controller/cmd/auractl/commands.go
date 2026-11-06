@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -103,6 +104,80 @@ func cmdTool(ctx context.Context, client aurav1connect.ControllerAdminClient, ar
 	return printJSON(resp.Msg.GetJsonEnvelope())
 }
 
+// cmdLocate 处理 `locate <node-id> <target>`：调用控制面混合元素定位（Tier 0 A11y → Tier 1/2 Jev 视觉）。
+func cmdLocate(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: auractl locate <node-id> <target> [--force-vision] [--wait-ms N] [--deadline-ms N] [--who W]")
+	}
+	nodeID, target := args[0], args[1]
+	fs := flag.NewFlagSet("locate", flag.ContinueOnError)
+	forceVision := fs.Bool("force-vision", false, "skip Tier 0 A11y shortcut and force visual inference")
+	waitMs := fs.Int64("wait-ms", 0, "max wait time in ms to poll until target appears (up to 15000)")
+	deadlineMs := fs.Int64("deadline-ms", 25000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"target":       target,
+		"force_vision": *forceVision,
+		"wait_ms":      *waitMs,
+	})
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "locate_element",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
+// cmdClickElement 处理 `click-element <node-id> <target>`：一步混合定位 + 点击/双击 + 可选输入/按键 + 状态校验。
+func cmdClickElement(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: auractl click-element <node-id> <target> [--button left|right|middle] [--double] [--type TEXT] [--key KEY] [--verify] [--force-vision] [--wait-ms N] [--deadline-ms N]")
+	}
+	nodeID, target := args[0], args[1]
+	fs := flag.NewFlagSet("click-element", flag.ContinueOnError)
+	button := fs.String("button", "left", "mouse button: left|right|middle")
+	doubleClick := fs.Bool("double", false, "perform double click")
+	typeText := fs.String("type", "", "optional text to type immediately after clicking")
+	pressKey := fs.String("key", "", "optional key to press after clicking/typing (e.g. Return, Tab, Escape)")
+	verify := fs.Bool("verify", false, "verify post-click UI state diff (L1 A11y + L2 dHash)")
+	forceVision := fs.Bool("force-vision", false, "force visual inference")
+	waitMs := fs.Int64("wait-ms", 0, "max wait time in ms to poll until target appears")
+	deadlineMs := fs.Int64("deadline-ms", 30000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"target":       target,
+		"button":       *button,
+		"double_click": *doubleClick,
+		"type_text":    *typeText,
+		"press_key":    *pressKey,
+		"verify":       *verify,
+		"force_vision": *forceVision,
+		"wait_ms":      *waitMs,
+	})
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "click_element",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
 // cmdEnv 处理 `env create` / `env destroy`（provisioner 由 TASK-007 实现，此处仅 REST 转发）。
 func cmdEnv(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
 	if len(args) < 1 {
@@ -140,8 +215,9 @@ func cmdEnv(ctx context.Context, client aurav1connect.ControllerAdminClient, arg
 	}
 }
 
-// cmdArtifact 处理 `artifact get <key>`：签发预签名 GET URL 并下载到文件或 stdout。
-func cmdArtifact(ctx context.Context, args []string, cfg minioConfig) error {
+// cmdArtifact 处理 `artifact get <key>`：优先签发预签名 GET URL（当显式配置 MinIO 凭据时）或经控制面
+// `:18080/artifact/<key>` Bearer 代理下载到文件或 stdout（跨网段免直连 `:9000`）。
+func cmdArtifact(ctx context.Context, args []string, cfg minioConfig, rest ...restConfig) error {
 	if len(args) < 2 || args[0] != "get" {
 		return errors.New("usage: auractl artifact get <key> [--out FILE]")
 	}
@@ -151,22 +227,37 @@ func cmdArtifact(ctx context.Context, args []string, cfg minioConfig) error {
 	if err := fs.Parse(args[2:]); err != nil {
 		return err
 	}
-	if cfg.endpoint == "" {
-		return errors.New("minio not configured (set --minio-endpoint or AURA_MINIO_ENDPOINT)")
-	}
 
-	ms, err := storage.NewMinioStore(cfg.endpoint, cfg.accessKey, cfg.secretKey, cfg.secure)
-	if err != nil {
-		return err
-	}
-	u, err := ms.PresignedGet(ctx, key, 15*time.Minute)
-	if err != nil {
-		return err
-	}
-
-	resp, err := http.Get(u.String())
-	if err != nil {
-		return err
+	var resp *http.Response
+	if cfg.secretKey == "" && len(rest) > 0 && rest[0].server != "" && rest[0].httpClient != nil {
+		base := strings.TrimRight(rest[0].server, "/")
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/artifact/"+strings.TrimLeft(key, "/"), nil)
+		if err != nil {
+			return err
+		}
+		if rest[0].token != "" {
+			req.Header.Set("Authorization", "Bearer "+rest[0].token)
+		}
+		resp, err = rest[0].httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+	} else {
+		if cfg.endpoint == "" {
+			return errors.New("minio not configured (set --minio-endpoint or AURA_MINIO_ENDPOINT)")
+		}
+		ms, err := storage.NewMinioStore(cfg.endpoint, cfg.accessKey, cfg.secretKey, cfg.secure)
+		if err != nil {
+			return err
+		}
+		u, err := ms.PresignedGet(ctx, key, 15*time.Minute)
+		if err != nil {
+			return err
+		}
+		resp, err = http.Get(u.String())
+		if err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -182,7 +273,7 @@ func cmdArtifact(ctx context.Context, args []string, cfg minioConfig) error {
 		defer f.Close()
 		dst = f
 	}
-	_, err = io.Copy(dst, resp.Body)
+	_, err := io.Copy(dst, resp.Body)
 	return err
 }
 

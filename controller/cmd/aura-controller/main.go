@@ -410,6 +410,11 @@ func main() {
 	}
 	// 批E C1：桥凭据经 AURA_TANGO_TOKEN 独立轮换（缺省回落主 token，既有部署零变化）。
 	tangoBridge := transport.NewConfiguredTangoBridge(tangoToken, reg, tangoAlive, *tangoADBAddr, *tangoADBSerial, *tangoADBBin, *scrcpyServerJar)
+	var apiTokensForStreams transport.ApiTokenSource
+	if pgStore != nil {
+		apiTokensForStreams = pgStore
+	}
+	tangoBridge.SetAuthSources(tokenScopes, apiTokensForStreams)
 
 	// M12 签发面装配（TASK-006）：CA（AURA_CA_KEY_PATH）与 PG（node_certs 台账 + token 消费）均就位才启用
 	// enroll/renew。缺任一 → enrollSrv 保 nil：/v1/enroll 不挂载（NewRESTHandler enroll==nil 回落 SPA）、
@@ -427,7 +432,7 @@ func main() {
 	// 内存有界）；nil 时 NewRESTHandler artifact==nil 回落 SPA，既有 GetArtifact connect 面不受影响。
 	var artifactHandler http.Handler
 	if minioStore != nil {
-		artifactHandler = transport.ArtifactStreamHandler(minioStore, tokenScopes)
+		artifactHandler = transport.ArtifactStreamHandler(minioStore, tokenScopes, apiTokensForStreams)
 	}
 
 	grpcServer := newGRPCServer(*grpcAddr, serverCert, caPool, ncs, enrollSrv, pgStore, handlerOpts...)
@@ -591,6 +596,7 @@ func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScop
 	if consoleSrv != nil {
 		selEngine = consoleSrv.SelectorEngine()
 	}
+	adminSrv.SetSelectorEngine(selEngine)
 	mcpGateway := transport.McpGatewayHandler(reg, sched, pgStore, selEngine)
 
 	// M15：DB 实体令牌鉴权源——typed-nil 纪律，仅 PG 在位才赋非 nil 接口（*store.PGStore 实现 ApiTokenSource）。

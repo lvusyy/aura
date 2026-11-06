@@ -114,6 +114,7 @@ type LocateInput struct {
 	NodeID      string `json:"node_id"`
 	Target      string `json:"target"`
 	ForceVision bool   `json:"force_vision"`
+	WaitMs      int64  `json:"wait_ms,omitempty"`
 	DeadlineMs  int64  `json:"deadline_ms"`
 	Who         string `json:"who"`
 	TraceID     string `json:"trace_id,omitempty"`
@@ -148,6 +149,10 @@ type ClickInput struct {
 	NodeID      string `json:"node_id"`
 	Target      string `json:"target"`
 	Button      string `json:"button"`
+	DoubleClick bool   `json:"double_click,omitempty"`
+	TypeText    string `json:"type_text,omitempty"`
+	PressKey    string `json:"press_key,omitempty"`
+	WaitMs      int64  `json:"wait_ms,omitempty"`
 	ForceVision bool   `json:"force_vision"`
 	Verify      bool   `json:"verify"`
 	DeadlineMs  int64  `json:"deadline_ms"`
@@ -159,6 +164,9 @@ type ClickInput struct {
 type ClickOutput struct {
 	Located        LocateOutput `json:"located"`
 	Clicked        bool         `json:"clicked"`
+	DoubleClicked  bool         `json:"double_clicked,omitempty"`
+	Typed          bool         `json:"typed,omitempty"`
+	KeyPressed     string       `json:"key_pressed,omitempty"`
 	Verified       bool         `json:"verified"`
 	Status         string       `json:"status"` // clicked | not_found | low_confidence | click_failed
 	TotalLatencyMs int64        `json:"total_latency_ms"`

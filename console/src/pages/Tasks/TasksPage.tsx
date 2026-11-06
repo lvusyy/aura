@@ -361,13 +361,19 @@ export function TasksPage() {
         <Select
           placeholder="按状态过滤"
           allowClear
-          style={{ width: 160 }}
+          style={{ width: 180 }}
           value={statusFilter || undefined}
           onChange={(v) => setStatusFilter(v ?? "")}
-          options={["pending", "running", "succeeded", "failed", "timeout"].map((s) => ({
-            label: s,
-            value: s,
-          }))}
+          options={[
+            { label: "done (成功)", value: "done" },
+            { label: "error (失败)", value: "error" },
+            { label: "running (运行中)", value: "running" },
+            { label: "queued (排队中)", value: "queued" },
+            { label: "timeout (超时)", value: "timeout" },
+            { label: "busy (设备忙)", value: "busy" },
+            { label: "offline (离线)", value: "offline" },
+            { label: "orphaned (孤儿)", value: "orphaned" },
+          ]}
         />
         {/* 批C 过滤 chip：节点可读名 + 可清除（fleet 快跳入口的过滤态显性标识）。 */}
         {nodeFilter && (
