@@ -136,6 +136,7 @@ func TestPresignedPutFallsBackWithoutEndpoints(t *testing.T) {
 func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 	var mu sync.Mutex
 	objs := make(map[string][]byte)
+	mpParts := make(map[string]map[int][]byte)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		parts := strings.SplitN(path, "/", 2)
@@ -149,9 +150,47 @@ func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 			return
 		}
 		key := parts[0] + "/" + parts[1]
+		q := r.URL.Query()
 		switch r.Method {
+		case http.MethodPost:
+			if _, ok := q["uploads"]; ok {
+				mu.Lock()
+				mpParts[key] = make(map[int][]byte)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>`+parts[0]+`</Bucket><Key>`+parts[1]+`</Key><UploadId>u1</UploadId></InitiateMultipartUploadResult>`)
+				return
+			}
+			if q.Get("uploadId") != "" {
+				_, _ = io.ReadAll(r.Body)
+				mu.Lock()
+				pm := mpParts[key]
+				var combined bytes.Buffer
+				for i := 1; i <= len(pm); i++ {
+					combined.Write(pm[i])
+				}
+				objs[key] = combined.Bytes()
+				delete(mpParts, key)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>`+parts[0]+`</Bucket><Key>`+parts[1]+`</Key><ETag>"fake-etag"</ETag></CompleteMultipartUploadResult>`)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		case http.MethodPut:
 			body := decodeS3Body(r)
+			if pnStr := q.Get("partNumber"); pnStr != "" {
+				pn, _ := strconv.Atoi(pnStr)
+				mu.Lock()
+				if mpParts[key] == nil {
+					mpParts[key] = make(map[int][]byte)
+				}
+				mpParts[key][pn] = body
+				mu.Unlock()
+				w.Header().Set("ETag", `"part-etag"`)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			mu.Lock()
 			objs[key] = body
 			mu.Unlock()
@@ -187,7 +226,8 @@ func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 	if err := store.EnsureRecordingRetention(ctx, 7); err != nil {
 		t.Fatalf("EnsureRecordingRetention: %v", err)
 	}
-	want := []byte("hello-s3-roundtrip")
+	// 20 MiB 触发 minio-go Multipart Upload 分片上传路径（模拟 >16MiB 的 aura-node 二进制）
+	want := bytes.Repeat([]byte("AURA-20MB-TEST-"), 1400000)
 	if err := store.PutObject(ctx, "releases/linux-x86_64/0.4.1/aura-node", want, "application/octet-stream"); err != nil {
 		t.Fatalf("PutObject: %v", err)
 	}
@@ -196,7 +236,7 @@ func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 		t.Fatalf("GetObject: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("GetObject = %q, want %q", got, want)
+		t.Fatalf("GetObject len = %d, want %d", len(got), len(want))
 	}
 	dlURL, err := store.PresignedGet(ctx, "releases/linux-x86_64/0.4.1/aura-node", time.Minute)
 	if err != nil {
@@ -209,6 +249,6 @@ func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 	defer resp.Body.Close()
 	dlBytes, _ := io.ReadAll(resp.Body)
 	if !bytes.Equal(dlBytes, want) {
-		t.Fatalf("PresignedGet download = %q, want %q", dlBytes, want)
+		t.Fatalf("PresignedGet download len = %d, want %d", len(dlBytes), len(want))
 	}
 }

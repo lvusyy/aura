@@ -158,6 +158,7 @@ func TestMain(m *testing.M) {
 func startInMemS3Server() *httptest.Server {
 	var mu sync.Mutex
 	objs := make(map[string][]byte)
+	mpParts := make(map[string]map[int][]byte)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		parts := strings.SplitN(path, "/", 2)
@@ -171,7 +172,33 @@ func startInMemS3Server() *httptest.Server {
 			return
 		}
 		key := parts[0] + "/" + parts[1]
+		q := r.URL.Query()
 		switch r.Method {
+		case http.MethodPost:
+			if _, ok := q["uploads"]; ok {
+				mu.Lock()
+				mpParts[key] = make(map[int][]byte)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>`+parts[0]+`</Bucket><Key>`+parts[1]+`</Key><UploadId>u1</UploadId></InitiateMultipartUploadResult>`)
+				return
+			}
+			if q.Get("uploadId") != "" {
+				_, _ = io.ReadAll(r.Body)
+				mu.Lock()
+				pm := mpParts[key]
+				var combined bytes.Buffer
+				for i := 1; i <= len(pm); i++ {
+					combined.Write(pm[i])
+				}
+				objs[key] = combined.Bytes()
+				delete(mpParts, key)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>`+parts[0]+`</Bucket><Key>`+parts[1]+`</Key><ETag>"e2e-etag"</ETag></CompleteMultipartUploadResult>`)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
 		case http.MethodPut:
 			raw, _ := io.ReadAll(r.Body)
 			body := raw
@@ -195,6 +222,18 @@ func startInMemS3Server() *httptest.Server {
 					_, _ = br.ReadString('\n')
 				}
 				body = out.Bytes()
+			}
+			if pnStr := q.Get("partNumber"); pnStr != "" {
+				pn, _ := strconv.Atoi(pnStr)
+				mu.Lock()
+				if mpParts[key] == nil {
+					mpParts[key] = make(map[int][]byte)
+				}
+				mpParts[key][pn] = body
+				mu.Unlock()
+				w.Header().Set("ETag", `"part-etag"`)
+				w.WriteHeader(http.StatusOK)
+				return
 			}
 			mu.Lock()
 			objs[key] = body
