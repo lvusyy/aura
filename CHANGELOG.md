@@ -108,6 +108,8 @@ First public release. 首次公开发布。
 - **`auractl`** CLI: task dispatch, environment lifecycle, artifact fetch, trace replay against the controller REST plane.
 - Prebuilt binaries: `aura-node` (Windows x64 / Linux x64 / macOS arm64), `aura-controller` + `auractl` (Linux x64, console embedded), `auractl` (Windows x64).
 
+[0.4.1]: https://github.com/lvusyy/aura/releases/tag/v0.4.1
+[0.4.0]: https://github.com/lvusyy/aura/releases/tag/v0.4.0
 [0.3.2]: https://github.com/lvusyy/aura/releases/tag/v0.3.2
 [0.3.0]: https://github.com/lvusyy/aura/releases/tag/v0.3.0
 [0.2.0]: https://github.com/lvusyy/aura/releases/tag/v0.2.0

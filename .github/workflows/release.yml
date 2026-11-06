@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.4.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  controller:
+    name: controller & auractl (linux-x64 + windows-x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: controller/go.sum
+      - name: Build embedded Web Console
+        working-directory: console
+        run: |
+          npm ci
+          npm run build
+      - name: Build controller & auractl archives
+        working-directory: controller
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p dist/linux dist/win
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/linux/aura-controller ./cmd/aura-controller
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/linux/auractl ./cmd/auractl
+          tar -C dist/linux -czf "dist/aura-controller-${TAG}-linux-x86_64.tar.gz" aura-controller auractl
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/win/auractl.exe ./cmd/auractl
+          (cd dist/win && zip -q "../auractl-${TAG}-windows-x86_64.zip" auractl.exe)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controller-archives
+          path: |
+            controller/dist/*.tar.gz
+            controller/dist/*.zip
+
+  node-linux:
+    name: aura-node (linux-x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libxdo-dev libx11-dev libxi-dev libxtst-dev \
+            libxrandr-dev libxfixes-dev libxcb-shm0-dev libxcb-randr0-dev \
+            libdbus-1-dev libgbm-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      - name: Build aura-node (linux-x86_64)
+        working-directory: node
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          cargo build --release -p aura-node --features grpc,enroll,otel
+          tar -C target/release -czf "aura-node-${TAG}-linux-x86_64.tar.gz" aura-node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-linux-archive
+          path: node/aura-node-*.tar.gz
+
+  node-macos:
+    name: aura-node (macos-arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc
+        run: brew install protobuf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      - name: Build aura-node (macos-arm64)
+        working-directory: node
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          cargo build --release -p aura-node --features grpc,enroll,otel
+          codesign -s - --force target/release/aura-node
+          tar -C target/release -czf "aura-node-${TAG}-macos-arm64.tar.gz" aura-node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-macos-archive
+          path: node/aura-node-*.tar.gz
+
+  node-windows:
+    name: aura-node (windows-x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc
+        run: choco install protoc -y
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      - name: Build aura-node (windows-x86_64)
+        working-directory: node
+        shell: pwsh
+        run: |
+          $Tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          cargo build --release -p aura-node --features grpc,enroll,otel
+          Compress-Archive -Path target/release/aura-node.exe -DestinationPath "aura-node-${Tag}-windows-x86_64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-windows-archive
+          path: node/aura-node-*.zip
+
+  publish:
+    name: Publish GitHub Release
+    needs: [controller, node-linux, node-macos, node-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate sha256sums.txt and extract changelog notes
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VER="${TAG#v}"
+          cd release-assets
+          sha256sum aura-* auractl-* > sha256sums.txt
+          cat sha256sums.txt
+          cd ..
+          awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+            $0 ~ "^## \\[" && flag { exit }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release ${TAG}. All binaries built with production features (grpc,enroll,otel). Verify with sha256sums.txt." > release-notes.md
+          fi
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: "AURA ${{ github.event.inputs.tag || github.ref_name }}"
+          body_path: release-notes.md
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/sha256sums.txt
+          generate_release_notes: false
