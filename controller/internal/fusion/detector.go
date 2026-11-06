@@ -85,6 +85,59 @@ func NewHTTPDetector(endpoint, token string, timeout time.Duration) *HTTPDetecto
 	}
 }
 
+// Endpoint 返回规整后的 detector 端点地址（供本地 Jev 选择器默认复用）。
+func (d *HTTPDetector) Endpoint() string {
+	if d == nil {
+		return ""
+	}
+	return d.endpoint
+}
+
+// Token 返回 detector 的 bearer 访问令牌（供同端点本地 /v1/systemone 鉴权复用）。
+func (d *HTTPDetector) Token() string {
+	if d == nil {
+		return ""
+	}
+	return d.token
+}
+
+// DetectorHealth 镜像 /healthz 响应体（供 TestVisionSettings 探测本地 GPU / 模型能力）。
+type DetectorHealth struct {
+	Status       string   `json:"status"`
+	Device       string   `json:"device"`
+	Dtype        string   `json:"dtype"`
+	FlorenceVia  string   `json:"florence_via"`
+	CaptionMode  string   `json:"caption_mode"`
+	Model        string   `json:"model"`
+	Capabilities []string `json:"capabilities"`
+}
+
+// Healthz 探测 detector /healthz 就绪与设备/能力状态。
+func (d *HTTPDetector) Healthz(ctx context.Context) (*DetectorHealth, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.endpoint+"/healthz", nil)
+	if err != nil {
+		return nil, fmt.Errorf("detector: build healthz request: %w", err)
+	}
+	resp, err := d.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("detector: GET /healthz: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorDetail))
+		return nil, fmt.Errorf("detector: /healthz returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDetectResponse))
+	if err != nil {
+		return nil, fmt.Errorf("detector: read healthz: %w", err)
+	}
+	var h DetectorHealth
+	if err := json.Unmarshal(body, &h); err != nil {
+		return nil, fmt.Errorf("detector: decode healthz: %w", err)
+	}
+	return &h, nil
+}
+
 // detectResponse 镜像 /detect 200 响应体（契约 README「HTTP 契约」节）。契约另含
 // image_w/image_h（输入图真实分辨率，坐标对齐基准），但 bbox 已是输入图像像素空间、
 // 与 a11y 树同基，窄接口无需透出——此处不解码（需要时再扩展）。
@@ -109,7 +162,20 @@ type detectElement struct {
 // 只会加深积压，重试/降级决策归调用方（T8 融合引擎按 job 语义处置）。401 以 ErrUnauthorized
 // 可区分（errors.Is）；其余非 2xx 携带状态码与响应片段。
 func (d *HTTPDetector) Detect(ctx context.Context, image []byte, mime string) ([]VisualBox, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint+"/detect", bytes.NewReader(image))
+	return d.detectAt(ctx, d.endpoint+"/detect", image, mime)
+}
+
+// DetectWithOpts 按需指定是否启用全框 Florence caption（withCaption=false 走 ?caption=0 快路径，仅 YOLO 几何框）。
+func (d *HTTPDetector) DetectWithOpts(ctx context.Context, image []byte, mime string, withCaption bool) ([]VisualBox, error) {
+	q := "0"
+	if withCaption {
+		q = "1"
+	}
+	return d.detectAt(ctx, d.endpoint+"/detect?caption="+q, image, mime)
+}
+
+func (d *HTTPDetector) detectAt(ctx context.Context, url string, image []byte, mime string) ([]VisualBox, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(image))
 	if err != nil {
 		return nil, fmt.Errorf("detector: build request: %w", err)
 	}

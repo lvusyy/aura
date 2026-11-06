@@ -264,3 +264,23 @@ func merge(a11yFlat []FusedElement, visualNative []VisualBoxNative, iouThreshold
 	}
 	return out
 }
+
+// FlattenA11y 导出 flattenA11y 供 selection 包同源复用 a11y 树扁平化逻辑。
+func FlattenA11y(tree A11yTree) []FusedElement {
+	return flattenA11y(tree)
+}
+
+// AlignBox 导出 alignBox 供 selection 包同源复用 display→native 坐标映射。
+func AlignBox(vb VisualBox, scale float64) [4]int32 {
+	return alignBox(vb, scale)
+}
+
+// Merge 导出 merge 供 selection 包同源复用 a11y×视觉框 IoU 融合。
+func Merge(a11yFlat []FusedElement, visualNative []VisualBoxNative, iouThreshold float64) []FusedElement {
+	return merge(a11yFlat, visualNative, iouThreshold)
+}
+
+// IoU 导出 iou 供 selection 包同源计算矩形交并比。
+func IoU(a, b [4]int32) float64 {
+	return iou(a, b)
+}

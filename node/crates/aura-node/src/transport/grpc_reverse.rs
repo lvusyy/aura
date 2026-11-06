@@ -719,6 +719,17 @@ async fn mcp_proxy_serve(
     let _ = tx.send(frame).await;
 }
 
+/// M14：自环 POST 复用单一 hyper Client（连接池跨请求复用，避免每次自环调用重复构建 HttpConnector）。
+fn loopback_http_client() -> &'static Client<HttpConnector, Full<Bytes>> {
+    static CLIENT: std::sync::OnceLock<Client<HttpConnector, Full<Bytes>>> =
+        std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        let mut conn = HttpConnector::new();
+        conn.set_nodelay(true);
+        Client::builder(TokioExecutor::new()).build(conn)
+    })
+}
+
 /// M14：自环 POST `http://127.0.0.1:<bind 端口>/mcp`。头透传白名单：Content-Type/Accept/
 /// User-Agent/MCP-Protocol-Version（保 rmcp 协商与 M13 观测的 client 辨识语义）；节点自身的
 /// `AURA_MCP_TOKEN` 门槛由本进程自带令牌满足（网关侧已凭 controller bearer 完成对外鉴权）。
@@ -750,8 +761,7 @@ async fn mcp_loopback_post(
         }
     }
     let request = builder.body(Full::new(Bytes::from(req.body)))?;
-    let client: Client<_, Full<Bytes>> =
-        Client::builder(TokioExecutor::new()).build(HttpConnector::new());
+    let client = loopback_http_client();
     // 整链单一硬超时（请求+响应头+正文读取），正文经 Limited 封顶（见两常量注释）。
     let out = tokio::time::timeout(MCP_PROXY_TIMEOUT, async {
         let resp = client.request(request).await?;
@@ -857,21 +867,24 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// 按 deadline_ms 在节点侧强制工具超时（控制面另有兜底 timer）。deadline_ms<=0 视为无超时。
+/// 缺省工具执行超时上限（当 deadline_ms <= 0 未显式指定时生效，防挂起任务无限期滞留）。
+const DEFAULT_TOOL_DEADLINE: Duration = Duration::from_secs(30);
+
+/// 按 deadline_ms 在节点侧强制工具超时（控制面另有兜底 timer）。deadline_ms<=0 采用 30s 缺省超时。
 async fn execute_with_deadline(
     tools: &AuraTools,
     tool: &str,
     json_args: &[u8],
     deadline_ms: i64,
 ) -> Vec<u8> {
-    if deadline_ms > 0 {
-        let dur = Duration::from_millis(deadline_ms as u64);
-        match tokio::time::timeout(dur, dispatch(tools, tool, json_args)).await {
-            Ok(bytes) => bytes,
-            Err(_) => error_envelope("E_TIMEOUT", "tool execution exceeded deadline"),
-        }
+    let dur = if deadline_ms > 0 {
+        Duration::from_millis(deadline_ms as u64)
     } else {
-        dispatch(tools, tool, json_args).await
+        DEFAULT_TOOL_DEADLINE
+    };
+    match tokio::time::timeout(dur, dispatch(tools, tool, json_args)).await {
+        Ok(bytes) => bytes,
+        Err(_) => error_envelope("E_TIMEOUT", "tool execution exceeded deadline"),
     }
 }
 

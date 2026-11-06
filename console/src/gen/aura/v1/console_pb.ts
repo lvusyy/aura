@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file aura/v1/console.proto.
  */
 export const file_aura_v1_console: GenFile = /*@__PURE__*/
-  fileDesc("ChVhdXJhL3YxL2NvbnNvbGUucHJvdG8SB2F1cmEudjEiFQoTR2V0RGFzaGJvYXJkUmVxdWVzdCKAAgoUR2V0RGFzaGJvYXJkUmVzcG9uc2USEwoLbm9kZXNfdG90YWwYASABKAUSFAoMbm9kZXNfb25saW5lGAIgASgFEhcKD25vZGVzX3VuaGVhbHRoeRgDIAEoBRIVCg1ub2Rlc19vZmZsaW5lGAQgASgFEhMKC3Rhc2tzX3RvdGFsGAUgASgDEhUKDXRhc2tzX3J1bm5pbmcYBiABKAMSFwoPdGFza3Nfc3VjY2VlZGVkGAcgASgDEhQKDHRhc2tzX2ZhaWxlZBgIIAEoAxIcChRvcmNoZXN0cmF0aW9uc190b3RhbBgJIAEoAxIUCgx0cmFjZXNfdG90YWwYCiABKAMiZAoQTGlzdFRhc2tzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAMSEgoKcGFnZV90b2tlbhgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhgKEG9yY2hlc3RyYXRpb25faWQYBCABKAkiUQoRTGlzdFRhc2tzUmVzcG9uc2USIwoFdGFza3MYASADKAsyFC5hdXJhLnYxLlRhc2tTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoLVGFza1N1bW1hcnkSDwoHdGFza19pZBgBIAEoCRIPCgdub2RlX2lkGAIgASgJEgwKBHRvb2wYAyABKAkSDgoGc3RhdHVzGAQgASgJEgsKA3dobxgFIAEoCRISCgpjcmVhdGVkX21zGAYgASgDEhgKEG9yY2hlc3RyYXRpb25faWQYByABKAkiOgoRTGlzdFRyYWNlc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkiVAoSTGlzdFRyYWNlc1Jlc3BvbnNlEiUKBnRyYWNlcxgBIAMoCzIVLmF1cmEudjEuVHJhY2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoMVHJhY2VTdW1tYXJ5EhAKCHRyYWNlX2lkGAEgASgJEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKc3RlcF9jb3VudBgEIAEoAxILCgN3aG8YBSABKAkSEgoKc3RhcnRlZF9tcxgGIAEoAxIOCgZzdGF0dXMYByABKAkiIQoSR2V0QXJ0aWZhY3RSZXF1ZXN0EgsKA2tleRgBIAEoCSI5ChNHZXRBcnRpZmFjdFJlc3BvbnNlEgwKBGRhdGEYASABKAwSFAoMY29udGVudF90eXBlGAIgASgJIicKFEdldFF1ZXVlRGVwdGhSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiJgoVR2V0UXVldWVEZXB0aFJlc3BvbnNlEg0KBWRlcHRoGAEgASgFIoEBChdSdW5PcmNoZXN0cmF0aW9uUmVxdWVzdBIMCgR0b29sGAEgASgJEhEKCWpzb25fYXJncxgCIAEoDBIQCghub2RlX2lkcxgDIAMoCRIRCgllbnZfZ3JvdXAYBCABKAkSEwoLZGVhZGxpbmVfbXMYBSABKAMSCwoDd2hvGAYgASgJIpgBChhSdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSDQoFdG90YWwYAyABKAUSDgoGcGFzc2VkGAQgASgFEg4KBmZhaWxlZBgFIAEoBRIjCgdwZXJfZW52GAYgAygLMhIuYXVyYS52MS5FbnZSZXN1bHQiaAoJRW52UmVzdWx0Eg8KB25vZGVfaWQYASABKAkSDwoHdGFza19pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBISCgpsYXRlbmN5X21zGAUgASgDIjMKF0dldE9yY2hlc3RyYXRpb25SZXF1ZXN0EhgKEG9yY2hlc3RyYXRpb25faWQYASABKAkiYgoYR2V0T3JjaGVzdHJhdGlvblJlc3BvbnNlEjQKDW9yY2hlc3RyYXRpb24YASABKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhAKCHRhc2tfaWRzGAIgAygJIkIKGUxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkibAoaTGlzdE9yY2hlc3RyYXRpb25zUmVzcG9uc2USNQoOb3JjaGVzdHJhdGlvbnMYASADKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKwAQoUT3JjaGVzdHJhdGlvblN1bW1hcnkSGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIMCgR0b29sGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgV0b3RhbBgEIAEoBRIOCgZwYXNzZWQYBSABKAUSDgoGZmFpbGVkGAYgASgFEgsKA3dobxgHIAEoCRISCgpzdGFydGVkX21zGAggASgDEhAKCHRyYWNlX2lkGAkgASgJIhMKEVdhdGNoRmxlZXRSZXF1ZXN0IrIBCgpGbGVldEV2ZW50EgsKA3NlcRgBIAEoAxIlCgR0eXBlGAIgASgOMhcuYXVyYS52MS5GbGVldEV2ZW50VHlwZRIfCgRub2RlGAMgASgLMhEuYXVyYS52MS5Ob2RlSW5mbxIjCghzbmFwc2hvdBgEIAMoCzIRLmF1cmEudjEuTm9kZUluZm8SKgoKcmVjb3JkaW5ncxgFIAMoCzIWLmF1cmEudjEuTm9kZVJlY29yZGluZyKFAQoTU3VibWl0RnVzaW9uUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg4KBnRhcmdldBgCIAEoCRIVCg1pb3VfdGhyZXNob2xkGAMgASgBEhQKDGZvcmNlX3Zpc2lvbhgEIAEoCBITCgtkZWFkbGluZV9tcxgFIAEoAxILCgN3aG8YBiABKAkiJgoUU3VibWl0RnVzaW9uUmVzcG9uc2USDgoGam9iX2lkGAEgASgJIigKFkdldEZ1c2lvblJlc3VsdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJIrkBChdHZXRGdXNpb25SZXN1bHRSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSFgoOdmlzaW9uX2ludm9rZWQYAiABKAgSFQoNaW91X3RocmVzaG9sZBgDIAEoARInCghlbGVtZW50cxgEIAMoCzIVLmF1cmEudjEuRnVzZWRFbGVtZW50EhIKCnJlc3VsdF9rZXkYBSABKAkSEAoIc2NyZWVuX3cYBiABKAUSEAoIc2NyZWVuX2gYByABKAUibwoMRnVzZWRFbGVtZW50Eg4KBnNvdXJjZRgBIAEoCRIOCgZib3VuZHMYAiADKAUSDAoEcm9sZRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB2NhcHRpb24YBSABKAkSEgoKY29uZmlkZW5jZRgGIAEoASJdChVSZWFkTm9kZVNjcmVlblJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCglqc29uX2FyZ3MYAiABKAwSEwoLZGVhZGxpbmVfbXMYAyABKAMSCwoDd2hvGAQgASgJIi8KFlJlYWROb2RlU2NyZWVuUmVzcG9uc2USFQoNanNvbl9lbnZlbG9wZRgBIAEoDCI/Cg1Ob2RlUmVjb3JkaW5nEg8KB25vZGVfaWQYASABKAkSCwoDd2hvGAIgASgJEhAKCHRyYWNlX2lkGAMgASgJIoEBChpHZW5lcmF0ZUVucm9sbFRva2VuUmVxdWVzdBIWCg5wbGF0Zm9ybV9zY29wZRgBIAEoCRIQCgh0dGxfc2VjcxgCIAEoAxIMCgR1c2VzGAMgASgFEg0KBWxhYmVsGAQgASgJEgsKA3dobxgFIAEoCRIPCgdwcm9qZWN0GAYgASgJIlwKG0dlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIVCg1leHBpcmVzX2F0X21zGAIgASgDEhcKD2luc3RhbGxfY29tbWFuZBgDIAEoCSI2ChhSZXZva2VFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIiwKGVJldm9rZUVucm9sbFRva2VuUmVzcG9uc2USDwoHcmV2b2tlZBgBIAEoCCI2ChhSb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIloKGVJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSFQoNZXhwaXJlc19hdF9tcxgCIAEoAxIXCg9pbnN0YWxsX2NvbW1hbmQYAyABKAkiGQoXTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QiRAoYTGlzdEVucm9sbFRva2Vuc1Jlc3BvbnNlEigKBnRva2VucxgBIAMoCzIYLmF1cmEudjEuRW5yb2xsVG9rZW5JbmZvIoQBCg9FbnJvbGxUb2tlbkluZm8SDQoFdG9rZW4YASABKAkSFgoOcGxhdGZvcm1fc2NvcGUYAiABKAkSEQoJdXNlc19sZWZ0GAMgASgFEhUKDWV4cGlyZXNfYXRfbXMYBCABKAMSDwoHcmV2b2tlZBgFIAEoCBIPCgdwcm9qZWN0GAYgASgJImsKFVVwZGF0ZU5vZGVNZXRhUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhAKCGxvY2F0aW9uGAMgASgJEhQKB3Byb2plY3QYBCABKAlIAIgBAUIKCghfcHJvamVjdCIpChZVcGRhdGVOb2RlTWV0YVJlc3BvbnNlEg8KB3VwZGF0ZWQYASABKAgiJAoRRGVsZXRlTm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIlChJEZWxldGVOb2RlUmVzcG9uc2USDwoHZGVsZXRlZBgBIAEoCCI+ChVMaXN0UmVjb3JkaW5nc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEhIKCnBhZ2VfdG9rZW4YAiABKAkiWQoWTGlzdFJlY29yZGluZ3NSZXNwb25zZRImCgpyZWNvcmRpbmdzGAEgAygLMhIuYXVyYS52MS5SZWNvcmRpbmcSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJInQKCVJlY29yZGluZxILCgNrZXkYASABKAkSDwoHbm9kZV9pZBgCIAEoCRISCgpzaXplX2J5dGVzGAMgASgDEhIKCmNyZWF0ZWRfbXMYBCABKAMSDwoHdGFza19pZBgFIAEoCRIQCgh0cmFjZV9pZBgGIAEoCSIoChVSZXZva2VOb2RlQ2VydFJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIpChZSZXZva2VOb2RlQ2VydFJlc3BvbnNlEg8KB3Jldm9rZWQYASABKAgiIQoOR2V0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCSJzCg9HZXRUYXNrUmVzcG9uc2USIgoEdGFzaxgBIAEoCzIULmF1cmEudjEuVGFza1N1bW1hcnkSFQoNanNvbl9lbnZlbG9wZRgCIAEoDBIQCgh0cmFjZV9pZBgDIAEoCRITCgtmaW5pc2hlZF9tcxgEIAEoAyI0ChxHZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0EhQKDHdpbmRvd19ob3VycxgBIAEoAyKjAQodR2V0QWdlbnRPYnNlcnZhYmlsaXR5UmVzcG9uc2USFwoPYWN0aXZlX3Nlc3Npb25zGAEgASgFEhMKC2NhbGxzX3RvdGFsGAIgASgDEhQKDGNhbGxzX2ZhaWxlZBgDIAEoAxIXCg9wOTVfZHVyYXRpb25fbXMYBCABKAMSJQoJdG9wX3Rvb2xzGAUgAygLMhIuYXVyYS52MS5Ub29sQ291bnQiKAoJVG9vbENvdW50EgwKBHRvb2wYASABKAkSDQoFY291bnQYAiABKAMiKwoYTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiRAoZTGlzdEFnZW50U2Vzc2lvbnNSZXNwb25zZRInCghzZXNzaW9ucxgBIAMoCzIVLmF1cmEudjEuQWdlbnRTZXNzaW9uIsgBCgxBZ2VudFNlc3Npb24SDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEhMKC2NsaWVudF9uYW1lGAMgASgJEhYKDmNsaWVudF92ZXJzaW9uGAQgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBSABKAkSEQoJdHJhbnNwb3J0GAYgASgJEhUKDWZpcnN0X3NlZW5fbXMYByABKAMSFAoMbGFzdF9zZWVuX21zGAggASgDEhIKCmNhbGxfY291bnQYCSABKAMiXQoVTGlzdEFnZW50Q2FsbHNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoAxISCgpwYWdlX3Rva2VuGAIgASgJEg8KB25vZGVfaWQYAyABKAkSDAoEdG9vbBgEIAEoCSJUChZMaXN0QWdlbnRDYWxsc1Jlc3BvbnNlEiEKBWNhbGxzGAEgAygLMhIuYXVyYS52MS5BZ2VudENhbGwSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIqwBCglBZ2VudENhbGwSDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEg4KBm1ldGhvZBgDIAEoCRIMCgR0b29sGAQgASgJEhMKC2NsaWVudF9uYW1lGAUgASgJEhMKC2R1cmF0aW9uX21zGAYgASgDEgoKAm9rGAcgASgIEhEKCXRyYW5zcG9ydBgIIAEoCRINCgV0c19tcxgJIAEoAxIKCgJpZBgKIAEoAyJkChVDcmVhdGVBcGlUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCRINCgVzY29wZRgCIAEoCRIPCgdwcm9qZWN0GAMgASgJEhAKCHR0bF9zZWNzGAQgASgDEgsKA3dobxgFIAEoCSJZChZDcmVhdGVBcGlUb2tlblJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBnNlY3JldBgCIAEoCRIjCgRpbmZvGAMgASgLMhUuYXVyYS52MS5BcGlUb2tlbkluZm8iFgoUTGlzdEFwaVRva2Vuc1JlcXVlc3QiPgoVTGlzdEFwaVRva2Vuc1Jlc3BvbnNlEiUKBnRva2VucxgBIAMoCzIVLmF1cmEudjEuQXBpVG9rZW5JbmZvIsMBCgxBcGlUb2tlbkluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVzY29wZRgDIAEoCRIPCgdwcm9qZWN0GAQgASgJEhMKC3NlY3JldF9oaW50GAUgASgJEhIKCmNyZWF0ZWRfbXMYBiABKAMSFQoNZXhwaXJlc19hdF9tcxgHIAEoAxIUCgxsYXN0X3VzZWRfbXMYCCABKAMSDwoHcmV2b2tlZBgJIAEoCBISCgpjcmVhdGVkX2J5GAogASgJIjAKFVJldm9rZUFwaVRva2VuUmVxdWVzdBIKCgJpZBgBIAEoCRILCgN3aG8YAiABKAkiKQoWUmV2b2tlQXBpVG9rZW5SZXNwb25zZRIPCgdyZXZva2VkGAEgASgIKsQBCg5GbGVldEV2ZW50VHlwZRIgChxGTEVFVF9FVkVOVF9UWVBFX1VOU1BFQ0lGSUVEEAASHwobRkxFRVRfRVZFTlRfVFlQRV9OT0RFX0FEREVEEAESIQodRkxFRVRfRVZFTlRfVFlQRV9OT0RFX1JFTU9WRUQQAhIjCh9GTEVFVF9FVkVOVF9UWVBFX1NUQVRVU19DSEFOR0VEEAMSJwojRkxFRVRfRVZFTlRfVFlQRV9IRUFSVEJFQVRfU05BUFNIT1QQBDLIEQoOQ29uc29sZVNlcnZpY2USSwoMR2V0RGFzaGJvYXJkEhwuYXVyYS52MS5HZXREYXNoYm9hcmRSZXF1ZXN0Gh0uYXVyYS52MS5HZXREYXNoYm9hcmRSZXNwb25zZRJCCglMaXN0VGFza3MSGS5hdXJhLnYxLkxpc3RUYXNrc1JlcXVlc3QaGi5hdXJhLnYxLkxpc3RUYXNrc1Jlc3BvbnNlEkUKCkxpc3RUcmFjZXMSGi5hdXJhLnYxLkxpc3RUcmFjZXNSZXF1ZXN0GhsuYXVyYS52MS5MaXN0VHJhY2VzUmVzcG9uc2USSAoLR2V0QXJ0aWZhY3QSGy5hdXJhLnYxLkdldEFydGlmYWN0UmVxdWVzdBocLmF1cmEudjEuR2V0QXJ0aWZhY3RSZXNwb25zZRJOCg1HZXRRdWV1ZURlcHRoEh0uYXVyYS52MS5HZXRRdWV1ZURlcHRoUmVxdWVzdBoeLmF1cmEudjEuR2V0UXVldWVEZXB0aFJlc3BvbnNlElcKEFJ1bk9yY2hlc3RyYXRpb24SIC5hdXJhLnYxLlJ1bk9yY2hlc3RyYXRpb25SZXF1ZXN0GiEuYXVyYS52MS5SdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USVwoQR2V0T3JjaGVzdHJhdGlvbhIgLmF1cmEudjEuR2V0T3JjaGVzdHJhdGlvblJlcXVlc3QaIS5hdXJhLnYxLkdldE9yY2hlc3RyYXRpb25SZXNwb25zZRJdChJMaXN0T3JjaGVzdHJhdGlvbnMSIi5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QaIy5hdXJhLnYxLkxpc3RPcmNoZXN0cmF0aW9uc1Jlc3BvbnNlEj8KCldhdGNoRmxlZXQSGi5hdXJhLnYxLldhdGNoRmxlZXRSZXF1ZXN0GhMuYXVyYS52MS5GbGVldEV2ZW50MAESSwoMU3VibWl0RnVzaW9uEhwuYXVyYS52MS5TdWJtaXRGdXNpb25SZXF1ZXN0Gh0uYXVyYS52MS5TdWJtaXRGdXNpb25SZXNwb25zZRJUCg9HZXRGdXNpb25SZXN1bHQSHy5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlcXVlc3QaIC5hdXJhLnYxLkdldEZ1c2lvblJlc3VsdFJlc3BvbnNlElEKDlJlYWROb2RlU2NyZWVuEh4uYXVyYS52MS5SZWFkTm9kZVNjcmVlblJlcXVlc3QaHy5hdXJhLnYxLlJlYWROb2RlU2NyZWVuUmVzcG9uc2USYAoTR2VuZXJhdGVFbnJvbGxUb2tlbhIjLmF1cmEudjEuR2VuZXJhdGVFbnJvbGxUb2tlblJlcXVlc3QaJC5hdXJhLnYxLkdlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRJaChFSZXZva2VFbnJvbGxUb2tlbhIhLmF1cmEudjEuUmV2b2tlRW5yb2xsVG9rZW5SZXF1ZXN0GiIuYXVyYS52MS5SZXZva2VFbnJvbGxUb2tlblJlc3BvbnNlEloKEVJvdGF0ZUVucm9sbFRva2VuEiEuYXVyYS52MS5Sb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QaIi5hdXJhLnYxLlJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USVwoQTGlzdEVucm9sbFRva2VucxIgLmF1cmEudjEuTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QaIS5hdXJhLnYxLkxpc3RFbnJvbGxUb2tlbnNSZXNwb25zZRJRCg5VcGRhdGVOb2RlTWV0YRIeLmF1cmEudjEuVXBkYXRlTm9kZU1ldGFSZXF1ZXN0Gh8uYXVyYS52MS5VcGRhdGVOb2RlTWV0YVJlc3BvbnNlEkUKCkRlbGV0ZU5vZGUSGi5hdXJhLnYxLkRlbGV0ZU5vZGVSZXF1ZXN0GhsuYXVyYS52MS5EZWxldGVOb2RlUmVzcG9uc2USUQoOTGlzdFJlY29yZGluZ3MSHi5hdXJhLnYxLkxpc3RSZWNvcmRpbmdzUmVxdWVzdBofLmF1cmEudjEuTGlzdFJlY29yZGluZ3NSZXNwb25zZRJRCg5SZXZva2VOb2RlQ2VydBIeLmF1cmEudjEuUmV2b2tlTm9kZUNlcnRSZXF1ZXN0Gh8uYXVyYS52MS5SZXZva2VOb2RlQ2VydFJlc3BvbnNlEjwKB0dldFRhc2sSFy5hdXJhLnYxLkdldFRhc2tSZXF1ZXN0GhguYXVyYS52MS5HZXRUYXNrUmVzcG9uc2USZgoVR2V0QWdlbnRPYnNlcnZhYmlsaXR5EiUuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0GiYuYXVyYS52MS5HZXRBZ2VudE9ic2VydmFiaWxpdHlSZXNwb25zZRJaChFMaXN0QWdlbnRTZXNzaW9ucxIhLmF1cmEudjEuTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0GiIuYXVyYS52MS5MaXN0QWdlbnRTZXNzaW9uc1Jlc3BvbnNlElEKDkxpc3RBZ2VudENhbGxzEh4uYXVyYS52MS5MaXN0QWdlbnRDYWxsc1JlcXVlc3QaHy5hdXJhLnYxLkxpc3RBZ2VudENhbGxzUmVzcG9uc2USUQoOQ3JlYXRlQXBpVG9rZW4SHi5hdXJhLnYxLkNyZWF0ZUFwaVRva2VuUmVxdWVzdBofLmF1cmEudjEuQ3JlYXRlQXBpVG9rZW5SZXNwb25zZRJOCg1MaXN0QXBpVG9rZW5zEh0uYXVyYS52MS5MaXN0QXBpVG9rZW5zUmVxdWVzdBoeLmF1cmEudjEuTGlzdEFwaVRva2Vuc1Jlc3BvbnNlElEKDlJldm9rZUFwaVRva2VuEh4uYXVyYS52MS5SZXZva2VBcGlUb2tlblJlcXVlc3QaHy5hdXJhLnYxLlJldm9rZUFwaVRva2VuUmVzcG9uc2VCL1otZ2l0aHViLmNvbS9hdXJhL2NvbnRyb2xsZXIvZ2VuL2F1cmEvdjE7YXVyYXYxYgZwcm90bzM", [file_aura_v1_node]);
+  fileDesc("ChVhdXJhL3YxL2NvbnNvbGUucHJvdG8SB2F1cmEudjEiFQoTR2V0RGFzaGJvYXJkUmVxdWVzdCKAAgoUR2V0RGFzaGJvYXJkUmVzcG9uc2USEwoLbm9kZXNfdG90YWwYASABKAUSFAoMbm9kZXNfb25saW5lGAIgASgFEhcKD25vZGVzX3VuaGVhbHRoeRgDIAEoBRIVCg1ub2Rlc19vZmZsaW5lGAQgASgFEhMKC3Rhc2tzX3RvdGFsGAUgASgDEhUKDXRhc2tzX3J1bm5pbmcYBiABKAMSFwoPdGFza3Nfc3VjY2VlZGVkGAcgASgDEhQKDHRhc2tzX2ZhaWxlZBgIIAEoAxIcChRvcmNoZXN0cmF0aW9uc190b3RhbBgJIAEoAxIUCgx0cmFjZXNfdG90YWwYCiABKAMiZAoQTGlzdFRhc2tzUmVxdWVzdBIRCglwYWdlX3NpemUYASABKAMSEgoKcGFnZV90b2tlbhgCIAEoCRIPCgdub2RlX2lkGAMgASgJEhgKEG9yY2hlc3RyYXRpb25faWQYBCABKAkiUQoRTGlzdFRhc2tzUmVzcG9uc2USIwoFdGFza3MYASADKAsyFC5hdXJhLnYxLlRhc2tTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoLVGFza1N1bW1hcnkSDwoHdGFza19pZBgBIAEoCRIPCgdub2RlX2lkGAIgASgJEgwKBHRvb2wYAyABKAkSDgoGc3RhdHVzGAQgASgJEgsKA3dobxgFIAEoCRISCgpjcmVhdGVkX21zGAYgASgDEhgKEG9yY2hlc3RyYXRpb25faWQYByABKAkiOgoRTGlzdFRyYWNlc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkiVAoSTGlzdFRyYWNlc1Jlc3BvbnNlEiUKBnRyYWNlcxgBIAMoCzIVLmF1cmEudjEuVHJhY2VTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKIAQoMVHJhY2VTdW1tYXJ5EhAKCHRyYWNlX2lkGAEgASgJEg8KB25vZGVfaWQYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKc3RlcF9jb3VudBgEIAEoAxILCgN3aG8YBSABKAkSEgoKc3RhcnRlZF9tcxgGIAEoAxIOCgZzdGF0dXMYByABKAkiIQoSR2V0QXJ0aWZhY3RSZXF1ZXN0EgsKA2tleRgBIAEoCSI5ChNHZXRBcnRpZmFjdFJlc3BvbnNlEgwKBGRhdGEYASABKAwSFAoMY29udGVudF90eXBlGAIgASgJIicKFEdldFF1ZXVlRGVwdGhSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiJgoVR2V0UXVldWVEZXB0aFJlc3BvbnNlEg0KBWRlcHRoGAEgASgFIoEBChdSdW5PcmNoZXN0cmF0aW9uUmVxdWVzdBIMCgR0b29sGAEgASgJEhEKCWpzb25fYXJncxgCIAEoDBIQCghub2RlX2lkcxgDIAMoCRIRCgllbnZfZ3JvdXAYBCABKAkSEwoLZGVhZGxpbmVfbXMYBSABKAMSCwoDd2hvGAYgASgJIpgBChhSdW5PcmNoZXN0cmF0aW9uUmVzcG9uc2USGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSDQoFdG90YWwYAyABKAUSDgoGcGFzc2VkGAQgASgFEg4KBmZhaWxlZBgFIAEoBRIjCgdwZXJfZW52GAYgAygLMhIuYXVyYS52MS5FbnZSZXN1bHQiaAoJRW52UmVzdWx0Eg8KB25vZGVfaWQYASABKAkSDwoHdGFza19pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFQoNanNvbl9lbnZlbG9wZRgEIAEoDBISCgpsYXRlbmN5X21zGAUgASgDIjMKF0dldE9yY2hlc3RyYXRpb25SZXF1ZXN0EhgKEG9yY2hlc3RyYXRpb25faWQYASABKAkiYgoYR2V0T3JjaGVzdHJhdGlvblJlc3BvbnNlEjQKDW9yY2hlc3RyYXRpb24YASABKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhAKCHRhc2tfaWRzGAIgAygJIkIKGUxpc3RPcmNoZXN0cmF0aW9uc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgDEhIKCnBhZ2VfdG9rZW4YAiABKAkibAoaTGlzdE9yY2hlc3RyYXRpb25zUmVzcG9uc2USNQoOb3JjaGVzdHJhdGlvbnMYASADKAsyHS5hdXJhLnYxLk9yY2hlc3RyYXRpb25TdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKwAQoUT3JjaGVzdHJhdGlvblN1bW1hcnkSGAoQb3JjaGVzdHJhdGlvbl9pZBgBIAEoCRIMCgR0b29sGAIgASgJEg4KBnN0YXR1cxgDIAEoCRINCgV0b3RhbBgEIAEoBRIOCgZwYXNzZWQYBSABKAUSDgoGZmFpbGVkGAYgASgFEgsKA3dobxgHIAEoCRISCgpzdGFydGVkX21zGAggASgDEhAKCHRyYWNlX2lkGAkgASgJIhMKEVdhdGNoRmxlZXRSZXF1ZXN0IrIBCgpGbGVldEV2ZW50EgsKA3NlcRgBIAEoAxIlCgR0eXBlGAIgASgOMhcuYXVyYS52MS5GbGVldEV2ZW50VHlwZRIfCgRub2RlGAMgASgLMhEuYXVyYS52MS5Ob2RlSW5mbxIjCghzbmFwc2hvdBgEIAMoCzIRLmF1cmEudjEuTm9kZUluZm8SKgoKcmVjb3JkaW5ncxgFIAMoCzIWLmF1cmEudjEuTm9kZVJlY29yZGluZyKFAQoTU3VibWl0RnVzaW9uUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg4KBnRhcmdldBgCIAEoCRIVCg1pb3VfdGhyZXNob2xkGAMgASgBEhQKDGZvcmNlX3Zpc2lvbhgEIAEoCBITCgtkZWFkbGluZV9tcxgFIAEoAxILCgN3aG8YBiABKAkiJgoUU3VibWl0RnVzaW9uUmVzcG9uc2USDgoGam9iX2lkGAEgASgJIigKFkdldEZ1c2lvblJlc3VsdFJlcXVlc3QSDgoGam9iX2lkGAEgASgJIrkBChdHZXRGdXNpb25SZXN1bHRSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSFgoOdmlzaW9uX2ludm9rZWQYAiABKAgSFQoNaW91X3RocmVzaG9sZBgDIAEoARInCghlbGVtZW50cxgEIAMoCzIVLmF1cmEudjEuRnVzZWRFbGVtZW50EhIKCnJlc3VsdF9rZXkYBSABKAkSEAoIc2NyZWVuX3cYBiABKAUSEAoIc2NyZWVuX2gYByABKAUibwoMRnVzZWRFbGVtZW50Eg4KBnNvdXJjZRgBIAEoCRIOCgZib3VuZHMYAiADKAUSDAoEcm9sZRgDIAEoCRIMCgRuYW1lGAQgASgJEg8KB2NhcHRpb24YBSABKAkSEgoKY29uZmlkZW5jZRgGIAEoASJdChVSZWFkTm9kZVNjcmVlblJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCRIRCglqc29uX2FyZ3MYAiABKAwSEwoLZGVhZGxpbmVfbXMYAyABKAMSCwoDd2hvGAQgASgJIi8KFlJlYWROb2RlU2NyZWVuUmVzcG9uc2USFQoNanNvbl9lbnZlbG9wZRgBIAEoDCI/Cg1Ob2RlUmVjb3JkaW5nEg8KB25vZGVfaWQYASABKAkSCwoDd2hvGAIgASgJEhAKCHRyYWNlX2lkGAMgASgJIoEBChpHZW5lcmF0ZUVucm9sbFRva2VuUmVxdWVzdBIWCg5wbGF0Zm9ybV9zY29wZRgBIAEoCRIQCgh0dGxfc2VjcxgCIAEoAxIMCgR1c2VzGAMgASgFEg0KBWxhYmVsGAQgASgJEgsKA3dobxgFIAEoCRIPCgdwcm9qZWN0GAYgASgJIlwKG0dlbmVyYXRlRW5yb2xsVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRIVCg1leHBpcmVzX2F0X21zGAIgASgDEhcKD2luc3RhbGxfY29tbWFuZBgDIAEoCSI2ChhSZXZva2VFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIiwKGVJldm9rZUVucm9sbFRva2VuUmVzcG9uc2USDwoHcmV2b2tlZBgBIAEoCCI2ChhSb3RhdGVFbnJvbGxUb2tlblJlcXVlc3QSDQoFdG9rZW4YASABKAkSCwoDd2hvGAIgASgJIloKGVJvdGF0ZUVucm9sbFRva2VuUmVzcG9uc2USDQoFdG9rZW4YASABKAkSFQoNZXhwaXJlc19hdF9tcxgCIAEoAxIXCg9pbnN0YWxsX2NvbW1hbmQYAyABKAkiGQoXTGlzdEVucm9sbFRva2Vuc1JlcXVlc3QiRAoYTGlzdEVucm9sbFRva2Vuc1Jlc3BvbnNlEigKBnRva2VucxgBIAMoCzIYLmF1cmEudjEuRW5yb2xsVG9rZW5JbmZvIoQBCg9FbnJvbGxUb2tlbkluZm8SDQoFdG9rZW4YASABKAkSFgoOcGxhdGZvcm1fc2NvcGUYAiABKAkSEQoJdXNlc19sZWZ0GAMgASgFEhUKDWV4cGlyZXNfYXRfbXMYBCABKAMSDwoHcmV2b2tlZBgFIAEoCBIPCgdwcm9qZWN0GAYgASgJImsKFVVwZGF0ZU5vZGVNZXRhUmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhAKCGxvY2F0aW9uGAMgASgJEhQKB3Byb2plY3QYBCABKAlIAIgBAUIKCghfcHJvamVjdCIpChZVcGRhdGVOb2RlTWV0YVJlc3BvbnNlEg8KB3VwZGF0ZWQYASABKAgiJAoRRGVsZXRlTm9kZVJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIlChJEZWxldGVOb2RlUmVzcG9uc2USDwoHZGVsZXRlZBgBIAEoCCI+ChVMaXN0UmVjb3JkaW5nc1JlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgFEhIKCnBhZ2VfdG9rZW4YAiABKAkiWQoWTGlzdFJlY29yZGluZ3NSZXNwb25zZRImCgpyZWNvcmRpbmdzGAEgAygLMhIuYXVyYS52MS5SZWNvcmRpbmcSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJInQKCVJlY29yZGluZxILCgNrZXkYASABKAkSDwoHbm9kZV9pZBgCIAEoCRISCgpzaXplX2J5dGVzGAMgASgDEhIKCmNyZWF0ZWRfbXMYBCABKAMSDwoHdGFza19pZBgFIAEoCRIQCgh0cmFjZV9pZBgGIAEoCSIoChVSZXZva2VOb2RlQ2VydFJlcXVlc3QSDwoHbm9kZV9pZBgBIAEoCSIpChZSZXZva2VOb2RlQ2VydFJlc3BvbnNlEg8KB3Jldm9rZWQYASABKAgiIQoOR2V0VGFza1JlcXVlc3QSDwoHdGFza19pZBgBIAEoCSJzCg9HZXRUYXNrUmVzcG9uc2USIgoEdGFzaxgBIAEoCzIULmF1cmEudjEuVGFza1N1bW1hcnkSFQoNanNvbl9lbnZlbG9wZRgCIAEoDBIQCgh0cmFjZV9pZBgDIAEoCRITCgtmaW5pc2hlZF9tcxgEIAEoAyI0ChxHZXRBZ2VudE9ic2VydmFiaWxpdHlSZXF1ZXN0EhQKDHdpbmRvd19ob3VycxgBIAEoAyKjAQodR2V0QWdlbnRPYnNlcnZhYmlsaXR5UmVzcG9uc2USFwoPYWN0aXZlX3Nlc3Npb25zGAEgASgFEhMKC2NhbGxzX3RvdGFsGAIgASgDEhQKDGNhbGxzX2ZhaWxlZBgDIAEoAxIXCg9wOTVfZHVyYXRpb25fbXMYBCABKAMSJQoJdG9wX3Rvb2xzGAUgAygLMhIuYXVyYS52MS5Ub29sQ291bnQiKAoJVG9vbENvdW50EgwKBHRvb2wYASABKAkSDQoFY291bnQYAiABKAMiKwoYTGlzdEFnZW50U2Vzc2lvbnNSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkiRAoZTGlzdEFnZW50U2Vzc2lvbnNSZXNwb25zZRInCghzZXNzaW9ucxgBIAMoCzIVLmF1cmEudjEuQWdlbnRTZXNzaW9uIsgBCgxBZ2VudFNlc3Npb24SDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEhMKC2NsaWVudF9uYW1lGAMgASgJEhYKDmNsaWVudF92ZXJzaW9uGAQgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBSABKAkSEQoJdHJhbnNwb3J0GAYgASgJEhUKDWZpcnN0X3NlZW5fbXMYByABKAMSFAoMbGFzdF9zZWVuX21zGAggASgDEhIKCmNhbGxfY291bnQYCSABKAMiXQoVTGlzdEFnZW50Q2FsbHNSZXF1ZXN0EhEKCXBhZ2Vfc2l6ZRgBIAEoAxISCgpwYWdlX3Rva2VuGAIgASgJEg8KB25vZGVfaWQYAyABKAkSDAoEdG9vbBgEIAEoCSJUChZMaXN0QWdlbnRDYWxsc1Jlc3BvbnNlEiEKBWNhbGxzGAEgAygLMhIuYXVyYS52MS5BZ2VudENhbGwSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIqwBCglBZ2VudENhbGwSDwoHbm9kZV9pZBgBIAEoCRIMCgRwZWVyGAIgASgJEg4KBm1ldGhvZBgDIAEoCRIMCgR0b29sGAQgASgJEhMKC2NsaWVudF9uYW1lGAUgASgJEhMKC2R1cmF0aW9uX21zGAYgASgDEgoKAm9rGAcgASgIEhEKCXRyYW5zcG9ydBgIIAEoCRINCgV0c19tcxgJIAEoAxIKCgJpZBgKIAEoAyJkChVDcmVhdGVBcGlUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCRINCgVzY29wZRgCIAEoCRIPCgdwcm9qZWN0GAMgASgJEhAKCHR0bF9zZWNzGAQgASgDEgsKA3dobxgFIAEoCSJZChZDcmVhdGVBcGlUb2tlblJlc3BvbnNlEgoKAmlkGAEgASgJEg4KBnNlY3JldBgCIAEoCRIjCgRpbmZvGAMgASgLMhUuYXVyYS52MS5BcGlUb2tlbkluZm8iFgoUTGlzdEFwaVRva2Vuc1JlcXVlc3QiPgoVTGlzdEFwaVRva2Vuc1Jlc3BvbnNlEiUKBnRva2VucxgBIAMoCzIVLmF1cmEudjEuQXBpVG9rZW5JbmZvIsMBCgxBcGlUb2tlbkluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVzY29wZRgDIAEoCRIPCgdwcm9qZWN0GAQgASgJEhMKC3NlY3JldF9oaW50GAUgASgJEhIKCmNyZWF0ZWRfbXMYBiABKAMSFQoNZXhwaXJlc19hdF9tcxgHIAEoAxIUCgxsYXN0X3VzZWRfbXMYCCABKAMSDwoHcmV2b2tlZBgJIAEoCBISCgpjcmVhdGVkX2J5GAogASgJIjAKFVJldm9rZUFwaVRva2VuUmVxdWVzdBIKCgJpZBgBIAEoCRILCgN3aG8YAiABKAkiKQoWUmV2b2tlQXBpVG9rZW5SZXNwb25zZRIPCgdyZXZva2VkGAEgASgIIvABCg5WaXNpb25TZXR0aW5ncxIMCgRtb2RlGAEgASgJEhYKDmxvY2FsX2VuZHBvaW50GAIgASgJEhYKDmNsb3VkX2VuZHBvaW50GAMgASgJEg0KBW1vZGVsGAQgASgJEhQKDGNhcHRpb25fbW9kZRgFIAEoCRIWCg5ub3VsX3RocmVzaG9sZBgGIAEoARISCgplbmFibGVfYm94GAcgASgIEhMKC2hhc19hcGlfa2V5GAggASgIEhQKDGFwaV9rZXlfaGludBgJIAEoCRIQCghyZXZpc2lvbhgKIAEoAxISCgp1cGRhdGVkX21zGAsgASgDIhoKGEdldFZpc2lvblNldHRpbmdzUmVxdWVzdCJGChlHZXRWaXNpb25TZXR0aW5nc1Jlc3BvbnNlEikKCHNldHRpbmdzGAEgASgLMhcuYXVyYS52MS5WaXNpb25TZXR0aW5ncyJ1ChtVcGRhdGVWaXNpb25TZXR0aW5nc1JlcXVlc3QSKQoIc2V0dGluZ3MYASABKAsyFy5hdXJhLnYxLlZpc2lvblNldHRpbmdzEhYKDmFwaV9rZXlfYWN0aW9uGAIgASgJEhMKC25ld19hcGlfa2V5GAMgASgJIkkKHFVwZGF0ZVZpc2lvblNldHRpbmdzUmVzcG9uc2USKQoIc2V0dGluZ3MYASABKAsyFy5hdXJhLnYxLlZpc2lvblNldHRpbmdzInMKGVRlc3RWaXNpb25TZXR0aW5nc1JlcXVlc3QSKQoIc2V0dGluZ3MYASABKAsyFy5hdXJhLnYxLlZpc2lvblNldHRpbmdzEhYKDmFwaV9rZXlfYWN0aW9uGAIgASgJEhMKC25ld19hcGlfa2V5GAMgASgJIqIBChpUZXN0VmlzaW9uU2V0dGluZ3NSZXNwb25zZRIKCgJvaxgBIAEoCBIMCgRtb2RlGAIgASgJEhAKCGVuZHBvaW50GAMgASgJEg4KBmRldmljZRgEIAEoCRINCgVtb2RlbBgFIAEoCRIUCgxjYXBhYmlsaXRpZXMYBiADKAkSEgoKbGF0ZW5jeV9tcxgHIAEoAxIPCgdtZXNzYWdlGAggASgJIm8KFExvY2F0ZUVsZW1lbnRSZXF1ZXN0Eg8KB25vZGVfaWQYASABKAkSDgoGdGFyZ2V0GAIgASgJEhQKDGZvcmNlX3Zpc2lvbhgDIAEoCBITCgtkZWFkbGluZV9tcxgEIAEoAxILCgN3aG8YBSABKAkiqQMKFUxvY2F0ZUVsZW1lbnRSZXNwb25zZRINCgVmb3VuZBgBIAEoCBIOCgZzdGF0dXMYAiABKAkSDgoGc291cmNlGAMgASgJEg4KBmJvdW5kcxgEIAMoBRIWCg5kaXNwbGF5X2JvdW5kcxgFIAMoBRITCgtjbGlja19wb2ludBgGIAMoBRIbChNkaXNwbGF5X2NsaWNrX3BvaW50GAcgAygFEgwKBHJvbGUYCCABKAkSDAoEbmFtZRgJIAEoCRIPCgdjYXB0aW9uGAogASgJEhYKDmV4aXN0ZW5jZV9wcm9iGAsgASgBEhYKDnNlbGVjdGlvbl9wcm9iGAwgASgBEhIKCmNvbmZpZGVuY2UYDSABKAESEAoIc2NyZWVuX3cYDiABKAUSEAoIc2NyZWVuX2gYDyABKAUSDQoFc2NhbGUYECABKAESEwoLc25hcHNob3RfaWQYESABKAkSEgoKbGF0ZW5jeV9tcxgSIAEoAxIpCgpjYW5kaWRhdGVzGBMgAygLMhUuYXVyYS52MS5GdXNlZEVsZW1lbnQSDwoHbWVzc2FnZRgUIAEoCSKOAQoTQ2xpY2tFbGVtZW50UmVxdWVzdBIPCgdub2RlX2lkGAEgASgJEg4KBnRhcmdldBgCIAEoCRIOCgZidXR0b24YAyABKAkSFAoMZm9yY2VfdmlzaW9uGAQgASgIEg4KBnZlcmlmeRgFIAEoCBITCgtkZWFkbGluZV9tcxgGIAEoAxILCgN3aG8YByABKAkipQEKFENsaWNrRWxlbWVudFJlc3BvbnNlEi8KB2xvY2F0ZWQYASABKAsyHi5hdXJhLnYxLkxvY2F0ZUVsZW1lbnRSZXNwb25zZRIPCgdjbGlja2VkGAIgASgIEhAKCHZlcmlmaWVkGAMgASgIEg4KBnN0YXR1cxgEIAEoCRIYChB0b3RhbF9sYXRlbmN5X21zGAUgASgDEg8KB21lc3NhZ2UYBiABKAkqxAEKDkZsZWV0RXZlbnRUeXBlEiAKHEZMRUVUX0VWRU5UX1RZUEVfVU5TUEVDSUZJRUQQABIfChtGTEVFVF9FVkVOVF9UWVBFX05PREVfQURERUQQARIhCh1GTEVFVF9FVkVOVF9UWVBFX05PREVfUkVNT1ZFRBACEiMKH0ZMRUVUX0VWRU5UX1RZUEVfU1RBVFVTX0NIQU5HRUQQAxInCiNGTEVFVF9FVkVOVF9UWVBFX0hFQVJUQkVBVF9TTkFQU0hPVBAEMoUVCg5Db25zb2xlU2VydmljZRJLCgxHZXREYXNoYm9hcmQSHC5hdXJhLnYxLkdldERhc2hib2FyZFJlcXVlc3QaHS5hdXJhLnYxLkdldERhc2hib2FyZFJlc3BvbnNlEkIKCUxpc3RUYXNrcxIZLmF1cmEudjEuTGlzdFRhc2tzUmVxdWVzdBoaLmF1cmEudjEuTGlzdFRhc2tzUmVzcG9uc2USRQoKTGlzdFRyYWNlcxIaLmF1cmEudjEuTGlzdFRyYWNlc1JlcXVlc3QaGy5hdXJhLnYxLkxpc3RUcmFjZXNSZXNwb25zZRJICgtHZXRBcnRpZmFjdBIbLmF1cmEudjEuR2V0QXJ0aWZhY3RSZXF1ZXN0GhwuYXVyYS52MS5HZXRBcnRpZmFjdFJlc3BvbnNlEk4KDUdldFF1ZXVlRGVwdGgSHS5hdXJhLnYxLkdldFF1ZXVlRGVwdGhSZXF1ZXN0Gh4uYXVyYS52MS5HZXRRdWV1ZURlcHRoUmVzcG9uc2USVwoQUnVuT3JjaGVzdHJhdGlvbhIgLmF1cmEudjEuUnVuT3JjaGVzdHJhdGlvblJlcXVlc3QaIS5hdXJhLnYxLlJ1bk9yY2hlc3RyYXRpb25SZXNwb25zZRJXChBHZXRPcmNoZXN0cmF0aW9uEiAuYXVyYS52MS5HZXRPcmNoZXN0cmF0aW9uUmVxdWVzdBohLmF1cmEudjEuR2V0T3JjaGVzdHJhdGlvblJlc3BvbnNlEl0KEkxpc3RPcmNoZXN0cmF0aW9ucxIiLmF1cmEudjEuTGlzdE9yY2hlc3RyYXRpb25zUmVxdWVzdBojLmF1cmEudjEuTGlzdE9yY2hlc3RyYXRpb25zUmVzcG9uc2USPwoKV2F0Y2hGbGVldBIaLmF1cmEudjEuV2F0Y2hGbGVldFJlcXVlc3QaEy5hdXJhLnYxLkZsZWV0RXZlbnQwARJLCgxTdWJtaXRGdXNpb24SHC5hdXJhLnYxLlN1Ym1pdEZ1c2lvblJlcXVlc3QaHS5hdXJhLnYxLlN1Ym1pdEZ1c2lvblJlc3BvbnNlElQKD0dldEZ1c2lvblJlc3VsdBIfLmF1cmEudjEuR2V0RnVzaW9uUmVzdWx0UmVxdWVzdBogLmF1cmEudjEuR2V0RnVzaW9uUmVzdWx0UmVzcG9uc2USUQoOUmVhZE5vZGVTY3JlZW4SHi5hdXJhLnYxLlJlYWROb2RlU2NyZWVuUmVxdWVzdBofLmF1cmEudjEuUmVhZE5vZGVTY3JlZW5SZXNwb25zZRJgChNHZW5lcmF0ZUVucm9sbFRva2VuEiMuYXVyYS52MS5HZW5lcmF0ZUVucm9sbFRva2VuUmVxdWVzdBokLmF1cmEudjEuR2VuZXJhdGVFbnJvbGxUb2tlblJlc3BvbnNlEloKEVJldm9rZUVucm9sbFRva2VuEiEuYXVyYS52MS5SZXZva2VFbnJvbGxUb2tlblJlcXVlc3QaIi5hdXJhLnYxLlJldm9rZUVucm9sbFRva2VuUmVzcG9uc2USWgoRUm90YXRlRW5yb2xsVG9rZW4SIS5hdXJhLnYxLlJvdGF0ZUVucm9sbFRva2VuUmVxdWVzdBoiLmF1cmEudjEuUm90YXRlRW5yb2xsVG9rZW5SZXNwb25zZRJXChBMaXN0RW5yb2xsVG9rZW5zEiAuYXVyYS52MS5MaXN0RW5yb2xsVG9rZW5zUmVxdWVzdBohLmF1cmEudjEuTGlzdEVucm9sbFRva2Vuc1Jlc3BvbnNlElEKDlVwZGF0ZU5vZGVNZXRhEh4uYXVyYS52MS5VcGRhdGVOb2RlTWV0YVJlcXVlc3QaHy5hdXJhLnYxLlVwZGF0ZU5vZGVNZXRhUmVzcG9uc2USRQoKRGVsZXRlTm9kZRIaLmF1cmEudjEuRGVsZXRlTm9kZVJlcXVlc3QaGy5hdXJhLnYxLkRlbGV0ZU5vZGVSZXNwb25zZRJRCg5MaXN0UmVjb3JkaW5ncxIeLmF1cmEudjEuTGlzdFJlY29yZGluZ3NSZXF1ZXN0Gh8uYXVyYS52MS5MaXN0UmVjb3JkaW5nc1Jlc3BvbnNlElEKDlJldm9rZU5vZGVDZXJ0Eh4uYXVyYS52MS5SZXZva2VOb2RlQ2VydFJlcXVlc3QaHy5hdXJhLnYxLlJldm9rZU5vZGVDZXJ0UmVzcG9uc2USPAoHR2V0VGFzaxIXLmF1cmEudjEuR2V0VGFza1JlcXVlc3QaGC5hdXJhLnYxLkdldFRhc2tSZXNwb25zZRJmChVHZXRBZ2VudE9ic2VydmFiaWxpdHkSJS5hdXJhLnYxLkdldEFnZW50T2JzZXJ2YWJpbGl0eVJlcXVlc3QaJi5hdXJhLnYxLkdldEFnZW50T2JzZXJ2YWJpbGl0eVJlc3BvbnNlEloKEUxpc3RBZ2VudFNlc3Npb25zEiEuYXVyYS52MS5MaXN0QWdlbnRTZXNzaW9uc1JlcXVlc3QaIi5hdXJhLnYxLkxpc3RBZ2VudFNlc3Npb25zUmVzcG9uc2USUQoOTGlzdEFnZW50Q2FsbHMSHi5hdXJhLnYxLkxpc3RBZ2VudENhbGxzUmVxdWVzdBofLmF1cmEudjEuTGlzdEFnZW50Q2FsbHNSZXNwb25zZRJRCg5DcmVhdGVBcGlUb2tlbhIeLmF1cmEudjEuQ3JlYXRlQXBpVG9rZW5SZXF1ZXN0Gh8uYXVyYS52MS5DcmVhdGVBcGlUb2tlblJlc3BvbnNlEk4KDUxpc3RBcGlUb2tlbnMSHS5hdXJhLnYxLkxpc3RBcGlUb2tlbnNSZXF1ZXN0Gh4uYXVyYS52MS5MaXN0QXBpVG9rZW5zUmVzcG9uc2USUQoOUmV2b2tlQXBpVG9rZW4SHi5hdXJhLnYxLlJldm9rZUFwaVRva2VuUmVxdWVzdBofLmF1cmEudjEuUmV2b2tlQXBpVG9rZW5SZXNwb25zZRJaChFHZXRWaXNpb25TZXR0aW5ncxIhLmF1cmEudjEuR2V0VmlzaW9uU2V0dGluZ3NSZXF1ZXN0GiIuYXVyYS52MS5HZXRWaXNpb25TZXR0aW5nc1Jlc3BvbnNlEmMKFFVwZGF0ZVZpc2lvblNldHRpbmdzEiQuYXVyYS52MS5VcGRhdGVWaXNpb25TZXR0aW5nc1JlcXVlc3QaJS5hdXJhLnYxLlVwZGF0ZVZpc2lvblNldHRpbmdzUmVzcG9uc2USXQoSVGVzdFZpc2lvblNldHRpbmdzEiIuYXVyYS52MS5UZXN0VmlzaW9uU2V0dGluZ3NSZXF1ZXN0GiMuYXVyYS52MS5UZXN0VmlzaW9uU2V0dGluZ3NSZXNwb25zZRJOCg1Mb2NhdGVFbGVtZW50Eh0uYXVyYS52MS5Mb2NhdGVFbGVtZW50UmVxdWVzdBoeLmF1cmEudjEuTG9jYXRlRWxlbWVudFJlc3BvbnNlEksKDENsaWNrRWxlbWVudBIcLmF1cmEudjEuQ2xpY2tFbGVtZW50UmVxdWVzdBodLmF1cmEudjEuQ2xpY2tFbGVtZW50UmVzcG9uc2VCL1otZ2l0aHViLmNvbS9hdXJhL2NvbnRyb2xsZXIvZ2VuL2F1cmEvdjE7YXVyYXYxYgZwcm90bzM", [file_aura_v1_node]);
 
 /**
  * @generated from message aura.v1.GetDashboardRequest
@@ -971,7 +971,8 @@ export const GetFusionResultResponseSchema: GenMessage<GetFusionResultResponse> 
 
 /**
  * 融合后的单个元素（a11y 与 vision 两源合并的统一表示）。bounds 为 native 像素 [x,y,w,h]（同 A11yNode.bounds
- * 制，回 DispatchTool 操作零改）。
+ * 制；传给 click/scroll/drag/move_mouse 时须指定 coord_space="native" 或改用 ClickElement / LocateElement.display_click_point，
+ * 避免在 scale!=1.0 时被按 display 坐标二次乘 scale）。
  *
  * @generated from message aura.v1.FusedElement
  */
@@ -2323,6 +2324,574 @@ export const RevokeApiTokenResponseSchema: GenMessage<RevokeApiTokenResponse> = 
   messageDesc(file_aura_v1_console, 65);
 
 /**
+ * @generated from message aura.v1.VisionSettings
+ */
+export type VisionSettings = Message<"aura.v1.VisionSettings"> & {
+  /**
+   * disabled | local | cloud（默认 local）
+   *
+   * @generated from field: string mode = 1;
+   */
+  mode: string;
+
+  /**
+   * 本地 k3s GPU 推理端点（如 http://192.168.22.225:30808）
+   *
+   * @generated from field: string local_endpoint = 2;
+   */
+  localEndpoint: string;
+
+  /**
+   * 云端 Jev API 端点（如 https://api.typesafe.ai/v1/systemone）
+   *
+   * @generated from field: string cloud_endpoint = 3;
+   */
+  cloudEndpoint: string;
+
+  /**
+   * 模型标识（如 jev-latest 或 jev-local-florence2-yolo）
+   *
+   * @generated from field: string model = 4;
+   */
+  model: string;
+
+  /**
+   * none | florence（默认 none，跳过全框 Florence 自回归生成）
+   *
+   * @generated from field: string caption_mode = 5;
+   */
+  captionMode: string;
+
+  /**
+   * 存在性门控阈值 [0,1]（默认 0.50）
+   *
+   * @generated from field: double noul_threshold = 6;
+   */
+  noulThreshold: number;
+
+  /**
+   * 是否启用 Jev Box 直接视觉框兜底（默认 true）
+   *
+   * @generated from field: bool enable_box = 7;
+   */
+  enableBox: boolean;
+
+  /**
+   * 是否已配置云端 API 令牌（明文永不回传前端）
+   *
+   * @generated from field: bool has_api_key = 8;
+   */
+  hasApiKey: boolean;
+
+  /**
+   * 已存云端 API 令牌脱敏前缀提示（如 ts_ab12…）
+   *
+   * @generated from field: string api_key_hint = 9;
+   */
+  apiKeyHint: string;
+
+  /**
+   * 乐观并发版本号（更新时携带防覆盖）
+   *
+   * @generated from field: int64 revision = 10;
+   */
+  revision: bigint;
+
+  /**
+   * 最近更新时刻（毫秒）
+   *
+   * @generated from field: int64 updated_ms = 11;
+   */
+  updatedMs: bigint;
+};
+
+/**
+ * Describes the message aura.v1.VisionSettings.
+ * Use `create(VisionSettingsSchema)` to create a new message.
+ */
+export const VisionSettingsSchema: GenMessage<VisionSettings> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 66);
+
+/**
+ * @generated from message aura.v1.GetVisionSettingsRequest
+ */
+export type GetVisionSettingsRequest = Message<"aura.v1.GetVisionSettingsRequest"> & {
+};
+
+/**
+ * Describes the message aura.v1.GetVisionSettingsRequest.
+ * Use `create(GetVisionSettingsRequestSchema)` to create a new message.
+ */
+export const GetVisionSettingsRequestSchema: GenMessage<GetVisionSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 67);
+
+/**
+ * @generated from message aura.v1.GetVisionSettingsResponse
+ */
+export type GetVisionSettingsResponse = Message<"aura.v1.GetVisionSettingsResponse"> & {
+  /**
+   * @generated from field: aura.v1.VisionSettings settings = 1;
+   */
+  settings?: VisionSettings | undefined;
+};
+
+/**
+ * Describes the message aura.v1.GetVisionSettingsResponse.
+ * Use `create(GetVisionSettingsResponseSchema)` to create a new message.
+ */
+export const GetVisionSettingsResponseSchema: GenMessage<GetVisionSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 68);
+
+/**
+ * @generated from message aura.v1.UpdateVisionSettingsRequest
+ */
+export type UpdateVisionSettingsRequest = Message<"aura.v1.UpdateVisionSettingsRequest"> & {
+  /**
+   * @generated from field: aura.v1.VisionSettings settings = 1;
+   */
+  settings?: VisionSettings | undefined;
+
+  /**
+   * keep（默认，保持原令牌不变）| set（写入 new_api_key）| clear（清空令牌）
+   *
+   * @generated from field: string api_key_action = 2;
+   */
+  apiKeyAction: string;
+
+  /**
+   * 当 api_key_action="set" 时写入的新云端 API 令牌
+   *
+   * @generated from field: string new_api_key = 3;
+   */
+  newApiKey: string;
+};
+
+/**
+ * Describes the message aura.v1.UpdateVisionSettingsRequest.
+ * Use `create(UpdateVisionSettingsRequestSchema)` to create a new message.
+ */
+export const UpdateVisionSettingsRequestSchema: GenMessage<UpdateVisionSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 69);
+
+/**
+ * @generated from message aura.v1.UpdateVisionSettingsResponse
+ */
+export type UpdateVisionSettingsResponse = Message<"aura.v1.UpdateVisionSettingsResponse"> & {
+  /**
+   * @generated from field: aura.v1.VisionSettings settings = 1;
+   */
+  settings?: VisionSettings | undefined;
+};
+
+/**
+ * Describes the message aura.v1.UpdateVisionSettingsResponse.
+ * Use `create(UpdateVisionSettingsResponseSchema)` to create a new message.
+ */
+export const UpdateVisionSettingsResponseSchema: GenMessage<UpdateVisionSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 70);
+
+/**
+ * @generated from message aura.v1.TestVisionSettingsRequest
+ */
+export type TestVisionSettingsRequest = Message<"aura.v1.TestVisionSettingsRequest"> & {
+  /**
+   * 待测试的草稿配置（无需先保存）
+   *
+   * @generated from field: aura.v1.VisionSettings settings = 1;
+   */
+  settings?: VisionSettings | undefined;
+
+  /**
+   * keep（复用已存令牌）| set（测试 new_api_key）| clear
+   *
+   * @generated from field: string api_key_action = 2;
+   */
+  apiKeyAction: string;
+
+  /**
+   * @generated from field: string new_api_key = 3;
+   */
+  newApiKey: string;
+};
+
+/**
+ * Describes the message aura.v1.TestVisionSettingsRequest.
+ * Use `create(TestVisionSettingsRequestSchema)` to create a new message.
+ */
+export const TestVisionSettingsRequestSchema: GenMessage<TestVisionSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 71);
+
+/**
+ * @generated from message aura.v1.TestVisionSettingsResponse
+ */
+export type TestVisionSettingsResponse = Message<"aura.v1.TestVisionSettingsResponse"> & {
+  /**
+   * @generated from field: bool ok = 1;
+   */
+  ok: boolean;
+
+  /**
+   * @generated from field: string mode = 2;
+   */
+  mode: string;
+
+  /**
+   * @generated from field: string endpoint = 3;
+   */
+  endpoint: string;
+
+  /**
+   * 如 cuda / cpu / cloud
+   *
+   * @generated from field: string device = 4;
+   */
+  device: string;
+
+  /**
+   * 实测响应的模型名
+   *
+   * @generated from field: string model = 5;
+   */
+  model: string;
+
+  /**
+   * 支持的原语列表（如 detect, noul, choice, score, box）
+   *
+   * @generated from field: repeated string capabilities = 6;
+   */
+  capabilities: string[];
+
+  /**
+   * 探测往返时延（毫秒）
+   *
+   * @generated from field: int64 latency_ms = 7;
+   */
+  latencyMs: bigint;
+
+  /**
+   * 诊断详情或错误原因
+   *
+   * @generated from field: string message = 8;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message aura.v1.TestVisionSettingsResponse.
+ * Use `create(TestVisionSettingsResponseSchema)` to create a new message.
+ */
+export const TestVisionSettingsResponseSchema: GenMessage<TestVisionSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 72);
+
+/**
+ * @generated from message aura.v1.LocateElementRequest
+ */
+export type LocateElementRequest = Message<"aura.v1.LocateElementRequest"> & {
+  /**
+   * 目标节点 ID
+   *
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * 目标元素自然语言描述（如 "Submit button"、"设置图标"、"搜索输入框"）
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * 强制走视觉推理（跳过 Tier 0 纯 A11y 短路）
+   *
+   * @generated from field: bool force_vision = 3;
+   */
+  forceVision: boolean;
+
+  /**
+   * 超时毫秒（0=服务端默认 25000ms）
+   *
+   * @generated from field: int64 deadline_ms = 4;
+   */
+  deadlineMs: bigint;
+
+  /**
+   * 调用方标识（审计）
+   *
+   * @generated from field: string who = 5;
+   */
+  who: string;
+};
+
+/**
+ * Describes the message aura.v1.LocateElementRequest.
+ * Use `create(LocateElementRequestSchema)` to create a new message.
+ */
+export const LocateElementRequestSchema: GenMessage<LocateElementRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 73);
+
+/**
+ * @generated from message aura.v1.LocateElementResponse
+ */
+export type LocateElementResponse = Message<"aura.v1.LocateElementResponse"> & {
+  /**
+   * 是否定位到目标元素
+   *
+   * @generated from field: bool found = 1;
+   */
+  found: boolean;
+
+  /**
+   * matched | not_found | low_confidence | vision_disabled
+   *
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * a11y | vision_jev | vision_local | vision_heuristic
+   *
+   * @generated from field: string source = 3;
+   */
+  source: string;
+
+  /**
+   * 原生像素边界框 [x,y,w,h]（native 空间）
+   *
+   * @generated from field: repeated int32 bounds = 4;
+   */
+  bounds: number[];
+
+  /**
+   * 截图显示像素边界框 [x,y,w,h]（display 空间，前端画布/截图直接对齐）
+   *
+   * @generated from field: repeated int32 display_bounds = 5;
+   */
+  displayBounds: number[];
+
+  /**
+   * 原生像素中心点击点 [x,y]（native 空间，配 coord_space="native"）
+   *
+   * @generated from field: repeated int32 click_point = 6;
+   */
+  clickPoint: number[];
+
+  /**
+   * 截图显示像素中心点击点 [x,y]（display 空间，直接传 click 缺省模式）
+   *
+   * @generated from field: repeated int32 display_click_point = 7;
+   */
+  displayClickPoint: number[];
+
+  /**
+   * @generated from field: string role = 8;
+   */
+  role: string;
+
+  /**
+   * @generated from field: string name = 9;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string caption = 10;
+   */
+  caption: string;
+
+  /**
+   * Jev Noul 存在概率 [0,1]
+   *
+   * @generated from field: double existence_prob = 11;
+   */
+  existenceProb: number;
+
+  /**
+   * Jev Choice/Box 选择概率 [0,1]
+   *
+   * @generated from field: double selection_prob = 12;
+   */
+  selectionProb: number;
+
+  /**
+   * 综合置信度 [0,1]
+   *
+   * @generated from field: double confidence = 13;
+   */
+  confidence: number;
+
+  /**
+   * 原生屏宽（native_w）
+   *
+   * @generated from field: int32 screen_w = 14;
+   */
+  screenW: number;
+
+  /**
+   * 原生屏高（native_h）
+   *
+   * @generated from field: int32 screen_h = 15;
+   */
+  screenH: number;
+
+  /**
+   * display -> native 缩放系数
+   *
+   * @generated from field: double scale = 16;
+   */
+  scale: number;
+
+  /**
+   * 关联的截图几何快照 ID
+   *
+   * @generated from field: string snapshot_id = 17;
+   */
+  snapshotId: string;
+
+  /**
+   * 定位总耗时（毫秒）
+   *
+   * @generated from field: int64 latency_ms = 18;
+   */
+  latencyMs: bigint;
+
+  /**
+   * 候选元素集（供调试或前端叠加展示）
+   *
+   * @generated from field: repeated aura.v1.FusedElement candidates = 19;
+   */
+  candidates: FusedElement[];
+
+  /**
+   * 诊断或未命中说明
+   *
+   * @generated from field: string message = 20;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message aura.v1.LocateElementResponse.
+ * Use `create(LocateElementResponseSchema)` to create a new message.
+ */
+export const LocateElementResponseSchema: GenMessage<LocateElementResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 74);
+
+/**
+ * @generated from message aura.v1.ClickElementRequest
+ */
+export type ClickElementRequest = Message<"aura.v1.ClickElementRequest"> & {
+  /**
+   * 目标节点 ID
+   *
+   * @generated from field: string node_id = 1;
+   */
+  nodeId: string;
+
+  /**
+   * 目标元素自然语言描述
+   *
+   * @generated from field: string target = 2;
+   */
+  target: string;
+
+  /**
+   * left（默认）| right | middle
+   *
+   * @generated from field: string button = 3;
+   */
+  button: string;
+
+  /**
+   * 强制走视觉推理
+   *
+   * @generated from field: bool force_vision = 4;
+   */
+  forceVision: boolean;
+
+  /**
+   * 点击后是否采集校验状态变化
+   *
+   * @generated from field: bool verify = 5;
+   */
+  verify: boolean;
+
+  /**
+   * 超时毫秒（0=服务端默认 30000ms）
+   *
+   * @generated from field: int64 deadline_ms = 6;
+   */
+  deadlineMs: bigint;
+
+  /**
+   * 调用方标识（审计）
+   *
+   * @generated from field: string who = 7;
+   */
+  who: string;
+};
+
+/**
+ * Describes the message aura.v1.ClickElementRequest.
+ * Use `create(ClickElementRequestSchema)` to create a new message.
+ */
+export const ClickElementRequestSchema: GenMessage<ClickElementRequest> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 75);
+
+/**
+ * @generated from message aura.v1.ClickElementResponse
+ */
+export type ClickElementResponse = Message<"aura.v1.ClickElementResponse"> & {
+  /**
+   * 定位详情
+   *
+   * @generated from field: aura.v1.LocateElementResponse located = 1;
+   */
+  located?: LocateElementResponse | undefined;
+
+  /**
+   * 是否已成功派发并完成点击
+   *
+   * @generated from field: bool clicked = 2;
+   */
+  clicked: boolean;
+
+  /**
+   * 若请求 verify=true，点击后界面/焦点是否发生预期响应
+   *
+   * @generated from field: bool verified = 3;
+   */
+  verified: boolean;
+
+  /**
+   * clicked | not_found | low_confidence | click_failed
+   *
+   * @generated from field: string status = 4;
+   */
+  status: string;
+
+  /**
+   * 定位 + 点击总耗时（毫秒）
+   *
+   * @generated from field: int64 total_latency_ms = 5;
+   */
+  totalLatencyMs: bigint;
+
+  /**
+   * 诊断说明
+   *
+   * @generated from field: string message = 6;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message aura.v1.ClickElementResponse.
+ * Use `create(ClickElementResponseSchema)` to create a new message.
+ */
+export const ClickElementResponseSchema: GenMessage<ClickElementResponse> = /*@__PURE__*/
+  messageDesc(file_aura_v1_console, 76);
+
+/**
  * 舰队事件类型。增量事件（NODE_ADDED/REMOVED/STATUS_CHANGED）携单节点 node；
  * HEARTBEAT_SNAPSHOT 携全量 snapshot（首帧 + 周期重同步）。
  *
@@ -2660,6 +3229,51 @@ export const ConsoleService: GenService<{
     methodKind: "unary";
     input: typeof RevokeApiTokenRequestSchema;
     output: typeof RevokeApiTokenResponseSchema;
+  },
+  /**
+   * ===== Jev 视觉配置与快速元素选择/点击（additive）=====
+   * 支持 Web 控制台动态配置 Jev 视觉模式（disabled | local k3s GPU | cloud API）、测试连通性与延迟，
+   * 并提供毫秒级同步元素定位（LocateElement）与一步点击（ClickElement），消除 SubmitFusion 异步轮询与
+   * 全框 Florence 自回归生成的延迟瓶颈。
+   *
+   * @generated from rpc aura.v1.ConsoleService.GetVisionSettings
+   */
+  getVisionSettings: {
+    methodKind: "unary";
+    input: typeof GetVisionSettingsRequestSchema;
+    output: typeof GetVisionSettingsResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.UpdateVisionSettings
+   */
+  updateVisionSettings: {
+    methodKind: "unary";
+    input: typeof UpdateVisionSettingsRequestSchema;
+    output: typeof UpdateVisionSettingsResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.TestVisionSettings
+   */
+  testVisionSettings: {
+    methodKind: "unary";
+    input: typeof TestVisionSettingsRequestSchema;
+    output: typeof TestVisionSettingsResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.LocateElement
+   */
+  locateElement: {
+    methodKind: "unary";
+    input: typeof LocateElementRequestSchema;
+    output: typeof LocateElementResponseSchema;
+  },
+  /**
+   * @generated from rpc aura.v1.ConsoleService.ClickElement
+   */
+  clickElement: {
+    methodKind: "unary";
+    input: typeof ClickElementRequestSchema;
+    output: typeof ClickElementResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_aura_v1_console, 0);

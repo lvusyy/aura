@@ -56,6 +56,9 @@ spec:
                 secretKeyRef:
                   name: detector-token
                   key: token
+            # 默认关闭全框 Florence 逐框自回归生成（改由 /v1/systemone 按需 grounding/top-K 选择），单帧 /detect 降至毫秒级
+            - name: AURA_CAPTION_MODE
+              value: "none"
           ports:
             - name: http
               containerPort: 8080
@@ -71,6 +74,10 @@ spec:
             # 红线 3：权重只读挂载（PVC 内容只挂不改）。
             - name: weights
               mountPath: /weights
+              readOnly: true
+            - name: app-code
+              mountPath: /app/app.py
+              subPath: app.py
               readOnly: true
           # 权重加载慢（florence 1.08GB safetensors + CUDA 初始化）：启动期由
           # startupProbe 独占兜底（最长 360s），期间 liveness 不参与——避免加载中被
@@ -100,6 +107,10 @@ spec:
         - name: weights
           persistentVolumeClaim:
             claimName: detector-weights
+        - name: app-code
+          configMap:
+            name: detector-app
+            optional: true
 ---
 # 对外暴露 = NodePort（C1 裁决）：controller 是集群外 PVE VM（user@<controller-host>），
 # ClusterIP 10.43.x 对它不可达；NodePort 令 controller 经 <k3s-host>:30808 同段

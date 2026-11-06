@@ -354,3 +354,21 @@ CREATE TABLE IF NOT EXISTS releases (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (platform, version)
 );
+
+-- ===== Jev 视觉与快速选择配置（vision_settings 单行表，双副本共享一致）=====
+CREATE TABLE IF NOT EXISTS vision_settings (
+    id              INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    mode            TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('disabled', 'local', 'cloud', 'auto')),
+    local_endpoint  TEXT NOT NULL DEFAULT '',
+    cloud_endpoint  TEXT NOT NULL DEFAULT 'https://api.typesafe.ai/v1/systemone',
+    api_key         TEXT NOT NULL DEFAULT '',
+    api_key_hint    TEXT NOT NULL DEFAULT '',
+    model           TEXT NOT NULL DEFAULT 'jev-latest',
+    caption_mode    TEXT NOT NULL DEFAULT 'none' CHECK (caption_mode IN ('none', 'florence')),
+    noul_threshold  DOUBLE PRECISION NOT NULL DEFAULT 0.50,
+    enable_box      BOOLEAN NOT NULL DEFAULT true,
+    revision        BIGINT NOT NULL DEFAULT 1,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE vision_settings DROP CONSTRAINT IF EXISTS vision_settings_mode_check;
+ALTER TABLE vision_settings ADD CONSTRAINT vision_settings_mode_check CHECK (mode IN ('disabled', 'local', 'cloud', 'auto'));

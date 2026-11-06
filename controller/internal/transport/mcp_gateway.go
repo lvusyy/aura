@@ -9,6 +9,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/selection"
 	"github.com/aura/controller/internal/store"
 )
 
@@ -78,8 +80,12 @@ func (l *gatewayLimiter) release(nodeID string) {
 // 部署的空 scope 兼容）放行；ops/ro 拒绝——需要分级派发的走 REST DispatchTool 面。
 // M15：档位之后再过项目视界（CheckNodeProjectAccess 唯一规则）——项目 admin 令牌仅达本项目节点，
 // 越界 403；pg 可为 nil（无持久层=节点未归属，仅全域令牌在场，行为零变化）。
-func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, pg *store.PGStore) http.Handler {
+func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, pg *store.PGStore, sel ...*selection.SelectorEngine) http.Handler {
 	limiter := newGatewayLimiter()
+	var selector *selection.SelectorEngine
+	if len(sel) > 0 {
+		selector = sel[0]
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		nodeID := strings.TrimPrefix(r.URL.Path, mcpGatewayPathPrefix)
 		if nodeID == "" || strings.Contains(nodeID, "/") {
@@ -123,6 +129,11 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, p
 		}
 		defer limiter.release(nodeID)
 
+		// 若请求为网关合成的 Jev 视觉定位/点击工具（locate_element / click_element），在控制面直接处理
+		if selector != nil && tryServeGatewayJevTool(w, r, nodeID, body, selector) {
+			return
+		}
+
 		sess, ok := reg.Ready(nodeID)
 		if !ok {
 			// 本副本无活会话：hop 防环（被转发请求不二次转发）之外尝试 owner 副本转发（HA）。
@@ -139,6 +150,7 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, p
 						auditMcpGateway(r, nodeID, http.StatusBadGateway, len(body), "forward-error")
 						return
 					}
+					respBody = maybeAugmentToolsList(body, respBody)
 					writeMcpProxyReply(w, status, ct, respBody)
 					auditMcpGateway(r, nodeID, status, len(body), "forwarded")
 					return
@@ -169,7 +181,8 @@ func McpGatewayHandler(reg *registry.NodeRegistry, sched *scheduler.Scheduler, p
 			auditMcpGateway(r, nodeID, http.StatusGatewayTimeout, len(body), "proxy-error")
 			return
 		}
-		writeMcpProxyReply(w, int(resp.GetStatus()), resp.GetContentType(), resp.GetBody())
+		respBody := maybeAugmentToolsList(body, resp.GetBody())
+		writeMcpProxyReply(w, int(resp.GetStatus()), resp.GetContentType(), respBody)
 		auditMcpGateway(r, nodeID, int(resp.GetStatus()), len(body), "ok")
 	})
 }
@@ -192,4 +205,176 @@ func auditMcpGateway(r *http.Request, nodeID string, status, reqBytes int, outco
 		"node_id", nodeID, "status", status, "req_bytes", reqBytes,
 		"outcome", outcome, "scope", ScopeFromContext(r.Context()),
 		"ua", r.Header.Get("User-Agent"))
+}
+
+type jsonRPCReq struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"params"`
+}
+
+func tryServeGatewayJevTool(
+	w http.ResponseWriter,
+	r *http.Request,
+	nodeID string,
+	body []byte,
+	selector *selection.SelectorEngine,
+) bool {
+	var rpcReq jsonRPCReq
+	if err := json.Unmarshal(body, &rpcReq); err != nil || rpcReq.Method != "tools/call" {
+		return false
+	}
+	toolName := rpcReq.Params.Name
+	if toolName != "locate_element" && toolName != "click_element" {
+		return false
+	}
+
+	var args struct {
+		Target      string `json:"target"`
+		Button      string `json:"button"`
+		ForceVision bool   `json:"force_vision"`
+		Verify      bool   `json:"verify"`
+		DeadlineMs  int64  `json:"deadline_ms"`
+	}
+	if len(rpcReq.Params.Arguments) > 0 {
+		_ = json.Unmarshal(rpcReq.Params.Arguments, &args)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), mcpGatewayTimeout)
+	defer cancel()
+
+	who := IdentityFromContext(r.Context()).Name
+	if who == "" {
+		who = "mcp-gateway"
+	}
+
+	var payload any
+	switch toolName {
+	case "locate_element":
+		out, err := selector.Locate(ctx, selection.LocateInput{
+			NodeID:      nodeID,
+			Target:      args.Target,
+			ForceVision: args.ForceVision,
+			DeadlineMs:  args.DeadlineMs,
+			Who:         who,
+		})
+		if err != nil {
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_LOCATE_FAILED", "message": err.Error()},
+			}
+		} else {
+			payload = map[string]any{
+				"ok":   true,
+				"data": out,
+			}
+		}
+	case "click_element":
+		out, err := selector.Click(ctx, selection.ClickInput{
+			NodeID:      nodeID,
+			Target:      args.Target,
+			Button:      args.Button,
+			ForceVision: args.ForceVision,
+			Verify:      args.Verify,
+			DeadlineMs:  args.DeadlineMs,
+			Who:         who,
+		})
+		if err != nil {
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_CLICK_ELEMENT_FAILED", "message": err.Error()},
+			}
+		} else {
+			payload = map[string]any{
+				"ok":   true,
+				"data": out,
+			}
+		}
+	}
+
+	textBytes, _ := json.Marshal(payload)
+	rpcResp := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      rpcReq.ID,
+		"result": map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": string(textBytes)},
+			},
+			"structuredContent": payload,
+			"isError":           false,
+		},
+	}
+	outBytes, _ := json.Marshal(rpcResp)
+	writeMcpProxyReply(w, http.StatusOK, "application/json", outBytes)
+	auditMcpGateway(r, nodeID, http.StatusOK, len(body), "jev-"+toolName)
+	return true
+}
+
+func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
+	var rpcReq struct {
+		Method string `json:"method"`
+	}
+	if err := json.Unmarshal(reqBody, &rpcReq); err != nil || rpcReq.Method != "tools/list" {
+		return respBody
+	}
+	var rpcResp map[string]any
+	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
+		return respBody
+	}
+	resObj, ok := rpcResp["result"].(map[string]any)
+	if !ok {
+		return respBody
+	}
+	toolsSlice, ok := resObj["tools"].([]any)
+	if !ok {
+		return respBody
+	}
+	seen := make(map[string]bool, len(toolsSlice))
+	for _, item := range toolsSlice {
+		if m, ok := item.(map[string]any); ok {
+			if name, ok := m["name"].(string); ok {
+				seen[name] = true
+			}
+		}
+	}
+	if !seen["locate_element"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "locate_element",
+			"description": "Fast hybrid UI element localization (A11y + YOLO geometry + Jev Choice/Noul/Box). Returns both native Bounds/ClickPoint and DisplayBounds/DisplayClickPoint.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target":       map[string]any{"type": "string", "description": "Natural-language target element description (e.g. 'Submit button', 'Settings icon')"},
+					"force_vision": map[string]any{"type": "boolean", "description": "Skip Tier 0 A11y shortcut and force visual inference"},
+				},
+				"required": []string{"target"},
+			},
+		})
+	}
+	if !seen["click_element"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "click_element",
+			"description": "One-step UI element localization and click via Jev (A11y + YOLO + Jev Choice/Noul/Box -> confidence gate -> click with exact coordinate alignment).",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target":       map[string]any{"type": "string", "description": "Natural-language target element description"},
+					"button":       map[string]any{"type": "string", "description": "Mouse button: left (default) | right | middle"},
+					"force_vision": map[string]any{"type": "boolean", "description": "Force visual inference"},
+					"verify":       map[string]any{"type": "boolean", "description": "Verify UI responsiveness after click"},
+				},
+				"required": []string{"target"},
+			},
+		})
+	}
+	resObj["tools"] = toolsSlice
+	augmented, err := json.Marshal(rpcResp)
+	if err != nil {
+		return respBody
+	}
+	return augmented
 }

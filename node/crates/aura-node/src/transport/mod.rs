@@ -1,13 +1,13 @@
 //! 传输适配层：AuraTools（driver 薄适配）+ 三域工具子路由合并 + 双传输入口。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rmcp::{tool_handler, ServerHandler};
 
-use aura_capability::{CapError, Coordinate, DeviceDriver, Envelope, ErrObj};
+use aura_capability::{CapError, Coordinate, DeviceDriver, Envelope, ErrObj, ScreenshotMeta};
 
 use record_tools::RecordSession;
 
@@ -64,10 +64,26 @@ pub mod enroll;
 /// `pub(crate) use super::CONTRACT_VERSION` 再导出供 gRPC 面引用，保「全仓单一 const 定义」。
 pub(crate) const CONTRACT_VERSION: &str = "aura.v1/2026-07";
 
+/// 单次 screenshot 几何快照条目（有界环形缓冲，最多保留 16 条）：
+/// 消除并发/多显示器截图覆盖单一 current_scale 的问题，支持按 snapshot_id 精确还原缩放系数。
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub(crate) struct SnapshotEntry {
+    pub id: String,
+    pub display: u32,
+    pub scale: f64,
+    pub native_w: u32,
+    pub native_h: u32,
+    pub display_w: u32,
+    pub display_h: u32,
+}
+
+const SNAPSHOT_RING_CAP: usize = 16;
+
 /// MCP 工具集适配器：持有能力层 driver 与当前显示器状态，是 driver 的薄适配（thin adapter）。
 ///
 /// 三域工具经各自 `#[tool_router]` 子路由（screen_tools/input_tools/proc_tools）挂载，
-/// 最终在此合并进单一 `ServerHandler`。`Clone` 廉价（仅克隆三个 Arc），供 HTTP 传输按请求工厂复用、
+/// 最终在此合并进单一 `ServerHandler`。`Clone` 廉价（仅克隆 Arc），供 HTTP 传输按请求工厂复用、
 /// 共享同一 driver、current_display 与 current_scale。
 #[derive(Clone)]
 pub struct AuraTools {
@@ -77,6 +93,9 @@ pub struct AuraTools {
     /// screenshot 成功后写入本次 `meta.scale`；input 域坐标（click/drag/move_mouse/scroll 锚点）
     /// 乘此系数由 display 空间回映射到原生像素再执行。默认 1.0（未截图时等同原生坐标，安全）。
     pub current_scale: Arc<AtomicU64>,
+    /// 最近 N 次截图几何快照（有界环形缓冲，上限 16）：支持 snapshot_id 精确绑定缩放系数。
+    pub(crate) snapshots: Arc<Mutex<VecDeque<SnapshotEntry>>>,
+    pub(crate) snapshot_seq: Arc<AtomicU64>,
     /// 活动录屏会话态（rec_id → 会话元数据，TASK-010）。start_recording 登记、stop_recording 取出，
     /// 承载对象存储 key/落盘路径 供 resource_link 构造。平台层持采集/编码态，本表仅节点侧映射。
     /// `Clone` 时共享同一 Arc（多传输/多请求并发安全，Mutex 串行化会话增删）。
@@ -95,6 +114,8 @@ impl AuraTools {
             driver,
             current_display: Arc::new(AtomicU32::new(0)),
             current_scale: Arc::new(AtomicU64::new(1.0_f64.to_bits())),
+            snapshots: Arc::new(Mutex::new(VecDeque::with_capacity(SNAPSHOT_RING_CAP))),
+            snapshot_seq: Arc::new(AtomicU64::new(0)),
             recordings: Arc::new(Mutex::new(HashMap::new())),
             data_dir: default_data_dir(),
         }
@@ -117,9 +138,76 @@ impl AuraTools {
         }
     }
 
+    /// 记录一次 screenshot 的几何快照（同时更新 current_scale 并压入有界环形缓冲），返回生成的 snapshot_id。
+    pub(crate) fn record_snapshot(&self, display: u32, meta: &ScreenshotMeta) -> String {
+        self.set_scale(meta.scale);
+        let seq = self.snapshot_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let id = format!("snap-{seq}");
+        let entry = SnapshotEntry {
+            id: id.clone(),
+            display,
+            scale: if meta.scale.is_finite() && meta.scale > 0.0 {
+                meta.scale
+            } else {
+                1.0
+            },
+            native_w: meta.native_w,
+            native_h: meta.native_h,
+            display_w: meta.display_w,
+            display_h: meta.display_h,
+        };
+        let mut ring = self
+            .snapshots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ring.len() >= SNAPSHOT_RING_CAP {
+            ring.pop_front();
+        }
+        ring.push_back(entry);
+        id
+    }
+
     /// 当前缩放系数（默认 1.0）。
     pub(crate) fn scale(&self) -> f64 {
         f64::from_bits(self.current_scale.load(Ordering::Relaxed))
+    }
+
+    /// 按 coord_space（"display" 缺省 | "native"）与可选 snapshot_id 解析输入坐标为原生像素坐标。
+    /// - `coord_space == Some("native")`：直接视作原生像素返回（消除 FusedElement.bounds / LocateElement
+    ///   已是原生像素却被再次乘 scale 的二次缩放偏差）；
+    /// - `snapshot_id == Some(id)`：优先从环形快照查找该次截图的 scale，若已淘汰则回退当前显示器最新快照或 current_scale；
+    /// - 缺省：沿用 [`Self::to_native`]，100% 向后兼容既有调用方。
+    pub(crate) fn resolve_coord(
+        &self,
+        x: i32,
+        y: i32,
+        coord_space: Option<&str>,
+        snapshot_id: Option<&str>,
+    ) -> Coordinate {
+        if matches!(coord_space, Some(s) if s.eq_ignore_ascii_case("native")) {
+            tracing::debug!(
+                native_x = x,
+                native_y = y,
+                "input coordinate already in native space (coord_space=native)"
+            );
+            return Coordinate { x, y };
+        }
+        if let Some(sid) = snapshot_id.filter(|s| !s.is_empty()) {
+            let scale_opt = {
+                let ring = self
+                    .snapshots
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                ring.iter().rev().find(|e| e.id == sid).map(|e| e.scale)
+            };
+            if let Some(s) = scale_opt {
+                return Coordinate {
+                    x: scale_coord(x, s),
+                    y: scale_coord(y, s),
+                };
+            }
+        }
+        self.to_native(x, y)
     }
 
     /// 关停前 flush 在录会话（M16 T1.4 优雅退出）：遍历 recordings 逐个 finalize，避免 SIGTERM
@@ -250,6 +338,52 @@ mod tests {
         assert_eq!(
             meta.get("anthropic/requiresUserInteraction"),
             Some(&serde_json::Value::Bool(true))
+        );
+    }
+
+    /// coord_space=native 绕过 scale 二次缩放；snapshot_id 精确还原历史截图 scale。
+    #[test]
+    fn resolve_coord_supports_native_and_snapshot_ring() {
+        let tools = AuraTools::new(aura_platform::build_driver(
+            aura_platform::DriverKind::Desktop,
+            None,
+            None,
+        ));
+        let snap1 = tools.record_snapshot(
+            0,
+            &ScreenshotMeta {
+                native_w: 1920,
+                native_h: 1080,
+                display_w: 1280,
+                display_h: 720,
+                scale: 1.5,
+            },
+        );
+        let snap2 = tools.record_snapshot(
+            1,
+            &ScreenshotMeta {
+                native_w: 2560,
+                native_h: 1440,
+                display_w: 1280,
+                display_h: 720,
+                scale: 2.0,
+            },
+        );
+
+        // 缺省走最新 current_scale (2.0)
+        assert_eq!(
+            tools.resolve_coord(100, 50, None, None),
+            Coordinate { x: 200, y: 100 }
+        );
+        // coord_space="native" 直接返回原生坐标（不二次乘 scale）
+        assert_eq!(
+            tools.resolve_coord(960, 540, Some("native"), Some(&snap2)),
+            Coordinate { x: 960, y: 540 }
+        );
+        // 指定历史 snapshot_id (snap1, scale=1.5) 精确按 1.5 回映射，不受后续 snap2 (2.0) 覆盖影响
+        assert_eq!(
+            tools.resolve_coord(100, 50, Some("display"), Some(&snap1)),
+            Coordinate { x: 150, y: 75 }
         );
     }
 }

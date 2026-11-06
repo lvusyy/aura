@@ -194,11 +194,7 @@ func (e *Engine) fuse(ctx context.Context, jobID string, req *aurav1.SubmitFusio
 		return nil, err
 	}
 
-	image, err := base64.StdEncoding.DecodeString(shot.ImageBase64)
-	if err != nil {
-		return nil, fmt.Errorf("fusion: decode screenshot image: %w", err)
-	}
-	if len(image) == 0 {
+	if shot.ImageBase64 == "" {
 		return nil, errors.New("fusion: screenshot envelope carries empty image")
 	}
 	meta := shot.Meta
@@ -220,11 +216,19 @@ func (e *Engine) fuse(ctx context.Context, jobID string, req *aurav1.SubmitFusio
 
 	flat := flattenA11y(tree)
 	// target-aware 触发（D9/M3）：force_vision 强制触发；否则 a11y 充分即不触发视觉——
-	// a11y-first，vision_invoked=false 留证（SC-3「a11y 命中场景不触发视觉调用」）。
+	// a11y-first，vision_invoked=false 留证（SC-3「a11y 命中场景不触发视觉调用」），跳过 base64 解码。
 	if !req.GetForceVision() && !fusionNeeded(tree, req.GetTarget(), meta.NativeW, meta.NativeH) {
 		res.VisionInvoked = false
 		res.Elements = flat
 		return res, nil
+	}
+
+	image, err := base64.StdEncoding.DecodeString(shot.ImageBase64)
+	if err != nil {
+		return nil, fmt.Errorf("fusion: decode screenshot image: %w", err)
+	}
+	if len(image) == 0 {
+		return nil, errors.New("fusion: screenshot envelope carries empty image")
 	}
 
 	if e.det == nil {

@@ -6,6 +6,7 @@ import (
 	"github.com/aura/controller/internal/orchestrator"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/selection"
 	"github.com/aura/controller/internal/storage"
 	"github.com/aura/controller/internal/store"
 )
@@ -43,6 +44,9 @@ type ConsoleServiceServer struct {
 	// 读面。经 SetAgentObs 装配期注入——与 NodeControlServer 共享同一实例（内存兜底模式下写读须同缓冲）。
 	// nil（裸构造单测/未注入）时三 handler 返回空/Unavailable，不 panic。
 	agentObs *store.AgentObs
+
+	// Jev 视觉与快速选择引擎（GetVisionSettings/UpdateVisionSettings/TestVisionSettings/LocateElement/ClickElement）。
+	selector *selection.SelectorEngine
 }
 
 // NewConsoleServiceServer 构造管理台服务。pg 可为 nil（纯内存运行）、minio 可为 nil（未配置 MinIO 时
@@ -78,4 +82,14 @@ func (s *ConsoleServiceServer) SetLeaseStore(ls store.LeaseStore) {
 // 传入同一实例——内存兜底模式下写（收帧）读（console）共享同一环形缓冲，PG 模式下两实例读写同库亦可。
 func (s *ConsoleServiceServer) SetAgentObs(ao *store.AgentObs) {
 	s.agentObs = ao
+}
+
+// SetSelectorEngine 注入 Jev 快速选择与视觉配置引擎（装配期一次性调用）。
+func (s *ConsoleServiceServer) SetSelectorEngine(se *selection.SelectorEngine) {
+	s.selector = se
+}
+
+// SelectorEngine 返回已装配的 Jev 快速选择引擎（供 MCP 网关同源共享）。
+func (s *ConsoleServiceServer) SelectorEngine() *selection.SelectorEngine {
+	return s.selector
 }

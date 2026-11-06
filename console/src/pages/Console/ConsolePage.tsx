@@ -4,7 +4,9 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   Alert,
   Badge,
+  Button,
   Card,
+  Checkbox,
   Col,
   Empty,
   Input,
@@ -17,14 +19,17 @@ import {
   Typography,
   message,
 } from "antd";
+import { AimOutlined, SettingOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { adminClient } from "../../api/transport";
+import { adminClient, consoleClient } from "../../api/transport";
 import type { NodeInfo } from "../../gen/aura/v1/node_pb";
+import type { LocateElementResponse, VisionSettings } from "../../gen/aura/v1/console_pb";
 import { canvasClickToDisplay, decodeEnvelope, encodeToolArgs, envError } from "./screenCanvas";
 import { usePollingRenderer } from "./displaySurface";
 import type { DisplayMode, DisplaySurfaceState } from "./displaySurface";
 import { tangoDefaultSerial, useTangoRenderer } from "./tangoRenderer";
 import { SelkiesLaunch } from "./selkiesLaunch";
+import { VisionSettingsDrawer } from "./VisionSettingsDrawer";
 import { nodeOptionLabel } from "../../nodeDisplay";
 
 // 调用方审计标识（DispatchTool who 字段）。
@@ -35,6 +40,8 @@ const MIN_INTERVAL_S = 1;
 const MAX_INTERVAL_S = 10;
 // 交互工具 deadline（bigint，proto int64）：控慢节点（risk-2）。截图 deadline 随 PollingRenderer 迁至 displaySurface.ts。
 const ACTION_DEADLINE_MS = 8000n;
+// Jev 元素定位/点击 deadline（含按需截图 + GPU/Cloud 视觉推理）。
+const JEV_DEADLINE_MS = 25000n;
 // 在线节点列表刷新周期（节点上下线近实时反映到选择器）。
 const NODE_REFRESH_MS = 8000;
 // 交互所依赖的工具名（剔除工具防御：node.tools 缺失即禁用对应交互）。
@@ -96,13 +103,25 @@ function useOnlineNodes(refreshMs = NODE_REFRESH_MS): OnlineNodesState {
   return { nodes, error };
 }
 
-// 节点选择器文案：共享口径（nodeDisplay.ts——hostname 主名 + OS/attached 区分维；此前本页只显
-// 「platform · UUID 前 12 位 · 能力数」，多台同平台设备无认知区分，批E 追加反馈修复）。
+function visionModeTag(settings: VisionSettings | null) {
+  if (!settings) {
+    return <Tag>视觉配置加载中</Tag>;
+  }
+  if (settings.mode === "auto") {
+    return <Tag color="success">Jev 本地优先 (auto · {settings.model || "jev-latest"})</Tag>;
+  }
+  if (settings.mode === "local") {
+    return <Tag color="processing">Jev 本地 k3s GPU ({settings.model || "jev-latest"})</Tag>;
+  }
+  if (settings.mode === "cloud") {
+    return <Tag color="purple">Jev 云端 API ({settings.model || "jev-latest"})</Tag>;
+  }
+  return <Tag color="default">仅原生 A11y (视觉关闭)</Tag>;
+}
 
 /**
  * 设备操作台页（首个交互式 vertical slice）：选在线节点 → 截图轮询画布（对抗 G 队列跳帧）→
- * 画布点击透传 click（XGA 坐标）+ 输入框透传 type。画面渲染经 DisplaySurface 接缝抽象
- * （PollingRenderer 现状实现，TASK-003 挂 Tango StreamRenderer）。
+ * 画布点击透传 click（XGA 坐标）+ 输入框透传 type + Jev 视觉快速定位与一步点击。
  */
 export function ConsolePage() {
   const { nodes, error: nodesError } = useOnlineNodes();
@@ -123,6 +142,36 @@ export function ConsolePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [msgApi, msgCtx] = message.useMessage();
 
+  // Jev 视觉设置与快速元素选择状态
+  const [visionDrawerOpen, setVisionDrawerOpen] = useState(false);
+  const [visionSettings, setVisionSettings] = useState<VisionSettings | null>(null);
+  const [targetQuery, setTargetQuery] = useState("");
+  const [forceVision, setForceVision] = useState(false);
+  const [jevBusy, setJevBusy] = useState(false);
+  const [located, setLocated] = useState<LocateElementResponse | null>(null);
+  const [lastClickInfo, setLastClickInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    consoleClient
+      .getVisionSettings({}, { signal: ac.signal })
+      .then((resp) => {
+        if (resp.settings) {
+          setVisionSettings(resp.settings);
+        }
+      })
+      .catch(() => {
+        // 静默降级：不影响控制台基础功能
+      });
+    return () => ac.abort();
+  }, []);
+
+  // 切换节点时清空上一次元素定位框
+  useEffect(() => {
+    setLocated(null);
+    setLastClickInfo(null);
+  }, [nodeId]);
+
   // 选中节点对象（能力子集用于剔除工具防御）。节点下线离开在线列表时 selected=null → 轮询与交互自动停。
   const selected = nodes.find((n) => n.nodeId === nodeId) ?? null;
   const offlineSelected = nodeId !== null && selected === null && nodes.length > 0;
@@ -134,8 +183,6 @@ export function ConsolePage() {
   const isAndroid = selected !== null && selected.platform.toLowerCase().startsWith("android");
 
   // —— DisplaySurface 渲染接缝（devil F8）：polling=截图轮询（现状）；stream=Tango WebCodecs 实时流（TASK-003）——
-  // 两渲染器 hook 恒调用（rules-of-hooks），经 enabled 门控活跃性；选出的 surface 是同一 DisplaySurfaceState
-  // 契约（busy/error/live/frameRef），故下方画布/点击/输入路径零改（TASK-002 零 churn 契约）。
   const [displayMode, setDisplayMode] = useState<DisplayMode>("polling");
   // 非 android 节点强制回 polling（stream 仅 android 可用），避免切 stream 后选中非流节点空转。
   const effectiveMode: DisplayMode = isAndroid ? displayMode : "polling";
@@ -194,7 +241,7 @@ export function ConsolePage() {
         return;
       }
       const [cx, cy] = canvasClickToDisplay(canvas, e.clientX, e.clientY, frame);
-      void dispatchAction(T_CLICK, { coordinate: [cx, cy] }, `点击 [${cx},${cy}]`);
+      void dispatchAction(T_CLICK, { coordinate: [cx, cy], coord_space: "display" }, `点击 [${cx},${cy}]`);
     },
     [canClick, frameRef, dispatchAction],
   );
@@ -206,6 +253,104 @@ export function ConsolePage() {
     }
     void dispatchAction(T_TYPE, { text: typeText }, `输入 "${typeText.slice(0, 20)}"`);
   }, [canType, typeText, dispatchAction]);
+
+  // Jev 快速元素定位（LocateElement）
+  const onLocateElement = useCallback(async () => {
+    const q = targetQuery.trim();
+    if (!nodeId || !q) {
+      return;
+    }
+    setJevBusy(true);
+    setLastClickInfo(null);
+    try {
+      const resp = await consoleClient.locateElement({
+        nodeId,
+        target: q,
+        forceVision,
+        deadlineMs: JEV_DEADLINE_MS,
+        who: WHO,
+      });
+      setLocated(resp);
+      if (resp.found) {
+        msgApi.success(
+          `已定位 "${q}"（来源: ${resp.source} · 置信度 ${(resp.confidence * 100).toFixed(0)}% · ${Number(resp.latencyMs)} ms）`,
+        );
+      } else {
+        msgApi.warning(`未定位到 "${q}"：${resp.message || resp.status}`);
+      }
+    } catch (err) {
+      msgApi.error(`定位异常：${describeError(err)}`);
+    } finally {
+      setJevBusy(false);
+    }
+  }, [nodeId, targetQuery, forceVision, msgApi]);
+
+  // Jev 一步定位并点击（ClickElement）
+  const onClickElement = useCallback(async () => {
+    const q = targetQuery.trim();
+    if (!nodeId || !q) {
+      return;
+    }
+    setJevBusy(true);
+    setLastClickInfo(null);
+    try {
+      const resp = await consoleClient.clickElement({
+        nodeId,
+        target: q,
+        button: "left",
+        forceVision,
+        verify: false,
+        deadlineMs: JEV_DEADLINE_MS,
+        who: WHO,
+      });
+      if (resp.located) {
+        setLocated(resp.located);
+      }
+      if (resp.clicked) {
+        const pt = resp.located?.clickPoint ?? [];
+        const summary = `已点击 [${pt.join(",")}]（总耗时 ${Number(resp.totalLatencyMs)} ms）`;
+        setLastClickInfo(summary);
+        msgApi.success(`一步点击 "${q}" 成功（${Number(resp.totalLatencyMs)} ms）`);
+      } else {
+        msgApi.warning(`一步点击未执行：${resp.message || resp.status}`);
+      }
+    } catch (err) {
+      msgApi.error(`一步点击异常：${describeError(err)}`);
+    } finally {
+      setJevBusy(false);
+    }
+  }, [nodeId, targetQuery, forceVision, msgApi]);
+
+  // 计算画布上定位框的百分比位置（优先按 displayBounds 对齐 frame.displayW/displayH，兜底按 bounds 对齐 screenW/screenH）
+  const overlayStyle = (() => {
+    if (!located || !located.found) {
+      return null;
+    }
+    const frame = frameRef.current;
+    const db = located.displayBounds;
+    const nb = located.bounds;
+    const refW = frame?.displayW || (located.scale > 0 ? Math.round(located.screenW / located.scale) : located.screenW);
+    const refH = frame?.displayH || (located.scale > 0 ? Math.round(located.screenH / located.scale) : located.screenH);
+    if (db && db.length === 4 && refW > 0 && refH > 0) {
+      const [x, y, w, h] = db;
+      return {
+        left: `${Math.max(0, Math.min(100, (x / refW) * 100))}%`,
+        top: `${Math.max(0, Math.min(100, (y / refH) * 100))}%`,
+        width: `${Math.max(0.5, Math.min(100, (w / refW) * 100))}%`,
+        height: `${Math.max(0.5, Math.min(100, (h / refH) * 100))}%`,
+      };
+    }
+    if (nb && nb.length === 4 && located.screenW > 0 && located.screenH > 0) {
+      const [x, y, w, h] = nb;
+      return {
+        left: `${Math.max(0, Math.min(100, (x / located.screenW) * 100))}%`,
+        top: `${Math.max(0, Math.min(100, (y / located.screenH) * 100))}%`,
+        width: `${Math.max(0.5, Math.min(100, (w / located.screenW) * 100))}%`,
+        height: `${Math.max(0.5, Math.min(100, (h / located.screenH) * 100))}%`,
+      };
+    }
+    return null;
+  })();
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -233,7 +378,11 @@ export function ConsolePage() {
             </Space>
           </Col>
           <Col>
-            <Space>
+            <Space wrap>
+              {visionModeTag(visionSettings)}
+              <Button icon={<SettingOutlined />} onClick={() => setVisionDrawerOpen(true)}>
+                Jev 视觉配置
+              </Button>
               <Typography.Text type="secondary">轮询间隔</Typography.Text>
               <InputNumber
                 min={MIN_INTERVAL_S}
@@ -260,6 +409,109 @@ export function ConsolePage() {
           description="能力子集不含截图工具，无法轮询画布。"
         />
       ) : null}
+
+      <Card
+        size="small"
+        title={
+          <Space>
+            <AimOutlined />
+            <span>Jev 快速元素定位与一步点击</span>
+            <Typography.Text type="secondary" style={{ fontWeight: "normal", fontSize: 12 }}>
+              （Tier 0 A11y → Tier 1 k3s GPU YOLO → Tier 2 Jev Noul/Choice/Box）
+            </Typography.Text>
+          </Space>
+        }
+      >
+        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+          <Row gutter={[12, 8]} align="middle">
+            <Col flex="auto">
+              <Input
+                placeholder={
+                  selected
+                    ? "输入目标元素描述，例如：Settings、搜索框、确定按钮、右上角设置图标"
+                    : "请先选择在线节点"
+                }
+                value={targetQuery}
+                disabled={!selected || jevBusy}
+                onChange={(e) => setTargetQuery(e.target.value)}
+                onPressEnter={() => void onLocateElement()}
+                allowClear
+              />
+            </Col>
+            <Col>
+              <Space wrap>
+                <Checkbox
+                  checked={forceVision}
+                  disabled={!selected || jevBusy}
+                  onChange={(e) => setForceVision(e.target.checked)}
+                >
+                  强制走视觉 (跳过纯 A11y)
+                </Checkbox>
+                <Button
+                  icon={<AimOutlined />}
+                  disabled={!selected || !targetQuery.trim()}
+                  loading={jevBusy}
+                  onClick={() => void onLocateElement()}
+                >
+                  快速定位
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  disabled={!selected || !canClick || !targetQuery.trim()}
+                  loading={jevBusy}
+                  onClick={() => void onClickElement()}
+                >
+                  一步点击
+                </Button>
+                {located ? (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setLocated(null);
+                      setLastClickInfo(null);
+                    }}
+                  >
+                    清除高亮
+                  </Button>
+                ) : null}
+              </Space>
+            </Col>
+          </Row>
+
+          {located ? (
+            <Alert
+              type={located.found ? "success" : "warning"}
+              showIcon
+              message={
+                <Space wrap>
+                  <Typography.Text strong>
+                    {located.found ? "命中目标元素" : `未命中 (${located.status})`}
+                  </Typography.Text>
+                  <Tag color={located.source === "a11y" ? "green" : "geekblue"}>{located.source || "-"}</Tag>
+                  <Tag color="cyan">置信度 {(located.confidence * 100).toFixed(0)}%</Tag>
+                  <Tag>存在概率 Noul {(located.existenceProb * 100).toFixed(0)}%</Tag>
+                  <Tag color="purple">耗时 {Number(located.latencyMs)} ms</Tag>
+                  {located.bounds.length === 4 ? (
+                    <Typography.Text code>native [{located.bounds.join(", ")}]</Typography.Text>
+                  ) : null}
+                  {located.displayBounds.length === 4 ? (
+                    <Typography.Text code>display [{located.displayBounds.join(", ")}]</Typography.Text>
+                  ) : null}
+                  {located.name || located.caption ? (
+                    <Typography.Text type="secondary">
+                      {located.role ? `[${located.role}] ` : ""}
+                      {located.name || located.caption}
+                    </Typography.Text>
+                  ) : null}
+                  {lastClickInfo ? <Tag color="success">{lastClickInfo}</Tag> : null}
+                </Space>
+              }
+              description={located.message ? located.message : undefined}
+            />
+          ) : null}
+        </Space>
+      </Card>
 
       <Card
         title="设备画面"
@@ -291,18 +543,59 @@ export function ConsolePage() {
         {selected === null ? (
           <Empty description="请选择在线节点开始截图轮询" />
         ) : (
-          <div style={{ position: "relative", width: "100%", background: "#141414", borderRadius: 6, overflow: "hidden" }}>
-            <canvas
-              ref={canvasRef}
-              onClick={onCanvasClick}
-              style={{
-                display: "block",
-                maxWidth: "100%",
-                height: "auto",
-                margin: "0 auto",
-                cursor: canClick ? "crosshair" : "default",
-              }}
-            />
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              background: "#141414",
+              borderRadius: 6,
+              overflow: "hidden",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+              <canvas
+                ref={canvasRef}
+                onClick={onCanvasClick}
+                style={{
+                  display: "block",
+                  maxWidth: "100%",
+                  height: "auto",
+                  cursor: canClick ? "crosshair" : "default",
+                }}
+              />
+              {overlayStyle ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    ...overlayStyle,
+                    border: "2px solid #00e676",
+                    backgroundColor: "rgba(0, 230, 118, 0.18)",
+                    boxShadow: "0 0 10px rgba(0, 230, 118, 0.7)",
+                    pointerEvents: "none",
+                    borderRadius: 3,
+                    zIndex: 5,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -22,
+                      left: 0,
+                      background: "#00c853",
+                      color: "#000",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {located?.source} · {((located?.confidence ?? 0) * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ) : null}
+            </div>
             {!live ? (
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Empty
@@ -343,6 +636,12 @@ export function ConsolePage() {
           {canClick ? "" : "（当前节点不支持 click，已禁用画面点击）"}
         </Typography.Paragraph>
       </Card>
+
+      <VisionSettingsDrawer
+        open={visionDrawerOpen}
+        onClose={() => setVisionDrawerOpen(false)}
+        onSaved={(s) => setVisionSettings(s)}
+      />
     </Space>
   );
 }

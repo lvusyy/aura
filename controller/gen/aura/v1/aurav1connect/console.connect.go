@@ -113,6 +113,21 @@ const (
 	// ConsoleServiceRevokeApiTokenProcedure is the fully-qualified name of the ConsoleService's
 	// RevokeApiToken RPC.
 	ConsoleServiceRevokeApiTokenProcedure = "/aura.v1.ConsoleService/RevokeApiToken"
+	// ConsoleServiceGetVisionSettingsProcedure is the fully-qualified name of the ConsoleService's
+	// GetVisionSettings RPC.
+	ConsoleServiceGetVisionSettingsProcedure = "/aura.v1.ConsoleService/GetVisionSettings"
+	// ConsoleServiceUpdateVisionSettingsProcedure is the fully-qualified name of the ConsoleService's
+	// UpdateVisionSettings RPC.
+	ConsoleServiceUpdateVisionSettingsProcedure = "/aura.v1.ConsoleService/UpdateVisionSettings"
+	// ConsoleServiceTestVisionSettingsProcedure is the fully-qualified name of the ConsoleService's
+	// TestVisionSettings RPC.
+	ConsoleServiceTestVisionSettingsProcedure = "/aura.v1.ConsoleService/TestVisionSettings"
+	// ConsoleServiceLocateElementProcedure is the fully-qualified name of the ConsoleService's
+	// LocateElement RPC.
+	ConsoleServiceLocateElementProcedure = "/aura.v1.ConsoleService/LocateElement"
+	// ConsoleServiceClickElementProcedure is the fully-qualified name of the ConsoleService's
+	// ClickElement RPC.
+	ConsoleServiceClickElementProcedure = "/aura.v1.ConsoleService/ClickElement"
 )
 
 // ConsoleServiceClient is a client for the aura.v1.ConsoleService service.
@@ -189,6 +204,15 @@ type ConsoleServiceClient interface {
 	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
 	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
 	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
+	// ===== Jev 视觉配置与快速元素选择/点击（additive）=====
+	// 支持 Web 控制台动态配置 Jev 视觉模式（disabled | local k3s GPU | cloud API）、测试连通性与延迟，
+	// 并提供毫秒级同步元素定位（LocateElement）与一步点击（ClickElement），消除 SubmitFusion 异步轮询与
+	// 全框 Florence 自回归生成的延迟瓶颈。
+	GetVisionSettings(context.Context, *connect.Request[v1.GetVisionSettingsRequest]) (*connect.Response[v1.GetVisionSettingsResponse], error)
+	UpdateVisionSettings(context.Context, *connect.Request[v1.UpdateVisionSettingsRequest]) (*connect.Response[v1.UpdateVisionSettingsResponse], error)
+	TestVisionSettings(context.Context, *connect.Request[v1.TestVisionSettingsRequest]) (*connect.Response[v1.TestVisionSettingsResponse], error)
+	LocateElement(context.Context, *connect.Request[v1.LocateElementRequest]) (*connect.Response[v1.LocateElementResponse], error)
+	ClickElement(context.Context, *connect.Request[v1.ClickElementRequest]) (*connect.Response[v1.ClickElementResponse], error)
 }
 
 // NewConsoleServiceClient constructs a client for the aura.v1.ConsoleService service. By default,
@@ -364,6 +388,36 @@ func NewConsoleServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(consoleServiceMethods.ByName("RevokeApiToken")),
 			connect.WithClientOptions(opts...),
 		),
+		getVisionSettings: connect.NewClient[v1.GetVisionSettingsRequest, v1.GetVisionSettingsResponse](
+			httpClient,
+			baseURL+ConsoleServiceGetVisionSettingsProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("GetVisionSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		updateVisionSettings: connect.NewClient[v1.UpdateVisionSettingsRequest, v1.UpdateVisionSettingsResponse](
+			httpClient,
+			baseURL+ConsoleServiceUpdateVisionSettingsProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("UpdateVisionSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		testVisionSettings: connect.NewClient[v1.TestVisionSettingsRequest, v1.TestVisionSettingsResponse](
+			httpClient,
+			baseURL+ConsoleServiceTestVisionSettingsProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("TestVisionSettings")),
+			connect.WithClientOptions(opts...),
+		),
+		locateElement: connect.NewClient[v1.LocateElementRequest, v1.LocateElementResponse](
+			httpClient,
+			baseURL+ConsoleServiceLocateElementProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("LocateElement")),
+			connect.WithClientOptions(opts...),
+		),
+		clickElement: connect.NewClient[v1.ClickElementRequest, v1.ClickElementResponse](
+			httpClient,
+			baseURL+ConsoleServiceClickElementProcedure,
+			connect.WithSchema(consoleServiceMethods.ByName("ClickElement")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -396,6 +450,11 @@ type consoleServiceClient struct {
 	createApiToken        *connect.Client[v1.CreateApiTokenRequest, v1.CreateApiTokenResponse]
 	listApiTokens         *connect.Client[v1.ListApiTokensRequest, v1.ListApiTokensResponse]
 	revokeApiToken        *connect.Client[v1.RevokeApiTokenRequest, v1.RevokeApiTokenResponse]
+	getVisionSettings     *connect.Client[v1.GetVisionSettingsRequest, v1.GetVisionSettingsResponse]
+	updateVisionSettings  *connect.Client[v1.UpdateVisionSettingsRequest, v1.UpdateVisionSettingsResponse]
+	testVisionSettings    *connect.Client[v1.TestVisionSettingsRequest, v1.TestVisionSettingsResponse]
+	locateElement         *connect.Client[v1.LocateElementRequest, v1.LocateElementResponse]
+	clickElement          *connect.Client[v1.ClickElementRequest, v1.ClickElementResponse]
 }
 
 // GetDashboard calls aura.v1.ConsoleService.GetDashboard.
@@ -533,6 +592,31 @@ func (c *consoleServiceClient) RevokeApiToken(ctx context.Context, req *connect.
 	return c.revokeApiToken.CallUnary(ctx, req)
 }
 
+// GetVisionSettings calls aura.v1.ConsoleService.GetVisionSettings.
+func (c *consoleServiceClient) GetVisionSettings(ctx context.Context, req *connect.Request[v1.GetVisionSettingsRequest]) (*connect.Response[v1.GetVisionSettingsResponse], error) {
+	return c.getVisionSettings.CallUnary(ctx, req)
+}
+
+// UpdateVisionSettings calls aura.v1.ConsoleService.UpdateVisionSettings.
+func (c *consoleServiceClient) UpdateVisionSettings(ctx context.Context, req *connect.Request[v1.UpdateVisionSettingsRequest]) (*connect.Response[v1.UpdateVisionSettingsResponse], error) {
+	return c.updateVisionSettings.CallUnary(ctx, req)
+}
+
+// TestVisionSettings calls aura.v1.ConsoleService.TestVisionSettings.
+func (c *consoleServiceClient) TestVisionSettings(ctx context.Context, req *connect.Request[v1.TestVisionSettingsRequest]) (*connect.Response[v1.TestVisionSettingsResponse], error) {
+	return c.testVisionSettings.CallUnary(ctx, req)
+}
+
+// LocateElement calls aura.v1.ConsoleService.LocateElement.
+func (c *consoleServiceClient) LocateElement(ctx context.Context, req *connect.Request[v1.LocateElementRequest]) (*connect.Response[v1.LocateElementResponse], error) {
+	return c.locateElement.CallUnary(ctx, req)
+}
+
+// ClickElement calls aura.v1.ConsoleService.ClickElement.
+func (c *consoleServiceClient) ClickElement(ctx context.Context, req *connect.Request[v1.ClickElementRequest]) (*connect.Response[v1.ClickElementResponse], error) {
+	return c.clickElement.CallUnary(ctx, req)
+}
+
 // ConsoleServiceHandler is an implementation of the aura.v1.ConsoleService service.
 type ConsoleServiceHandler interface {
 	// 聚合摘要：舰队 / 任务 / 编排 / 录制的计数总览（Dashboard 首屏一次拉取）。
@@ -607,6 +691,15 @@ type ConsoleServiceHandler interface {
 	CreateApiToken(context.Context, *connect.Request[v1.CreateApiTokenRequest]) (*connect.Response[v1.CreateApiTokenResponse], error)
 	ListApiTokens(context.Context, *connect.Request[v1.ListApiTokensRequest]) (*connect.Response[v1.ListApiTokensResponse], error)
 	RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error)
+	// ===== Jev 视觉配置与快速元素选择/点击（additive）=====
+	// 支持 Web 控制台动态配置 Jev 视觉模式（disabled | local k3s GPU | cloud API）、测试连通性与延迟，
+	// 并提供毫秒级同步元素定位（LocateElement）与一步点击（ClickElement），消除 SubmitFusion 异步轮询与
+	// 全框 Florence 自回归生成的延迟瓶颈。
+	GetVisionSettings(context.Context, *connect.Request[v1.GetVisionSettingsRequest]) (*connect.Response[v1.GetVisionSettingsResponse], error)
+	UpdateVisionSettings(context.Context, *connect.Request[v1.UpdateVisionSettingsRequest]) (*connect.Response[v1.UpdateVisionSettingsResponse], error)
+	TestVisionSettings(context.Context, *connect.Request[v1.TestVisionSettingsRequest]) (*connect.Response[v1.TestVisionSettingsResponse], error)
+	LocateElement(context.Context, *connect.Request[v1.LocateElementRequest]) (*connect.Response[v1.LocateElementResponse], error)
+	ClickElement(context.Context, *connect.Request[v1.ClickElementRequest]) (*connect.Response[v1.ClickElementResponse], error)
 }
 
 // NewConsoleServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -778,6 +871,36 @@ func NewConsoleServiceHandler(svc ConsoleServiceHandler, opts ...connect.Handler
 		connect.WithSchema(consoleServiceMethods.ByName("RevokeApiToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	consoleServiceGetVisionSettingsHandler := connect.NewUnaryHandler(
+		ConsoleServiceGetVisionSettingsProcedure,
+		svc.GetVisionSettings,
+		connect.WithSchema(consoleServiceMethods.ByName("GetVisionSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceUpdateVisionSettingsHandler := connect.NewUnaryHandler(
+		ConsoleServiceUpdateVisionSettingsProcedure,
+		svc.UpdateVisionSettings,
+		connect.WithSchema(consoleServiceMethods.ByName("UpdateVisionSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceTestVisionSettingsHandler := connect.NewUnaryHandler(
+		ConsoleServiceTestVisionSettingsProcedure,
+		svc.TestVisionSettings,
+		connect.WithSchema(consoleServiceMethods.ByName("TestVisionSettings")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceLocateElementHandler := connect.NewUnaryHandler(
+		ConsoleServiceLocateElementProcedure,
+		svc.LocateElement,
+		connect.WithSchema(consoleServiceMethods.ByName("LocateElement")),
+		connect.WithHandlerOptions(opts...),
+	)
+	consoleServiceClickElementHandler := connect.NewUnaryHandler(
+		ConsoleServiceClickElementProcedure,
+		svc.ClickElement,
+		connect.WithSchema(consoleServiceMethods.ByName("ClickElement")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/aura.v1.ConsoleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ConsoleServiceGetDashboardProcedure:
@@ -834,6 +957,16 @@ func NewConsoleServiceHandler(svc ConsoleServiceHandler, opts ...connect.Handler
 			consoleServiceListApiTokensHandler.ServeHTTP(w, r)
 		case ConsoleServiceRevokeApiTokenProcedure:
 			consoleServiceRevokeApiTokenHandler.ServeHTTP(w, r)
+		case ConsoleServiceGetVisionSettingsProcedure:
+			consoleServiceGetVisionSettingsHandler.ServeHTTP(w, r)
+		case ConsoleServiceUpdateVisionSettingsProcedure:
+			consoleServiceUpdateVisionSettingsHandler.ServeHTTP(w, r)
+		case ConsoleServiceTestVisionSettingsProcedure:
+			consoleServiceTestVisionSettingsHandler.ServeHTTP(w, r)
+		case ConsoleServiceLocateElementProcedure:
+			consoleServiceLocateElementHandler.ServeHTTP(w, r)
+		case ConsoleServiceClickElementProcedure:
+			consoleServiceClickElementHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -949,4 +1082,24 @@ func (UnimplementedConsoleServiceHandler) ListApiTokens(context.Context, *connec
 
 func (UnimplementedConsoleServiceHandler) RevokeApiToken(context.Context, *connect.Request[v1.RevokeApiTokenRequest]) (*connect.Response[v1.RevokeApiTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.RevokeApiToken is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) GetVisionSettings(context.Context, *connect.Request[v1.GetVisionSettingsRequest]) (*connect.Response[v1.GetVisionSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.GetVisionSettings is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) UpdateVisionSettings(context.Context, *connect.Request[v1.UpdateVisionSettingsRequest]) (*connect.Response[v1.UpdateVisionSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.UpdateVisionSettings is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) TestVisionSettings(context.Context, *connect.Request[v1.TestVisionSettingsRequest]) (*connect.Response[v1.TestVisionSettingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.TestVisionSettings is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) LocateElement(context.Context, *connect.Request[v1.LocateElementRequest]) (*connect.Response[v1.LocateElementResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.LocateElement is not implemented"))
+}
+
+func (UnimplementedConsoleServiceHandler) ClickElement(context.Context, *connect.Request[v1.ClickElementRequest]) (*connect.Response[v1.ClickElementResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("aura.v1.ConsoleService.ClickElement is not implemented"))
 }

@@ -87,6 +87,16 @@ service ConsoleService {
   rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse);
   rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse);
   rpc RevokeApiToken(RevokeApiTokenRequest) returns (RevokeApiTokenResponse);
+
+  // ===== Jev 视觉配置与快速元素选择/点击（additive）=====
+  // 支持 Web 控制台动态配置 Jev 视觉模式（disabled | local k3s GPU | cloud API）、测试连通性与延迟，
+  // 并提供毫秒级同步元素定位（LocateElement）与一步点击（ClickElement），消除 SubmitFusion 异步轮询与
+  // 全框 Florence 自回归生成的延迟瓶颈。
+  rpc GetVisionSettings(GetVisionSettingsRequest) returns (GetVisionSettingsResponse);
+  rpc UpdateVisionSettings(UpdateVisionSettingsRequest) returns (UpdateVisionSettingsResponse);
+  rpc TestVisionSettings(TestVisionSettingsRequest) returns (TestVisionSettingsResponse);
+  rpc LocateElement(LocateElementRequest) returns (LocateElementResponse);
+  rpc ClickElement(ClickElementRequest) returns (ClickElementResponse);
 }
 
 // ===== Dashboard 聚合摘要 =====
@@ -307,7 +317,8 @@ message GetFusionResultResponse {
 }
 
 // 融合后的单个元素（a11y 与 vision 两源合并的统一表示）。bounds 为 native 像素 [x,y,w,h]（同 A11yNode.bounds
-// 制，回 DispatchTool 操作零改）。
+// 制；传给 click/scroll/drag/move_mouse 时须指定 coord_space="native" 或改用 ClickElement / LocateElement.display_click_point，
+// 避免在 scale!=1.0 时被按 display 坐标二次乘 scale）。
 message FusedElement {
   string source = 1;          // a11y | vision（元素来源）
   repeated int32 bounds = 2;  // native 像素边界框 [x,y,w,h]
@@ -625,4 +636,103 @@ message RevokeApiTokenRequest {
 
 message RevokeApiTokenResponse {
   bool revoked = 1;            // 是否成功吊销（不存在/已吊销则 false）
+}
+
+// ===== Jev 视觉配置与快速元素选择/点击（additive）=====
+
+message VisionSettings {
+  string mode = 1;             // disabled | local | cloud（默认 local）
+  string local_endpoint = 2;   // 本地 k3s GPU 推理端点（如 http://192.168.22.225:30808）
+  string cloud_endpoint = 3;   // 云端 Jev API 端点（如 https://api.typesafe.ai/v1/systemone）
+  string model = 4;            // 模型标识（如 jev-latest 或 jev-local-florence2-yolo）
+  string caption_mode = 5;     // none | florence（默认 none，跳过全框 Florence 自回归生成）
+  double noul_threshold = 6;   // 存在性门控阈值 [0,1]（默认 0.50）
+  bool enable_box = 7;         // 是否启用 Jev Box 直接视觉框兜底（默认 true）
+  bool has_api_key = 8;        // 是否已配置云端 API 令牌（明文永不回传前端）
+  string api_key_hint = 9;     // 已存云端 API 令牌脱敏前缀提示（如 ts_ab12…）
+  int64 revision = 10;         // 乐观并发版本号（更新时携带防覆盖）
+  int64 updated_ms = 11;       // 最近更新时刻（毫秒）
+}
+
+message GetVisionSettingsRequest {}
+
+message GetVisionSettingsResponse {
+  VisionSettings settings = 1;
+}
+
+message UpdateVisionSettingsRequest {
+  VisionSettings settings = 1;
+  string api_key_action = 2;   // keep（默认，保持原令牌不变）| set（写入 new_api_key）| clear（清空令牌）
+  string new_api_key = 3;      // 当 api_key_action="set" 时写入的新云端 API 令牌
+}
+
+message UpdateVisionSettingsResponse {
+  VisionSettings settings = 1;
+}
+
+message TestVisionSettingsRequest {
+  VisionSettings settings = 1; // 待测试的草稿配置（无需先保存）
+  string api_key_action = 2;   // keep（复用已存令牌）| set（测试 new_api_key）| clear
+  string new_api_key = 3;
+}
+
+message TestVisionSettingsResponse {
+  bool ok = 1;
+  string mode = 2;
+  string endpoint = 3;
+  string device = 4;           // 如 cuda / cpu / cloud
+  string model = 5;            // 实测响应的模型名
+  repeated string capabilities = 6; // 支持的原语列表（如 detect, noul, choice, score, box）
+  int64 latency_ms = 7;        // 探测往返时延（毫秒）
+  string message = 8;          // 诊断详情或错误原因
+}
+
+message LocateElementRequest {
+  string node_id = 1;          // 目标节点 ID
+  string target = 2;           // 目标元素自然语言描述（如 "Submit button"、"设置图标"、"搜索输入框"）
+  bool force_vision = 3;       // 强制走视觉推理（跳过 Tier 0 纯 A11y 短路）
+  int64 deadline_ms = 4;       // 超时毫秒（0=服务端默认 25000ms）
+  string who = 5;              // 调用方标识（审计）
+}
+
+message LocateElementResponse {
+  bool found = 1;              // 是否定位到目标元素
+  string status = 2;           // matched | not_found | low_confidence | vision_disabled
+  string source = 3;           // a11y | vision_jev | vision_local | vision_heuristic
+  repeated int32 bounds = 4;   // 原生像素边界框 [x,y,w,h]（native 空间）
+  repeated int32 display_bounds = 5; // 截图显示像素边界框 [x,y,w,h]（display 空间，前端画布/截图直接对齐）
+  repeated int32 click_point = 6; // 原生像素中心点击点 [x,y]（native 空间，配 coord_space="native"）
+  repeated int32 display_click_point = 7; // 截图显示像素中心点击点 [x,y]（display 空间，直接传 click 缺省模式）
+  string role = 8;
+  string name = 9;
+  string caption = 10;
+  double existence_prob = 11;  // Jev Noul 存在概率 [0,1]
+  double selection_prob = 12;  // Jev Choice/Box 选择概率 [0,1]
+  double confidence = 13;      // 综合置信度 [0,1]
+  int32 screen_w = 14;         // 原生屏宽（native_w）
+  int32 screen_h = 15;         // 原生屏高（native_h）
+  double scale = 16;           // display -> native 缩放系数
+  string snapshot_id = 17;     // 关联的截图几何快照 ID
+  int64 latency_ms = 18;       // 定位总耗时（毫秒）
+  repeated FusedElement candidates = 19; // 候选元素集（供调试或前端叠加展示）
+  string message = 20;         // 诊断或未命中说明
+}
+
+message ClickElementRequest {
+  string node_id = 1;          // 目标节点 ID
+  string target = 2;           // 目标元素自然语言描述
+  string button = 3;           // left（默认）| right | middle
+  bool force_vision = 4;       // 强制走视觉推理
+  bool verify = 5;             // 点击后是否采集校验状态变化
+  int64 deadline_ms = 6;       // 超时毫秒（0=服务端默认 30000ms）
+  string who = 7;              // 调用方标识（审计）
+}
+
+message ClickElementResponse {
+  LocateElementResponse located = 1; // 定位详情
+  bool clicked = 2;            // 是否已成功派发并完成点击
+  bool verified = 3;           // 若请求 verify=true，点击后界面/焦点是否发生预期响应
+  string status = 4;           // clicked | not_found | low_confidence | click_failed
+  int64 total_latency_ms = 5;  // 定位 + 点击总耗时（毫秒）
+  string message = 6;          // 诊断说明
 }

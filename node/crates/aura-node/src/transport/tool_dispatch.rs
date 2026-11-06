@@ -108,9 +108,9 @@ async fn dispatch_screenshot(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     // gRPC 面无 image 双份 base64，护栏恒取 json 档上限（image_mode=false）。
     let opts = super::screen_tools::clamp_opts(p.quality, p.max_dim, false);
     let env = tools.guard(tools.driver.screenshot(Some(display), opts)).await;
-    // 成功后记录本次 display→native 缩放系数，供 input 域坐标回映射；失败信封无 data 时保持既有 scale。
+    // 成功后记录本次 display→native 缩放系数与几何快照，供 input 域坐标回映射；失败信封无 data 时保持既有 scale。
     if let Some(result) = env.data.as_ref() {
-        tools.set_scale(result.meta.scale);
+        let _ = tools.record_snapshot(display, &result.meta);
     }
     encode(&env)
 }
@@ -144,10 +144,15 @@ async fn dispatch_switch_display(tools: &AuraTools, json_args: &[u8]) -> Vec<u8>
 
 // ===== input 域（7）=====
 
-/// click：coordinate 经 to_native 按当前 scale 由 display 空间回映射到原生像素。
+/// click：coordinate 经 resolve_coord 按 scale 由 display 空间回映射到原生像素（或 coord_space="native" 直通）。
 async fn dispatch_click(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let p: ClickParams = parse_or_return!(json_args);
-    let at = tools.to_native(p.coordinate[0], p.coordinate[1]);
+    let at = tools.resolve_coord(
+        p.coordinate[0],
+        p.coordinate[1],
+        p.coord_space.as_deref(),
+        p.snapshot_id.as_deref(),
+    );
     let button = match p.button.as_deref() {
         Some("right") => MouseButton::Right,
         Some("middle") => MouseButton::Middle,
@@ -168,7 +173,12 @@ async fn dispatch_key(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
 
 async fn dispatch_scroll(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let p: ScrollParams = parse_or_return!(json_args);
-    let at = tools.to_native(p.coordinate[0], p.coordinate[1]);
+    let at = tools.resolve_coord(
+        p.coordinate[0],
+        p.coordinate[1],
+        p.coord_space.as_deref(),
+        p.snapshot_id.as_deref(),
+    );
     let direction = match p.scroll_direction.as_deref() {
         Some("up") => ScrollDirection::Up,
         Some("left") => ScrollDirection::Left,
@@ -181,14 +191,29 @@ async fn dispatch_scroll(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
 
 async fn dispatch_drag(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let p: DragParams = parse_or_return!(json_args);
-    let from = tools.to_native(p.from[0], p.from[1]);
-    let to = tools.to_native(p.to[0], p.to[1]);
+    let from = tools.resolve_coord(
+        p.from[0],
+        p.from[1],
+        p.coord_space.as_deref(),
+        p.snapshot_id.as_deref(),
+    );
+    let to = tools.resolve_coord(
+        p.to[0],
+        p.to[1],
+        p.coord_space.as_deref(),
+        p.snapshot_id.as_deref(),
+    );
     encode(&tools.guard(tools.driver.drag(from, to)).await)
 }
 
 async fn dispatch_move_mouse(tools: &AuraTools, json_args: &[u8]) -> Vec<u8> {
     let p: MoveMouseParams = parse_or_return!(json_args);
-    let to = tools.to_native(p.coordinate[0], p.coordinate[1]);
+    let to = tools.resolve_coord(
+        p.coordinate[0],
+        p.coordinate[1],
+        p.coord_space.as_deref(),
+        p.snapshot_id.as_deref(),
+    );
     encode(&tools.guard(tools.driver.move_mouse(to)).await)
 }
 

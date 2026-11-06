@@ -153,10 +153,10 @@ impl AuraTools {
         let image_mode = is_image_output(p.output.as_deref());
         let opts = clamp_opts(p.quality, p.max_dim, image_mode);
         let env = self.guard(self.driver.screenshot(Some(display), opts)).await;
-        // 记录本次 display→native 缩放系数，供 input 域坐标回映射；
+        // 记录本次 display→native 缩放系数与几何快照，供 input 域坐标回映射；
         // 失败信封无 data 时保持既有 scale（不污染后续坐标映射）。
         if let Some(result) = env.data.as_ref() {
-            self.set_scale(result.meta.scale);
+            let _ = self.record_snapshot(display, &result.meta);
         }
         envelope_to_result(&env, image_mode)
     }

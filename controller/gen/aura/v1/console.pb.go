@@ -1767,7 +1767,8 @@ func (x *GetFusionResultResponse) GetScreenH() int32 {
 }
 
 // 融合后的单个元素（a11y 与 vision 两源合并的统一表示）。bounds 为 native 像素 [x,y,w,h]（同 A11yNode.bounds
-// 制，回 DispatchTool 操作零改）。
+// 制；传给 click/scroll/drag/move_mouse 时须指定 coord_space="native" 或改用 ClickElement / LocateElement.display_click_point，
+// 避免在 scale!=1.0 时被按 display 坐标二次乘 scale）。
 type FusedElement struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`           // a11y | vision（元素来源）
@@ -4187,6 +4188,922 @@ func (x *RevokeApiTokenResponse) GetRevoked() bool {
 	return false
 }
 
+type VisionSettings struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mode          string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`                                          // disabled | local | cloud（默认 local）
+	LocalEndpoint string                 `protobuf:"bytes,2,opt,name=local_endpoint,json=localEndpoint,proto3" json:"local_endpoint,omitempty"`   // 本地 k3s GPU 推理端点（如 http://192.168.22.225:30808）
+	CloudEndpoint string                 `protobuf:"bytes,3,opt,name=cloud_endpoint,json=cloudEndpoint,proto3" json:"cloud_endpoint,omitempty"`   // 云端 Jev API 端点（如 https://api.typesafe.ai/v1/systemone）
+	Model         string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`                                        // 模型标识（如 jev-latest 或 jev-local-florence2-yolo）
+	CaptionMode   string                 `protobuf:"bytes,5,opt,name=caption_mode,json=captionMode,proto3" json:"caption_mode,omitempty"`         // none | florence（默认 none，跳过全框 Florence 自回归生成）
+	NoulThreshold float64                `protobuf:"fixed64,6,opt,name=noul_threshold,json=noulThreshold,proto3" json:"noul_threshold,omitempty"` // 存在性门控阈值 [0,1]（默认 0.50）
+	EnableBox     bool                   `protobuf:"varint,7,opt,name=enable_box,json=enableBox,proto3" json:"enable_box,omitempty"`              // 是否启用 Jev Box 直接视觉框兜底（默认 true）
+	HasApiKey     bool                   `protobuf:"varint,8,opt,name=has_api_key,json=hasApiKey,proto3" json:"has_api_key,omitempty"`            // 是否已配置云端 API 令牌（明文永不回传前端）
+	ApiKeyHint    string                 `protobuf:"bytes,9,opt,name=api_key_hint,json=apiKeyHint,proto3" json:"api_key_hint,omitempty"`          // 已存云端 API 令牌脱敏前缀提示（如 ts_ab12…）
+	Revision      int64                  `protobuf:"varint,10,opt,name=revision,proto3" json:"revision,omitempty"`                                // 乐观并发版本号（更新时携带防覆盖）
+	UpdatedMs     int64                  `protobuf:"varint,11,opt,name=updated_ms,json=updatedMs,proto3" json:"updated_ms,omitempty"`             // 最近更新时刻（毫秒）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VisionSettings) Reset() {
+	*x = VisionSettings{}
+	mi := &file_aura_v1_console_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VisionSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VisionSettings) ProtoMessage() {}
+
+func (x *VisionSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VisionSettings.ProtoReflect.Descriptor instead.
+func (*VisionSettings) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *VisionSettings) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetLocalEndpoint() string {
+	if x != nil {
+		return x.LocalEndpoint
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetCloudEndpoint() string {
+	if x != nil {
+		return x.CloudEndpoint
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetCaptionMode() string {
+	if x != nil {
+		return x.CaptionMode
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetNoulThreshold() float64 {
+	if x != nil {
+		return x.NoulThreshold
+	}
+	return 0
+}
+
+func (x *VisionSettings) GetEnableBox() bool {
+	if x != nil {
+		return x.EnableBox
+	}
+	return false
+}
+
+func (x *VisionSettings) GetHasApiKey() bool {
+	if x != nil {
+		return x.HasApiKey
+	}
+	return false
+}
+
+func (x *VisionSettings) GetApiKeyHint() string {
+	if x != nil {
+		return x.ApiKeyHint
+	}
+	return ""
+}
+
+func (x *VisionSettings) GetRevision() int64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *VisionSettings) GetUpdatedMs() int64 {
+	if x != nil {
+		return x.UpdatedMs
+	}
+	return 0
+}
+
+type GetVisionSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetVisionSettingsRequest) Reset() {
+	*x = GetVisionSettingsRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetVisionSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetVisionSettingsRequest) ProtoMessage() {}
+
+func (x *GetVisionSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetVisionSettingsRequest.ProtoReflect.Descriptor instead.
+func (*GetVisionSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{67}
+}
+
+type GetVisionSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *VisionSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetVisionSettingsResponse) Reset() {
+	*x = GetVisionSettingsResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetVisionSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetVisionSettingsResponse) ProtoMessage() {}
+
+func (x *GetVisionSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetVisionSettingsResponse.ProtoReflect.Descriptor instead.
+func (*GetVisionSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *GetVisionSettingsResponse) GetSettings() *VisionSettings {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+type UpdateVisionSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *VisionSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	ApiKeyAction  string                 `protobuf:"bytes,2,opt,name=api_key_action,json=apiKeyAction,proto3" json:"api_key_action,omitempty"` // keep（默认，保持原令牌不变）| set（写入 new_api_key）| clear（清空令牌）
+	NewApiKey     string                 `protobuf:"bytes,3,opt,name=new_api_key,json=newApiKey,proto3" json:"new_api_key,omitempty"`          // 当 api_key_action="set" 时写入的新云端 API 令牌
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateVisionSettingsRequest) Reset() {
+	*x = UpdateVisionSettingsRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateVisionSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateVisionSettingsRequest) ProtoMessage() {}
+
+func (x *UpdateVisionSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateVisionSettingsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateVisionSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *UpdateVisionSettingsRequest) GetSettings() *VisionSettings {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+func (x *UpdateVisionSettingsRequest) GetApiKeyAction() string {
+	if x != nil {
+		return x.ApiKeyAction
+	}
+	return ""
+}
+
+func (x *UpdateVisionSettingsRequest) GetNewApiKey() string {
+	if x != nil {
+		return x.NewApiKey
+	}
+	return ""
+}
+
+type UpdateVisionSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *VisionSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateVisionSettingsResponse) Reset() {
+	*x = UpdateVisionSettingsResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateVisionSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateVisionSettingsResponse) ProtoMessage() {}
+
+func (x *UpdateVisionSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateVisionSettingsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateVisionSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *UpdateVisionSettingsResponse) GetSettings() *VisionSettings {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+type TestVisionSettingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Settings      *VisionSettings        `protobuf:"bytes,1,opt,name=settings,proto3" json:"settings,omitempty"`                               // 待测试的草稿配置（无需先保存）
+	ApiKeyAction  string                 `protobuf:"bytes,2,opt,name=api_key_action,json=apiKeyAction,proto3" json:"api_key_action,omitempty"` // keep（复用已存令牌）| set（测试 new_api_key）| clear
+	NewApiKey     string                 `protobuf:"bytes,3,opt,name=new_api_key,json=newApiKey,proto3" json:"new_api_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestVisionSettingsRequest) Reset() {
+	*x = TestVisionSettingsRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestVisionSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestVisionSettingsRequest) ProtoMessage() {}
+
+func (x *TestVisionSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestVisionSettingsRequest.ProtoReflect.Descriptor instead.
+func (*TestVisionSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *TestVisionSettingsRequest) GetSettings() *VisionSettings {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
+}
+
+func (x *TestVisionSettingsRequest) GetApiKeyAction() string {
+	if x != nil {
+		return x.ApiKeyAction
+	}
+	return ""
+}
+
+func (x *TestVisionSettingsRequest) GetNewApiKey() string {
+	if x != nil {
+		return x.NewApiKey
+	}
+	return ""
+}
+
+type TestVisionSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Mode          string                 `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	Endpoint      string                 `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	Device        string                 `protobuf:"bytes,4,opt,name=device,proto3" json:"device,omitempty"`                         // 如 cuda / cpu / cloud
+	Model         string                 `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`                           // 实测响应的模型名
+	Capabilities  []string               `protobuf:"bytes,6,rep,name=capabilities,proto3" json:"capabilities,omitempty"`             // 支持的原语列表（如 detect, noul, choice, score, box）
+	LatencyMs     int64                  `protobuf:"varint,7,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"` // 探测往返时延（毫秒）
+	Message       string                 `protobuf:"bytes,8,opt,name=message,proto3" json:"message,omitempty"`                       // 诊断详情或错误原因
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestVisionSettingsResponse) Reset() {
+	*x = TestVisionSettingsResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestVisionSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestVisionSettingsResponse) ProtoMessage() {}
+
+func (x *TestVisionSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestVisionSettingsResponse.ProtoReflect.Descriptor instead.
+func (*TestVisionSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *TestVisionSettingsResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *TestVisionSettingsResponse) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *TestVisionSettingsResponse) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *TestVisionSettingsResponse) GetDevice() string {
+	if x != nil {
+		return x.Device
+	}
+	return ""
+}
+
+func (x *TestVisionSettingsResponse) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *TestVisionSettingsResponse) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *TestVisionSettingsResponse) GetLatencyMs() int64 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *TestVisionSettingsResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type LocateElementRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`                 // 目标节点 ID
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`                               // 目标元素自然语言描述（如 "Submit button"、"设置图标"、"搜索输入框"）
+	ForceVision   bool                   `protobuf:"varint,3,opt,name=force_vision,json=forceVision,proto3" json:"force_vision,omitempty"` // 强制走视觉推理（跳过 Tier 0 纯 A11y 短路）
+	DeadlineMs    int64                  `protobuf:"varint,4,opt,name=deadline_ms,json=deadlineMs,proto3" json:"deadline_ms,omitempty"`    // 超时毫秒（0=服务端默认 25000ms）
+	Who           string                 `protobuf:"bytes,5,opt,name=who,proto3" json:"who,omitempty"`                                     // 调用方标识（审计）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocateElementRequest) Reset() {
+	*x = LocateElementRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocateElementRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocateElementRequest) ProtoMessage() {}
+
+func (x *LocateElementRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocateElementRequest.ProtoReflect.Descriptor instead.
+func (*LocateElementRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *LocateElementRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *LocateElementRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *LocateElementRequest) GetForceVision() bool {
+	if x != nil {
+		return x.ForceVision
+	}
+	return false
+}
+
+func (x *LocateElementRequest) GetDeadlineMs() int64 {
+	if x != nil {
+		return x.DeadlineMs
+	}
+	return 0
+}
+
+func (x *LocateElementRequest) GetWho() string {
+	if x != nil {
+		return x.Who
+	}
+	return ""
+}
+
+type LocateElementResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Found             bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`                                                           // 是否定位到目标元素
+	Status            string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`                                                          // matched | not_found | low_confidence | vision_disabled
+	Source            string                 `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`                                                          // a11y | vision_jev | vision_local | vision_heuristic
+	Bounds            []int32                `protobuf:"varint,4,rep,packed,name=bounds,proto3" json:"bounds,omitempty"`                                                  // 原生像素边界框 [x,y,w,h]（native 空间）
+	DisplayBounds     []int32                `protobuf:"varint,5,rep,packed,name=display_bounds,json=displayBounds,proto3" json:"display_bounds,omitempty"`               // 截图显示像素边界框 [x,y,w,h]（display 空间，前端画布/截图直接对齐）
+	ClickPoint        []int32                `protobuf:"varint,6,rep,packed,name=click_point,json=clickPoint,proto3" json:"click_point,omitempty"`                        // 原生像素中心点击点 [x,y]（native 空间，配 coord_space="native"）
+	DisplayClickPoint []int32                `protobuf:"varint,7,rep,packed,name=display_click_point,json=displayClickPoint,proto3" json:"display_click_point,omitempty"` // 截图显示像素中心点击点 [x,y]（display 空间，直接传 click 缺省模式）
+	Role              string                 `protobuf:"bytes,8,opt,name=role,proto3" json:"role,omitempty"`
+	Name              string                 `protobuf:"bytes,9,opt,name=name,proto3" json:"name,omitempty"`
+	Caption           string                 `protobuf:"bytes,10,opt,name=caption,proto3" json:"caption,omitempty"`
+	ExistenceProb     float64                `protobuf:"fixed64,11,opt,name=existence_prob,json=existenceProb,proto3" json:"existence_prob,omitempty"` // Jev Noul 存在概率 [0,1]
+	SelectionProb     float64                `protobuf:"fixed64,12,opt,name=selection_prob,json=selectionProb,proto3" json:"selection_prob,omitempty"` // Jev Choice/Box 选择概率 [0,1]
+	Confidence        float64                `protobuf:"fixed64,13,opt,name=confidence,proto3" json:"confidence,omitempty"`                            // 综合置信度 [0,1]
+	ScreenW           int32                  `protobuf:"varint,14,opt,name=screen_w,json=screenW,proto3" json:"screen_w,omitempty"`                    // 原生屏宽（native_w）
+	ScreenH           int32                  `protobuf:"varint,15,opt,name=screen_h,json=screenH,proto3" json:"screen_h,omitempty"`                    // 原生屏高（native_h）
+	Scale             float64                `protobuf:"fixed64,16,opt,name=scale,proto3" json:"scale,omitempty"`                                      // display -> native 缩放系数
+	SnapshotId        string                 `protobuf:"bytes,17,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`            // 关联的截图几何快照 ID
+	LatencyMs         int64                  `protobuf:"varint,18,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`              // 定位总耗时（毫秒）
+	Candidates        []*FusedElement        `protobuf:"bytes,19,rep,name=candidates,proto3" json:"candidates,omitempty"`                              // 候选元素集（供调试或前端叠加展示）
+	Message           string                 `protobuf:"bytes,20,opt,name=message,proto3" json:"message,omitempty"`                                    // 诊断或未命中说明
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *LocateElementResponse) Reset() {
+	*x = LocateElementResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocateElementResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocateElementResponse) ProtoMessage() {}
+
+func (x *LocateElementResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocateElementResponse.ProtoReflect.Descriptor instead.
+func (*LocateElementResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *LocateElementResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *LocateElementResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetBounds() []int32 {
+	if x != nil {
+		return x.Bounds
+	}
+	return nil
+}
+
+func (x *LocateElementResponse) GetDisplayBounds() []int32 {
+	if x != nil {
+		return x.DisplayBounds
+	}
+	return nil
+}
+
+func (x *LocateElementResponse) GetClickPoint() []int32 {
+	if x != nil {
+		return x.ClickPoint
+	}
+	return nil
+}
+
+func (x *LocateElementResponse) GetDisplayClickPoint() []int32 {
+	if x != nil {
+		return x.DisplayClickPoint
+	}
+	return nil
+}
+
+func (x *LocateElementResponse) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetCaption() string {
+	if x != nil {
+		return x.Caption
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetExistenceProb() float64 {
+	if x != nil {
+		return x.ExistenceProb
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetSelectionProb() float64 {
+	if x != nil {
+		return x.SelectionProb
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetConfidence() float64 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetScreenW() int32 {
+	if x != nil {
+		return x.ScreenW
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetScreenH() int32 {
+	if x != nil {
+		return x.ScreenH
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetScale() float64 {
+	if x != nil {
+		return x.Scale
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *LocateElementResponse) GetLatencyMs() int64 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *LocateElementResponse) GetCandidates() []*FusedElement {
+	if x != nil {
+		return x.Candidates
+	}
+	return nil
+}
+
+func (x *LocateElementResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type ClickElementRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	NodeId        string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`                 // 目标节点 ID
+	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`                               // 目标元素自然语言描述
+	Button        string                 `protobuf:"bytes,3,opt,name=button,proto3" json:"button,omitempty"`                               // left（默认）| right | middle
+	ForceVision   bool                   `protobuf:"varint,4,opt,name=force_vision,json=forceVision,proto3" json:"force_vision,omitempty"` // 强制走视觉推理
+	Verify        bool                   `protobuf:"varint,5,opt,name=verify,proto3" json:"verify,omitempty"`                              // 点击后是否采集校验状态变化
+	DeadlineMs    int64                  `protobuf:"varint,6,opt,name=deadline_ms,json=deadlineMs,proto3" json:"deadline_ms,omitempty"`    // 超时毫秒（0=服务端默认 30000ms）
+	Who           string                 `protobuf:"bytes,7,opt,name=who,proto3" json:"who,omitempty"`                                     // 调用方标识（审计）
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClickElementRequest) Reset() {
+	*x = ClickElementRequest{}
+	mi := &file_aura_v1_console_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClickElementRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClickElementRequest) ProtoMessage() {}
+
+func (x *ClickElementRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClickElementRequest.ProtoReflect.Descriptor instead.
+func (*ClickElementRequest) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{75}
+}
+
+func (x *ClickElementRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *ClickElementRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *ClickElementRequest) GetButton() string {
+	if x != nil {
+		return x.Button
+	}
+	return ""
+}
+
+func (x *ClickElementRequest) GetForceVision() bool {
+	if x != nil {
+		return x.ForceVision
+	}
+	return false
+}
+
+func (x *ClickElementRequest) GetVerify() bool {
+	if x != nil {
+		return x.Verify
+	}
+	return false
+}
+
+func (x *ClickElementRequest) GetDeadlineMs() int64 {
+	if x != nil {
+		return x.DeadlineMs
+	}
+	return 0
+}
+
+func (x *ClickElementRequest) GetWho() string {
+	if x != nil {
+		return x.Who
+	}
+	return ""
+}
+
+type ClickElementResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Located        *LocateElementResponse `protobuf:"bytes,1,opt,name=located,proto3" json:"located,omitempty"`                                        // 定位详情
+	Clicked        bool                   `protobuf:"varint,2,opt,name=clicked,proto3" json:"clicked,omitempty"`                                       // 是否已成功派发并完成点击
+	Verified       bool                   `protobuf:"varint,3,opt,name=verified,proto3" json:"verified,omitempty"`                                     // 若请求 verify=true，点击后界面/焦点是否发生预期响应
+	Status         string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`                                          // clicked | not_found | low_confidence | click_failed
+	TotalLatencyMs int64                  `protobuf:"varint,5,opt,name=total_latency_ms,json=totalLatencyMs,proto3" json:"total_latency_ms,omitempty"` // 定位 + 点击总耗时（毫秒）
+	Message        string                 `protobuf:"bytes,6,opt,name=message,proto3" json:"message,omitempty"`                                        // 诊断说明
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ClickElementResponse) Reset() {
+	*x = ClickElementResponse{}
+	mi := &file_aura_v1_console_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClickElementResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClickElementResponse) ProtoMessage() {}
+
+func (x *ClickElementResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_aura_v1_console_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClickElementResponse.ProtoReflect.Descriptor instead.
+func (*ClickElementResponse) Descriptor() ([]byte, []int) {
+	return file_aura_v1_console_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *ClickElementResponse) GetLocated() *LocateElementResponse {
+	if x != nil {
+		return x.Located
+	}
+	return nil
+}
+
+func (x *ClickElementResponse) GetClicked() bool {
+	if x != nil {
+		return x.Clicked
+	}
+	return false
+}
+
+func (x *ClickElementResponse) GetVerified() bool {
+	if x != nil {
+		return x.Verified
+	}
+	return false
+}
+
+func (x *ClickElementResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ClickElementResponse) GetTotalLatencyMs() int64 {
+	if x != nil {
+		return x.TotalLatencyMs
+	}
+	return 0
+}
+
+func (x *ClickElementResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_aura_v1_console_proto protoreflect.FileDescriptor
 
 const file_aura_v1_console_proto_rawDesc = "" +
@@ -4509,13 +5426,104 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03who\x18\x02 \x01(\tR\x03who\"2\n" +
 	"\x16RevokeApiTokenResponse\x12\x18\n" +
-	"\arevoked\x18\x01 \x01(\bR\arevoked*\xc4\x01\n" +
+	"\arevoked\x18\x01 \x01(\bR\arevoked\"\xee\x02\n" +
+	"\x0eVisionSettings\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12%\n" +
+	"\x0elocal_endpoint\x18\x02 \x01(\tR\rlocalEndpoint\x12%\n" +
+	"\x0ecloud_endpoint\x18\x03 \x01(\tR\rcloudEndpoint\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12!\n" +
+	"\fcaption_mode\x18\x05 \x01(\tR\vcaptionMode\x12%\n" +
+	"\x0enoul_threshold\x18\x06 \x01(\x01R\rnoulThreshold\x12\x1d\n" +
+	"\n" +
+	"enable_box\x18\a \x01(\bR\tenableBox\x12\x1e\n" +
+	"\vhas_api_key\x18\b \x01(\bR\thasApiKey\x12 \n" +
+	"\fapi_key_hint\x18\t \x01(\tR\n" +
+	"apiKeyHint\x12\x1a\n" +
+	"\brevision\x18\n" +
+	" \x01(\x03R\brevision\x12\x1d\n" +
+	"\n" +
+	"updated_ms\x18\v \x01(\x03R\tupdatedMs\"\x1a\n" +
+	"\x18GetVisionSettingsRequest\"P\n" +
+	"\x19GetVisionSettingsResponse\x123\n" +
+	"\bsettings\x18\x01 \x01(\v2\x17.aura.v1.VisionSettingsR\bsettings\"\x98\x01\n" +
+	"\x1bUpdateVisionSettingsRequest\x123\n" +
+	"\bsettings\x18\x01 \x01(\v2\x17.aura.v1.VisionSettingsR\bsettings\x12$\n" +
+	"\x0eapi_key_action\x18\x02 \x01(\tR\fapiKeyAction\x12\x1e\n" +
+	"\vnew_api_key\x18\x03 \x01(\tR\tnewApiKey\"S\n" +
+	"\x1cUpdateVisionSettingsResponse\x123\n" +
+	"\bsettings\x18\x01 \x01(\v2\x17.aura.v1.VisionSettingsR\bsettings\"\x96\x01\n" +
+	"\x19TestVisionSettingsRequest\x123\n" +
+	"\bsettings\x18\x01 \x01(\v2\x17.aura.v1.VisionSettingsR\bsettings\x12$\n" +
+	"\x0eapi_key_action\x18\x02 \x01(\tR\fapiKeyAction\x12\x1e\n" +
+	"\vnew_api_key\x18\x03 \x01(\tR\tnewApiKey\"\xe7\x01\n" +
+	"\x1aTestVisionSettingsResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x16\n" +
+	"\x06device\x18\x04 \x01(\tR\x06device\x12\x14\n" +
+	"\x05model\x18\x05 \x01(\tR\x05model\x12\"\n" +
+	"\fcapabilities\x18\x06 \x03(\tR\fcapabilities\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\a \x01(\x03R\tlatencyMs\x12\x18\n" +
+	"\amessage\x18\b \x01(\tR\amessage\"\x9d\x01\n" +
+	"\x14LocateElementRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12!\n" +
+	"\fforce_vision\x18\x03 \x01(\bR\vforceVision\x12\x1f\n" +
+	"\vdeadline_ms\x18\x04 \x01(\x03R\n" +
+	"deadlineMs\x12\x10\n" +
+	"\x03who\x18\x05 \x01(\tR\x03who\"\xfa\x04\n" +
+	"\x15LocateElementResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x16\n" +
+	"\x06bounds\x18\x04 \x03(\x05R\x06bounds\x12%\n" +
+	"\x0edisplay_bounds\x18\x05 \x03(\x05R\rdisplayBounds\x12\x1f\n" +
+	"\vclick_point\x18\x06 \x03(\x05R\n" +
+	"clickPoint\x12.\n" +
+	"\x13display_click_point\x18\a \x03(\x05R\x11displayClickPoint\x12\x12\n" +
+	"\x04role\x18\b \x01(\tR\x04role\x12\x12\n" +
+	"\x04name\x18\t \x01(\tR\x04name\x12\x18\n" +
+	"\acaption\x18\n" +
+	" \x01(\tR\acaption\x12%\n" +
+	"\x0eexistence_prob\x18\v \x01(\x01R\rexistenceProb\x12%\n" +
+	"\x0eselection_prob\x18\f \x01(\x01R\rselectionProb\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\r \x01(\x01R\n" +
+	"confidence\x12\x19\n" +
+	"\bscreen_w\x18\x0e \x01(\x05R\ascreenW\x12\x19\n" +
+	"\bscreen_h\x18\x0f \x01(\x05R\ascreenH\x12\x14\n" +
+	"\x05scale\x18\x10 \x01(\x01R\x05scale\x12\x1f\n" +
+	"\vsnapshot_id\x18\x11 \x01(\tR\n" +
+	"snapshotId\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x12 \x01(\x03R\tlatencyMs\x125\n" +
+	"\n" +
+	"candidates\x18\x13 \x03(\v2\x15.aura.v1.FusedElementR\n" +
+	"candidates\x12\x18\n" +
+	"\amessage\x18\x14 \x01(\tR\amessage\"\xcc\x01\n" +
+	"\x13ClickElementRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x16\n" +
+	"\x06button\x18\x03 \x01(\tR\x06button\x12!\n" +
+	"\fforce_vision\x18\x04 \x01(\bR\vforceVision\x12\x16\n" +
+	"\x06verify\x18\x05 \x01(\bR\x06verify\x12\x1f\n" +
+	"\vdeadline_ms\x18\x06 \x01(\x03R\n" +
+	"deadlineMs\x12\x10\n" +
+	"\x03who\x18\a \x01(\tR\x03who\"\xe2\x01\n" +
+	"\x14ClickElementResponse\x128\n" +
+	"\alocated\x18\x01 \x01(\v2\x1e.aura.v1.LocateElementResponseR\alocated\x12\x18\n" +
+	"\aclicked\x18\x02 \x01(\bR\aclicked\x12\x1a\n" +
+	"\bverified\x18\x03 \x01(\bR\bverified\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12(\n" +
+	"\x10total_latency_ms\x18\x05 \x01(\x03R\x0etotalLatencyMs\x12\x18\n" +
+	"\amessage\x18\x06 \x01(\tR\amessage*\xc4\x01\n" +
 	"\x0eFleetEventType\x12 \n" +
 	"\x1cFLEET_EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bFLEET_EVENT_TYPE_NODE_ADDED\x10\x01\x12!\n" +
 	"\x1dFLEET_EVENT_TYPE_NODE_REMOVED\x10\x02\x12#\n" +
 	"\x1fFLEET_EVENT_TYPE_STATUS_CHANGED\x10\x03\x12'\n" +
-	"#FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT\x10\x042\xc8\x11\n" +
+	"#FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT\x10\x042\x85\x15\n" +
 	"\x0eConsoleService\x12K\n" +
 	"\fGetDashboard\x12\x1c.aura.v1.GetDashboardRequest\x1a\x1d.aura.v1.GetDashboardResponse\x12B\n" +
 	"\tListTasks\x12\x19.aura.v1.ListTasksRequest\x1a\x1a.aura.v1.ListTasksResponse\x12E\n" +
@@ -4546,7 +5554,12 @@ const file_aura_v1_console_proto_rawDesc = "" +
 	"\x0eListAgentCalls\x12\x1e.aura.v1.ListAgentCallsRequest\x1a\x1f.aura.v1.ListAgentCallsResponse\x12Q\n" +
 	"\x0eCreateApiToken\x12\x1e.aura.v1.CreateApiTokenRequest\x1a\x1f.aura.v1.CreateApiTokenResponse\x12N\n" +
 	"\rListApiTokens\x12\x1d.aura.v1.ListApiTokensRequest\x1a\x1e.aura.v1.ListApiTokensResponse\x12Q\n" +
-	"\x0eRevokeApiToken\x12\x1e.aura.v1.RevokeApiTokenRequest\x1a\x1f.aura.v1.RevokeApiTokenResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
+	"\x0eRevokeApiToken\x12\x1e.aura.v1.RevokeApiTokenRequest\x1a\x1f.aura.v1.RevokeApiTokenResponse\x12Z\n" +
+	"\x11GetVisionSettings\x12!.aura.v1.GetVisionSettingsRequest\x1a\".aura.v1.GetVisionSettingsResponse\x12c\n" +
+	"\x14UpdateVisionSettings\x12$.aura.v1.UpdateVisionSettingsRequest\x1a%.aura.v1.UpdateVisionSettingsResponse\x12]\n" +
+	"\x12TestVisionSettings\x12\".aura.v1.TestVisionSettingsRequest\x1a#.aura.v1.TestVisionSettingsResponse\x12N\n" +
+	"\rLocateElement\x12\x1d.aura.v1.LocateElementRequest\x1a\x1e.aura.v1.LocateElementResponse\x12K\n" +
+	"\fClickElement\x12\x1c.aura.v1.ClickElementRequest\x1a\x1d.aura.v1.ClickElementResponseB/Z-github.com/aura/controller/gen/aura/v1;aurav1b\x06proto3"
 
 var (
 	file_aura_v1_console_proto_rawDescOnce sync.Once
@@ -4561,7 +5574,7 @@ func file_aura_v1_console_proto_rawDescGZIP() []byte {
 }
 
 var file_aura_v1_console_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_aura_v1_console_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
+var file_aura_v1_console_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
 var file_aura_v1_console_proto_goTypes = []any{
 	(FleetEventType)(0),                   // 0: aura.v1.FleetEventType
 	(*GetDashboardRequest)(nil),           // 1: aura.v1.GetDashboardRequest
@@ -4630,7 +5643,18 @@ var file_aura_v1_console_proto_goTypes = []any{
 	(*ApiTokenInfo)(nil),                  // 64: aura.v1.ApiTokenInfo
 	(*RevokeApiTokenRequest)(nil),         // 65: aura.v1.RevokeApiTokenRequest
 	(*RevokeApiTokenResponse)(nil),        // 66: aura.v1.RevokeApiTokenResponse
-	(*NodeInfo)(nil),                      // 67: aura.v1.NodeInfo
+	(*VisionSettings)(nil),                // 67: aura.v1.VisionSettings
+	(*GetVisionSettingsRequest)(nil),      // 68: aura.v1.GetVisionSettingsRequest
+	(*GetVisionSettingsResponse)(nil),     // 69: aura.v1.GetVisionSettingsResponse
+	(*UpdateVisionSettingsRequest)(nil),   // 70: aura.v1.UpdateVisionSettingsRequest
+	(*UpdateVisionSettingsResponse)(nil),  // 71: aura.v1.UpdateVisionSettingsResponse
+	(*TestVisionSettingsRequest)(nil),     // 72: aura.v1.TestVisionSettingsRequest
+	(*TestVisionSettingsResponse)(nil),    // 73: aura.v1.TestVisionSettingsResponse
+	(*LocateElementRequest)(nil),          // 74: aura.v1.LocateElementRequest
+	(*LocateElementResponse)(nil),         // 75: aura.v1.LocateElementResponse
+	(*ClickElementRequest)(nil),           // 76: aura.v1.ClickElementRequest
+	(*ClickElementResponse)(nil),          // 77: aura.v1.ClickElementResponse
+	(*NodeInfo)(nil),                      // 78: aura.v1.NodeInfo
 }
 var file_aura_v1_console_proto_depIdxs = []int32{
 	5,  // 0: aura.v1.ListTasksResponse.tasks:type_name -> aura.v1.TaskSummary
@@ -4639,8 +5663,8 @@ var file_aura_v1_console_proto_depIdxs = []int32{
 	20, // 3: aura.v1.GetOrchestrationResponse.orchestration:type_name -> aura.v1.OrchestrationSummary
 	20, // 4: aura.v1.ListOrchestrationsResponse.orchestrations:type_name -> aura.v1.OrchestrationSummary
 	0,  // 5: aura.v1.FleetEvent.type:type_name -> aura.v1.FleetEventType
-	67, // 6: aura.v1.FleetEvent.node:type_name -> aura.v1.NodeInfo
-	67, // 7: aura.v1.FleetEvent.snapshot:type_name -> aura.v1.NodeInfo
+	78, // 6: aura.v1.FleetEvent.node:type_name -> aura.v1.NodeInfo
+	78, // 7: aura.v1.FleetEvent.snapshot:type_name -> aura.v1.NodeInfo
 	30, // 8: aura.v1.FleetEvent.recordings:type_name -> aura.v1.NodeRecording
 	27, // 9: aura.v1.GetFusionResultResponse.elements:type_name -> aura.v1.FusedElement
 	39, // 10: aura.v1.ListEnrollTokensResponse.tokens:type_name -> aura.v1.EnrollTokenInfo
@@ -4651,65 +5675,81 @@ var file_aura_v1_console_proto_depIdxs = []int32{
 	59, // 15: aura.v1.ListAgentCallsResponse.calls:type_name -> aura.v1.AgentCall
 	64, // 16: aura.v1.CreateApiTokenResponse.info:type_name -> aura.v1.ApiTokenInfo
 	64, // 17: aura.v1.ListApiTokensResponse.tokens:type_name -> aura.v1.ApiTokenInfo
-	1,  // 18: aura.v1.ConsoleService.GetDashboard:input_type -> aura.v1.GetDashboardRequest
-	3,  // 19: aura.v1.ConsoleService.ListTasks:input_type -> aura.v1.ListTasksRequest
-	6,  // 20: aura.v1.ConsoleService.ListTraces:input_type -> aura.v1.ListTracesRequest
-	9,  // 21: aura.v1.ConsoleService.GetArtifact:input_type -> aura.v1.GetArtifactRequest
-	11, // 22: aura.v1.ConsoleService.GetQueueDepth:input_type -> aura.v1.GetQueueDepthRequest
-	13, // 23: aura.v1.ConsoleService.RunOrchestration:input_type -> aura.v1.RunOrchestrationRequest
-	16, // 24: aura.v1.ConsoleService.GetOrchestration:input_type -> aura.v1.GetOrchestrationRequest
-	18, // 25: aura.v1.ConsoleService.ListOrchestrations:input_type -> aura.v1.ListOrchestrationsRequest
-	21, // 26: aura.v1.ConsoleService.WatchFleet:input_type -> aura.v1.WatchFleetRequest
-	23, // 27: aura.v1.ConsoleService.SubmitFusion:input_type -> aura.v1.SubmitFusionRequest
-	25, // 28: aura.v1.ConsoleService.GetFusionResult:input_type -> aura.v1.GetFusionResultRequest
-	28, // 29: aura.v1.ConsoleService.ReadNodeScreen:input_type -> aura.v1.ReadNodeScreenRequest
-	31, // 30: aura.v1.ConsoleService.GenerateEnrollToken:input_type -> aura.v1.GenerateEnrollTokenRequest
-	33, // 31: aura.v1.ConsoleService.RevokeEnrollToken:input_type -> aura.v1.RevokeEnrollTokenRequest
-	35, // 32: aura.v1.ConsoleService.RotateEnrollToken:input_type -> aura.v1.RotateEnrollTokenRequest
-	37, // 33: aura.v1.ConsoleService.ListEnrollTokens:input_type -> aura.v1.ListEnrollTokensRequest
-	40, // 34: aura.v1.ConsoleService.UpdateNodeMeta:input_type -> aura.v1.UpdateNodeMetaRequest
-	42, // 35: aura.v1.ConsoleService.DeleteNode:input_type -> aura.v1.DeleteNodeRequest
-	44, // 36: aura.v1.ConsoleService.ListRecordings:input_type -> aura.v1.ListRecordingsRequest
-	47, // 37: aura.v1.ConsoleService.RevokeNodeCert:input_type -> aura.v1.RevokeNodeCertRequest
-	49, // 38: aura.v1.ConsoleService.GetTask:input_type -> aura.v1.GetTaskRequest
-	51, // 39: aura.v1.ConsoleService.GetAgentObservability:input_type -> aura.v1.GetAgentObservabilityRequest
-	54, // 40: aura.v1.ConsoleService.ListAgentSessions:input_type -> aura.v1.ListAgentSessionsRequest
-	57, // 41: aura.v1.ConsoleService.ListAgentCalls:input_type -> aura.v1.ListAgentCallsRequest
-	60, // 42: aura.v1.ConsoleService.CreateApiToken:input_type -> aura.v1.CreateApiTokenRequest
-	62, // 43: aura.v1.ConsoleService.ListApiTokens:input_type -> aura.v1.ListApiTokensRequest
-	65, // 44: aura.v1.ConsoleService.RevokeApiToken:input_type -> aura.v1.RevokeApiTokenRequest
-	2,  // 45: aura.v1.ConsoleService.GetDashboard:output_type -> aura.v1.GetDashboardResponse
-	4,  // 46: aura.v1.ConsoleService.ListTasks:output_type -> aura.v1.ListTasksResponse
-	7,  // 47: aura.v1.ConsoleService.ListTraces:output_type -> aura.v1.ListTracesResponse
-	10, // 48: aura.v1.ConsoleService.GetArtifact:output_type -> aura.v1.GetArtifactResponse
-	12, // 49: aura.v1.ConsoleService.GetQueueDepth:output_type -> aura.v1.GetQueueDepthResponse
-	14, // 50: aura.v1.ConsoleService.RunOrchestration:output_type -> aura.v1.RunOrchestrationResponse
-	17, // 51: aura.v1.ConsoleService.GetOrchestration:output_type -> aura.v1.GetOrchestrationResponse
-	19, // 52: aura.v1.ConsoleService.ListOrchestrations:output_type -> aura.v1.ListOrchestrationsResponse
-	22, // 53: aura.v1.ConsoleService.WatchFleet:output_type -> aura.v1.FleetEvent
-	24, // 54: aura.v1.ConsoleService.SubmitFusion:output_type -> aura.v1.SubmitFusionResponse
-	26, // 55: aura.v1.ConsoleService.GetFusionResult:output_type -> aura.v1.GetFusionResultResponse
-	29, // 56: aura.v1.ConsoleService.ReadNodeScreen:output_type -> aura.v1.ReadNodeScreenResponse
-	32, // 57: aura.v1.ConsoleService.GenerateEnrollToken:output_type -> aura.v1.GenerateEnrollTokenResponse
-	34, // 58: aura.v1.ConsoleService.RevokeEnrollToken:output_type -> aura.v1.RevokeEnrollTokenResponse
-	36, // 59: aura.v1.ConsoleService.RotateEnrollToken:output_type -> aura.v1.RotateEnrollTokenResponse
-	38, // 60: aura.v1.ConsoleService.ListEnrollTokens:output_type -> aura.v1.ListEnrollTokensResponse
-	41, // 61: aura.v1.ConsoleService.UpdateNodeMeta:output_type -> aura.v1.UpdateNodeMetaResponse
-	43, // 62: aura.v1.ConsoleService.DeleteNode:output_type -> aura.v1.DeleteNodeResponse
-	45, // 63: aura.v1.ConsoleService.ListRecordings:output_type -> aura.v1.ListRecordingsResponse
-	48, // 64: aura.v1.ConsoleService.RevokeNodeCert:output_type -> aura.v1.RevokeNodeCertResponse
-	50, // 65: aura.v1.ConsoleService.GetTask:output_type -> aura.v1.GetTaskResponse
-	52, // 66: aura.v1.ConsoleService.GetAgentObservability:output_type -> aura.v1.GetAgentObservabilityResponse
-	55, // 67: aura.v1.ConsoleService.ListAgentSessions:output_type -> aura.v1.ListAgentSessionsResponse
-	58, // 68: aura.v1.ConsoleService.ListAgentCalls:output_type -> aura.v1.ListAgentCallsResponse
-	61, // 69: aura.v1.ConsoleService.CreateApiToken:output_type -> aura.v1.CreateApiTokenResponse
-	63, // 70: aura.v1.ConsoleService.ListApiTokens:output_type -> aura.v1.ListApiTokensResponse
-	66, // 71: aura.v1.ConsoleService.RevokeApiToken:output_type -> aura.v1.RevokeApiTokenResponse
-	45, // [45:72] is the sub-list for method output_type
-	18, // [18:45] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	67, // 18: aura.v1.GetVisionSettingsResponse.settings:type_name -> aura.v1.VisionSettings
+	67, // 19: aura.v1.UpdateVisionSettingsRequest.settings:type_name -> aura.v1.VisionSettings
+	67, // 20: aura.v1.UpdateVisionSettingsResponse.settings:type_name -> aura.v1.VisionSettings
+	67, // 21: aura.v1.TestVisionSettingsRequest.settings:type_name -> aura.v1.VisionSettings
+	27, // 22: aura.v1.LocateElementResponse.candidates:type_name -> aura.v1.FusedElement
+	75, // 23: aura.v1.ClickElementResponse.located:type_name -> aura.v1.LocateElementResponse
+	1,  // 24: aura.v1.ConsoleService.GetDashboard:input_type -> aura.v1.GetDashboardRequest
+	3,  // 25: aura.v1.ConsoleService.ListTasks:input_type -> aura.v1.ListTasksRequest
+	6,  // 26: aura.v1.ConsoleService.ListTraces:input_type -> aura.v1.ListTracesRequest
+	9,  // 27: aura.v1.ConsoleService.GetArtifact:input_type -> aura.v1.GetArtifactRequest
+	11, // 28: aura.v1.ConsoleService.GetQueueDepth:input_type -> aura.v1.GetQueueDepthRequest
+	13, // 29: aura.v1.ConsoleService.RunOrchestration:input_type -> aura.v1.RunOrchestrationRequest
+	16, // 30: aura.v1.ConsoleService.GetOrchestration:input_type -> aura.v1.GetOrchestrationRequest
+	18, // 31: aura.v1.ConsoleService.ListOrchestrations:input_type -> aura.v1.ListOrchestrationsRequest
+	21, // 32: aura.v1.ConsoleService.WatchFleet:input_type -> aura.v1.WatchFleetRequest
+	23, // 33: aura.v1.ConsoleService.SubmitFusion:input_type -> aura.v1.SubmitFusionRequest
+	25, // 34: aura.v1.ConsoleService.GetFusionResult:input_type -> aura.v1.GetFusionResultRequest
+	28, // 35: aura.v1.ConsoleService.ReadNodeScreen:input_type -> aura.v1.ReadNodeScreenRequest
+	31, // 36: aura.v1.ConsoleService.GenerateEnrollToken:input_type -> aura.v1.GenerateEnrollTokenRequest
+	33, // 37: aura.v1.ConsoleService.RevokeEnrollToken:input_type -> aura.v1.RevokeEnrollTokenRequest
+	35, // 38: aura.v1.ConsoleService.RotateEnrollToken:input_type -> aura.v1.RotateEnrollTokenRequest
+	37, // 39: aura.v1.ConsoleService.ListEnrollTokens:input_type -> aura.v1.ListEnrollTokensRequest
+	40, // 40: aura.v1.ConsoleService.UpdateNodeMeta:input_type -> aura.v1.UpdateNodeMetaRequest
+	42, // 41: aura.v1.ConsoleService.DeleteNode:input_type -> aura.v1.DeleteNodeRequest
+	44, // 42: aura.v1.ConsoleService.ListRecordings:input_type -> aura.v1.ListRecordingsRequest
+	47, // 43: aura.v1.ConsoleService.RevokeNodeCert:input_type -> aura.v1.RevokeNodeCertRequest
+	49, // 44: aura.v1.ConsoleService.GetTask:input_type -> aura.v1.GetTaskRequest
+	51, // 45: aura.v1.ConsoleService.GetAgentObservability:input_type -> aura.v1.GetAgentObservabilityRequest
+	54, // 46: aura.v1.ConsoleService.ListAgentSessions:input_type -> aura.v1.ListAgentSessionsRequest
+	57, // 47: aura.v1.ConsoleService.ListAgentCalls:input_type -> aura.v1.ListAgentCallsRequest
+	60, // 48: aura.v1.ConsoleService.CreateApiToken:input_type -> aura.v1.CreateApiTokenRequest
+	62, // 49: aura.v1.ConsoleService.ListApiTokens:input_type -> aura.v1.ListApiTokensRequest
+	65, // 50: aura.v1.ConsoleService.RevokeApiToken:input_type -> aura.v1.RevokeApiTokenRequest
+	68, // 51: aura.v1.ConsoleService.GetVisionSettings:input_type -> aura.v1.GetVisionSettingsRequest
+	70, // 52: aura.v1.ConsoleService.UpdateVisionSettings:input_type -> aura.v1.UpdateVisionSettingsRequest
+	72, // 53: aura.v1.ConsoleService.TestVisionSettings:input_type -> aura.v1.TestVisionSettingsRequest
+	74, // 54: aura.v1.ConsoleService.LocateElement:input_type -> aura.v1.LocateElementRequest
+	76, // 55: aura.v1.ConsoleService.ClickElement:input_type -> aura.v1.ClickElementRequest
+	2,  // 56: aura.v1.ConsoleService.GetDashboard:output_type -> aura.v1.GetDashboardResponse
+	4,  // 57: aura.v1.ConsoleService.ListTasks:output_type -> aura.v1.ListTasksResponse
+	7,  // 58: aura.v1.ConsoleService.ListTraces:output_type -> aura.v1.ListTracesResponse
+	10, // 59: aura.v1.ConsoleService.GetArtifact:output_type -> aura.v1.GetArtifactResponse
+	12, // 60: aura.v1.ConsoleService.GetQueueDepth:output_type -> aura.v1.GetQueueDepthResponse
+	14, // 61: aura.v1.ConsoleService.RunOrchestration:output_type -> aura.v1.RunOrchestrationResponse
+	17, // 62: aura.v1.ConsoleService.GetOrchestration:output_type -> aura.v1.GetOrchestrationResponse
+	19, // 63: aura.v1.ConsoleService.ListOrchestrations:output_type -> aura.v1.ListOrchestrationsResponse
+	22, // 64: aura.v1.ConsoleService.WatchFleet:output_type -> aura.v1.FleetEvent
+	24, // 65: aura.v1.ConsoleService.SubmitFusion:output_type -> aura.v1.SubmitFusionResponse
+	26, // 66: aura.v1.ConsoleService.GetFusionResult:output_type -> aura.v1.GetFusionResultResponse
+	29, // 67: aura.v1.ConsoleService.ReadNodeScreen:output_type -> aura.v1.ReadNodeScreenResponse
+	32, // 68: aura.v1.ConsoleService.GenerateEnrollToken:output_type -> aura.v1.GenerateEnrollTokenResponse
+	34, // 69: aura.v1.ConsoleService.RevokeEnrollToken:output_type -> aura.v1.RevokeEnrollTokenResponse
+	36, // 70: aura.v1.ConsoleService.RotateEnrollToken:output_type -> aura.v1.RotateEnrollTokenResponse
+	38, // 71: aura.v1.ConsoleService.ListEnrollTokens:output_type -> aura.v1.ListEnrollTokensResponse
+	41, // 72: aura.v1.ConsoleService.UpdateNodeMeta:output_type -> aura.v1.UpdateNodeMetaResponse
+	43, // 73: aura.v1.ConsoleService.DeleteNode:output_type -> aura.v1.DeleteNodeResponse
+	45, // 74: aura.v1.ConsoleService.ListRecordings:output_type -> aura.v1.ListRecordingsResponse
+	48, // 75: aura.v1.ConsoleService.RevokeNodeCert:output_type -> aura.v1.RevokeNodeCertResponse
+	50, // 76: aura.v1.ConsoleService.GetTask:output_type -> aura.v1.GetTaskResponse
+	52, // 77: aura.v1.ConsoleService.GetAgentObservability:output_type -> aura.v1.GetAgentObservabilityResponse
+	55, // 78: aura.v1.ConsoleService.ListAgentSessions:output_type -> aura.v1.ListAgentSessionsResponse
+	58, // 79: aura.v1.ConsoleService.ListAgentCalls:output_type -> aura.v1.ListAgentCallsResponse
+	61, // 80: aura.v1.ConsoleService.CreateApiToken:output_type -> aura.v1.CreateApiTokenResponse
+	63, // 81: aura.v1.ConsoleService.ListApiTokens:output_type -> aura.v1.ListApiTokensResponse
+	66, // 82: aura.v1.ConsoleService.RevokeApiToken:output_type -> aura.v1.RevokeApiTokenResponse
+	69, // 83: aura.v1.ConsoleService.GetVisionSettings:output_type -> aura.v1.GetVisionSettingsResponse
+	71, // 84: aura.v1.ConsoleService.UpdateVisionSettings:output_type -> aura.v1.UpdateVisionSettingsResponse
+	73, // 85: aura.v1.ConsoleService.TestVisionSettings:output_type -> aura.v1.TestVisionSettingsResponse
+	75, // 86: aura.v1.ConsoleService.LocateElement:output_type -> aura.v1.LocateElementResponse
+	77, // 87: aura.v1.ConsoleService.ClickElement:output_type -> aura.v1.ClickElementResponse
+	56, // [56:88] is the sub-list for method output_type
+	24, // [24:56] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_aura_v1_console_proto_init() }
@@ -4725,7 +5765,7 @@ func file_aura_v1_console_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_aura_v1_console_proto_rawDesc), len(file_aura_v1_console_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   66,
+			NumMessages:   77,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

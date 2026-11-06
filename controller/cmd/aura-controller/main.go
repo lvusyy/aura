@@ -38,6 +38,7 @@ import (
 	"github.com/aura/controller/internal/provisioner"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/selection"
 	"github.com/aura/controller/internal/storage"
 	"github.com/aura/controller/internal/store"
 	"github.com/aura/controller/internal/transport"
@@ -387,6 +388,8 @@ func main() {
 		consoleSrv.SetFusionEngine(fusion.NewEngine(sched, det, pgStore, minioStore))
 		logger.Info("visual fusion engine configured", "detector", *detectorEndpoint, "timeout", detectorTimeout.String())
 	}
+	// Jev 视觉配置与快速元素选择引擎装配（支持运行时在 Web 控制台切换 disabled / local k3s GPU / cloud API）。
+	consoleSrv.SetSelectorEngine(selection.NewSelectorEngine(sched, pgStore, *detectorEndpoint, *detectorToken))
 
 	spaHandler, err := console.Handler()
 	if err != nil {
@@ -582,8 +585,12 @@ func newRESTServer(addr string, cert tls.Certificate, scopes transport.TokenScop
 
 	// M14 MCP 网关：agent 经控制面单一入口访问节点 MCP 面（bearer 于 NewRESTHandler 内包裹；
 	// hop 防环走 handler 内 ForwardedByHeader 判定，无需 InboundForwardMarker ctx 打标）。M15：pgStore
-	// 供项目视界判据。
-	mcpGateway := transport.McpGatewayHandler(reg, sched, pgStore)
+	// 供项目视界判据；共享 consoleSrv.SelectorEngine() 提供网关级 locate_element / click_element 原语。
+	var selEngine *selection.SelectorEngine
+	if consoleSrv != nil {
+		selEngine = consoleSrv.SelectorEngine()
+	}
+	mcpGateway := transport.McpGatewayHandler(reg, sched, pgStore, selEngine)
 
 	// M15：DB 实体令牌鉴权源——typed-nil 纪律，仅 PG 在位才赋非 nil 接口（*store.PGStore 实现 ApiTokenSource）。
 	var apiTokens transport.ApiTokenSource
