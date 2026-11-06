@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	aurav1 "github.com/aura/controller/gen/aura/v1"
 	"github.com/aura/controller/internal/fusion"
@@ -421,5 +425,82 @@ func TestMaskAPIKeyHintSingleCharAndMatchA11yGuards(t *testing.T) {
 	// Negation query bypasses deterministic substring Tier 0
 	if _, _, ok := matchA11yCandidate(cands, "not Submit"); ok {
 		t.Fatal("expected negation query 'not Submit' to bypass Tier 0 substring match")
+	}
+}
+
+func TestMergeCandidatesIoUNMSAndCaptionBackfill(t *testing.T) {
+	a11y := []fusion.FusedElement{
+		// Large container panel [0,0,1000,800] must NOT swallow child visual button [100,100,80,32]
+		{Source: "a11y", Role: "panel", Name: "MainWindow", Bounds: [4]int32{0, 0, 1000, 800}, Confidence: 1.0},
+		// Unnamed A11y button at [300,200,80,32] should receive caption from overlapping visual box
+		{Source: "a11y", Role: "button", Name: "", Bounds: [4]int32{300, 200, 80, 32}, Confidence: 1.0},
+	}
+	vis := []fusion.VisualBoxNative{
+		// Duplicate YOLO detections on the same child button (IoU > 0.70) -> should collapse to 1
+		{Bbox: [4]int32{100, 100, 80, 32}, Kind: "icon", Caption: "Settings", Confidence: 0.75},
+		{Bbox: [4]int32{102, 101, 80, 32}, Kind: "icon", Caption: "Settings Gear", Confidence: 0.93},
+		// Overlaps with unnamed A11y button [300,200,80,32] (IoU > 0.55) -> backfills caption, no extra box
+		{Bbox: [4]int32{302, 200, 78, 32}, Kind: "icon", Caption: "Search", Confidence: 0.88},
+	}
+
+	merged := MergeCandidatesIoU(a11y, vis, DefaultCandidateIoUThreshold)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged candidates (2 a11y + 1 deduplicated vision), got %d: %+v", len(merged), merged)
+	}
+	if merged[1].Caption != "Search" {
+		t.Fatalf("expected unnamed A11y button to receive backfilled caption 'Search', got %+v", merged[1])
+	}
+	if merged[2].Source != "vision" || merged[2].Confidence != 0.93 {
+		t.Fatalf("expected higher-confidence NMS winner (0.93) for child vision box, got %+v", merged[2])
+	}
+}
+
+func TestHTTPJevClientRetryAndCircuitBreaker(t *testing.T) {
+	ResetJevCircuitBreakers()
+	defer ResetJevCircuitBreakers()
+
+	var hits int32
+	mode := "flaky_once"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&hits, 1)
+		if mode == "flaky_once" && n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("temporary overload"))
+			return
+		}
+		if mode == "always_503" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("backend down"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"jev-test","answers":{"exists":{"type":"noul","noul":0.91}}}`))
+	}))
+	defer srv.Close()
+
+	cli := NewHTTPJevClient(srv.URL, "tok", 2*time.Second)
+	resp, err := cli.Evaluate(context.Background(), SystemOneRequest{Target: "Submit"})
+	if err != nil {
+		t.Fatalf("expected transient 503 retry to succeed, got err: %v", err)
+	}
+	if resp.Answers["exists"].Noul != 0.91 || atomic.LoadInt32(&hits) != 2 {
+		t.Fatalf("unexpected response or hit count: hits=%d resp=%+v", atomic.LoadInt32(&hits), resp)
+	}
+
+	// Switch server to always_503: 3 consecutive Evaluate failures should trip circuit breaker
+	mode = "always_503"
+	atomic.StoreInt32(&hits, 0)
+	for i := 0; i < 3; i++ {
+		if _, err := cli.Evaluate(context.Background(), SystemOneRequest{Target: "Submit"}); err == nil {
+			t.Fatalf("expected failure on iteration %d", i)
+		}
+	}
+	beforeBreakerHits := atomic.LoadInt32(&hits)
+	_, err = cli.Evaluate(context.Background(), SystemOneRequest{Target: "Submit"})
+	if !errors.Is(err, ErrJevCircuitOpen) {
+		t.Fatalf("expected ErrJevCircuitOpen after 3 consecutive failures, got %v", err)
+	}
+	if atomic.LoadInt32(&hits) != beforeBreakerHits {
+		t.Fatalf("circuit breaker must short-circuit without HTTP round-trip: hits before=%d after=%d", beforeBreakerHits, atomic.LoadInt32(&hits))
 	}
 }

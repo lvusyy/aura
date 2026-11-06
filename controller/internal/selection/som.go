@@ -254,3 +254,81 @@ func ComputeDHash(rawImage []byte) (uint64, bool) {
 func HammingDistance(a, b uint64) int {
 	return bits.OnesCount64(a ^ b)
 }
+
+// DefaultCandidateIoUThreshold 是选择引擎合并 A11y 与视觉候选框的默认 IoU 阈值。
+// 相比全屏融合的 0.10（父容器极易吞没内部视觉按钮），0.55 仅在两者指向同一控件尺度的重叠时合并，
+// 既避免大面板吞没子控件，又消除同一控件的 A11y+YOLO 双重标号。
+const (
+	DefaultCandidateIoUThreshold = 0.55
+	intraVisionNMSIoUThreshold   = 0.70
+)
+
+// ComputeIoU 计算两个 [x,y,w,h] 边界框的交并比（Intersection over Union，[0,1]）。
+func ComputeIoU(a, b [4]int32) float64 {
+	return fusion.IoU(a, b)
+}
+
+// MergeCandidatesIoU 执行视觉框内部 NMS 去重（IoU >= 0.70 保留高置信度框）与跨源 A11y×Vision 融合（IoU >= iouThreshold）：
+//   - 当视觉框与 A11y 候选框高度重合（IoU >= iouThreshold）时，保留 A11y 原生精确边界与 Role/Name，
+//     并将视觉框的非空 Caption 回填到 A11y 候选（补齐无文本图标按钮的视觉描述）；
+//   - 当视觉框与所有 A11y 候选框的 IoU 均低于阈值时，作为独立视觉候选追加，确保大容器面板不会误吞内部自绘控件。
+func MergeCandidatesIoU(a11yFlat []fusion.FusedElement, visualNative []fusion.VisualBoxNative, iouThreshold float64) []fusion.FusedElement {
+	if iouThreshold <= 0 {
+		iouThreshold = DefaultCandidateIoUThreshold
+	}
+	out := make([]fusion.FusedElement, len(a11yFlat), len(a11yFlat)+len(visualNative))
+	copy(out, a11yFlat)
+
+	// 1. 视觉框内部按置信度降序做 NMS（消除同一控件被 YOLO 检出多个高度重叠框导致的 SoM 标号膨胀）
+	dedupVis := make([]fusion.VisualBoxNative, 0, len(visualNative))
+	for _, v := range visualNative {
+		if v.Bbox[2] <= 0 || v.Bbox[3] <= 0 {
+			continue
+		}
+		suppressed := false
+		for i := range dedupVis {
+			if ComputeIoU(v.Bbox, dedupVis[i].Bbox) >= intraVisionNMSIoUThreshold {
+				if v.Confidence > dedupVis[i].Confidence {
+					if v.Caption == "" {
+						v.Caption = dedupVis[i].Caption
+					}
+					dedupVis[i] = v
+				} else if dedupVis[i].Caption == "" && v.Caption != "" {
+					dedupVis[i].Caption = v.Caption
+				}
+				suppressed = true
+				break
+			}
+		}
+		if !suppressed {
+			dedupVis = append(dedupVis, v)
+		}
+	}
+
+	// 2. 跨源 A11y × Vision 融合（保留 A11y 框并回填 Caption；非重叠视觉框追加）
+	for _, v := range dedupVis {
+		bestIdx := -1
+		bestIoU := 0.0
+		for i := 0; i < len(a11yFlat); i++ {
+			ov := ComputeIoU(v.Bbox, out[i].Bounds)
+			if ov >= iouThreshold && ov > bestIoU {
+				bestIoU = ov
+				bestIdx = i
+			}
+		}
+		if bestIdx >= 0 {
+			if out[bestIdx].Caption == "" && strings.TrimSpace(v.Caption) != "" {
+				out[bestIdx].Caption = strings.TrimSpace(v.Caption)
+			}
+			continue
+		}
+		out = append(out, fusion.FusedElement{
+			Source:     fusion.SourceVision,
+			Bounds:     v.Bbox,
+			Role:       v.Kind,
+			Caption:    v.Caption,
+			Confidence: v.Confidence,
+		})
+	}
+	return out
+}

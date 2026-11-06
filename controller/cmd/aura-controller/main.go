@@ -335,6 +335,7 @@ func main() {
 	replicaID := resolveReplicaID()
 	if redisStore != nil {
 		sched.SetNodeLocker(redisStore, replicaID)
+		reg.SetPeerLiveness(redisStore, replicaID)
 	}
 	// 跨副本转发：AURA_REPLICA_PEERS 直连对称表（含 self，经同源 replicaID 过滤；端点用副本直连
 	// 地址不用 VIP）+ Redis owner 表同时就位才装配。client TLS 复用节点 CA（RootCAs=cert-dir/

@@ -315,6 +315,9 @@ struct SelfReported {
     attached: String,
 }
 
+/// 反连握手与首帧确认硬超时（防止 NAT 半开黑洞或對端挂起导致 connect_once 永久阻塞）。
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// 单次反连生命周期：建 mTLS channel → 首帧 Register → 收发帧直至流断。
 /// 返回 `Ok(())` 表示控制面关闭了入站流（正常重连）；`Err` 表示连接/传输错误（退避重连）。
 async fn connect_once(
@@ -326,7 +329,9 @@ async fn connect_once(
     update_ctx: &Option<super::self_update::UpdateContext>,
     health: &Arc<Mutex<Vec<CapabilityHealth>>>,
 ) -> Result<()> {
-    let channel = build_channel(cfg).await?;
+    let channel = tokio::time::timeout(HANDSHAKE_TIMEOUT, build_channel(cfg))
+        .await
+        .map_err(|_| anyhow!("build_channel timed out after {}s", HANDSHAKE_TIMEOUT.as_secs()))??;
     let mut client = NodeControlClient::new(channel)
         .max_decoding_message_size(cfg.max_msg_bytes)
         .max_encoding_message_size(cfg.max_msg_bytes);
@@ -397,21 +402,36 @@ async fn connect_once(
 
     // 开双向流（rx 为请求流）。client.connect 是 NodeControl.Connect RPC 方法（非 transport 便捷构造器，
     // 后者已由 build.rs 的 build_transport(false) 关闭以避 E0592 同名冲突）。tonic 0.14 client streaming API 待远程构建验证。
-    let response = client.connect(rx).await?;
+    let response = tokio::time::timeout(HANDSHAKE_TIMEOUT, client.connect(rx))
+        .await
+        .map_err(|_| anyhow!("Connect RPC handshake timed out after {}s", HANDSHAKE_TIMEOUT.as_secs()))??;
     let mut inbound = response.into_inner();
 
     // 心跳任务：周期 Send Heartbeat；AbortOnDrop 保证本次连接结束时回收（不泄漏）。
     let _heartbeat =
         AbortOnDrop(spawn_heartbeat(tx.clone(), node_id.clone(), cfg.heartbeat, health.clone()));
 
-    // 收控制面下发帧。
-    while let Some(frame) = inbound.next().await {
+    let mut ack_received = false;
+
+    // 收控制面下发帧（首帧 RegisterAck 受 HANDSHAKE_TIMEOUT 门控，防止半开流无限挂起）。
+    loop {
+        let maybe_frame = if !ack_received {
+            tokio::time::timeout(HANDSHAKE_TIMEOUT, inbound.next())
+                .await
+                .map_err(|_| anyhow!("waiting for RegisterAck timed out after {}s", HANDSHAKE_TIMEOUT.as_secs()))?
+        } else {
+            inbound.next().await
+        };
+        let Some(frame) = maybe_frame else {
+            break;
+        };
         let frame = frame?; // 传输错误 → 退避重连
         match frame.payload {
             Some(controller_to_node::Payload::RegisterAck(ack)) => {
                 if !ack.accepted {
                     return Err(anyhow!("registration rejected: {}", ack.message));
                 }
+                ack_received = true;
                 // M17 T2：register 成功 = 新二进制试用通过，commit 清除 pending 标记（幂等，
                 // 无标记路径零成本）——试用期 watchdog 醒来见无标记即退出。
                 super::self_update::commit_pending(&cfg.data_dir());
@@ -634,6 +654,7 @@ pub(crate) fn local_bound_connector(local: Option<IpAddr>) -> HttpConnector {
     let mut c = HttpConnector::new();
     c.enforce_http(false); // 必设（M-6）
     c.set_nodelay(true); // 复刻 tonic 默认
+    c.set_keepalive(Some(Duration::from_secs(15)));
     if let Some(ip) = local {
         c.set_local_address(Some(ip));
     }
@@ -658,9 +679,10 @@ async fn build_channel(cfg: &ReverseConfig) -> Result<Channel> {
 
     let endpoint = Endpoint::from_shared(format!("https://{}", cfg.controller))?
         .tls_config(tls)?
+        .tcp_keepalive(Some(Duration::from_secs(15)))
         .http2_keep_alive_interval(cfg.keepalive)
         .keep_alive_while_idle(true)
-        .keep_alive_timeout(Duration::from_secs(20))
+        .keep_alive_timeout(Duration::from_secs(15))
         .connect_timeout(Duration::from_secs(10));
 
     // --local-addr 出站选源（SC-1）：未设走既有 connect() 原路径（现网节点全部不带参滚动，

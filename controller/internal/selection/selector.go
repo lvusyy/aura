@@ -163,7 +163,11 @@ func (e *SelectorEngine) UpdateSettings(
 	}
 
 	if e.st != nil {
-		return e.st.UpsertVisionSettings(ctx, norm, action, newAPIKey)
+		updated, err := e.st.UpsertVisionSettings(ctx, norm, action, newAPIKey)
+		if err == nil {
+			ResetJevCircuitBreakers()
+		}
+		return updated, err
 	}
 
 	e.mu.Lock()
@@ -185,6 +189,7 @@ func (e *SelectorEngine) UpdateSettings(
 	norm.Revision = e.memSettings.Revision + 1
 	norm.UpdatedAt = time.Now().UTC()
 	e.memSettings = norm
+	ResetJevCircuitBreakers()
 	return norm, nil
 }
 
@@ -573,7 +578,7 @@ func (e *SelectorEngine) Locate(ctx context.Context, in LocateInput) (LocateOutp
 					Confidence: b.Confidence,
 				})
 			}
-			candidates = fusion.Merge(flatA11y, aligned, fusion.DefaultIoUThreshold)
+			candidates = MergeCandidatesIoU(flatA11y, aligned, DefaultCandidateIoUThreshold)
 		}
 	} else {
 		e.putCachedBoxes(in.NodeID, exactHash, dHash, false, nil)

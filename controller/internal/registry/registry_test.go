@@ -635,3 +635,66 @@ func TestSelfUpdateVersionEcho(t *testing.T) {
 		t.Fatal("matching result did not resolve the waiter")
 	}
 }
+
+type fakePeerLiveness struct {
+	owners map[string]string
+	alive  map[string]bool
+}
+
+func (f *fakePeerLiveness) GetNodeOwner(_ context.Context, nodeID string) (string, error) {
+	return f.owners[nodeID], nil
+}
+
+func (f *fakePeerLiveness) IsAlive(_ context.Context, nodeID string) (bool, error) {
+	v, ok := f.alive[nodeID]
+	if !ok {
+		return true, nil
+	}
+	return v, nil
+}
+
+// TestListFleetAndReapCrossReplicaPeerLiveness 验证跨副本视野聚合（闭合 ISS-20260713-002）：
+// 本副本（replica-2）无会话但 Redis Owner 指向对端（replica-1）时，ListFleet 显示为 online/unhealthy，
+// IsActiveInCluster 返回 true，且 ReapOnce 将其纳入保护集绝不误删。
+func TestListFleetAndReapCrossReplicaPeerLiveness(t *testing.T) {
+	fs := newFakeStore()
+	reg := NewRegistry(fs)
+	ctx := context.Background()
+
+	_, _, _ = reg.Register(ctx, &aurav1.Register{NodeId: "peer-online", Platform: "linux", Name: "peer-node-1"}, "")
+	_, _, _ = reg.Register(ctx, &aurav1.Register{NodeId: "peer-unhealthy", Platform: "linux", Name: "peer-node-2"}, "")
+	_, _, _ = reg.Register(ctx, &aurav1.Register{NodeId: "stale-self", Platform: "linux", Name: "stale-self-node"}, "")
+
+	reg.SetPeerLiveness(&fakePeerLiveness{
+		owners: map[string]string{
+			"peer-online":    "replica-1",
+			"peer-unhealthy": "replica-1",
+			"stale-self":     "replica-2", // 指向自身但本机无会话 = 残键，应判 offline
+		},
+		alive: map[string]bool{
+			"peer-online":    true,
+			"peer-unhealthy": false,
+		},
+	}, "replica-2")
+
+	fleet := reg.ListFleet(ctx)
+	statusByID := make(map[string]string, len(fleet))
+	for _, n := range fleet {
+		statusByID[n.GetNodeId()] = n.GetStatus()
+	}
+	if statusByID["peer-online"] != "online" {
+		t.Fatalf("peer-online status = %q, want online", statusByID["peer-online"])
+	}
+	if statusByID["peer-unhealthy"] != "unhealthy" {
+		t.Fatalf("peer-unhealthy status = %q, want unhealthy", statusByID["peer-unhealthy"])
+	}
+	if statusByID["stale-self"] != "offline" {
+		t.Fatalf("stale-self status = %q, want offline", statusByID["stale-self"])
+	}
+	if !reg.IsActiveInCluster(ctx, "peer-online") {
+		t.Fatal("IsActiveInCluster(peer-online) = false, want true")
+	}
+	if reg.IsActiveInCluster(ctx, "stale-self") {
+		t.Fatal("IsActiveInCluster(stale-self) = true, want false")
+	}
+}

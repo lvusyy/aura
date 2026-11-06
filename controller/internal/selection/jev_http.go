@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aura/controller/internal/fusion"
@@ -16,13 +17,88 @@ import (
 )
 
 const (
-	defaultJevTimeout  = 25 * time.Second
-	maxJevResponseSize = 4 << 20 // 4 MiB
-	maxJevErrorSize    = 512
+	defaultJevTimeout       = 25 * time.Second
+	maxJevResponseSize      = 4 << 20 // 4 MiB
+	maxJevErrorSize         = 512
+	breakerFailureThreshold = 3
+	breakerOpenCooldown     = 15 * time.Second
+	transientRetryBackoff   = 60 * time.Millisecond
 )
 
 // ErrJevUnauthorized 表示云端或本地 Jev 端点返回 401。
 var ErrJevUnauthorized = errors.New("jev endpoint rejected bearer token (401 unauthorized)")
+
+// ErrJevCircuitOpen 表示端点连续故障已触发快速熔断。
+var ErrJevCircuitOpen = errors.New("jev endpoint circuit breaker open")
+
+type endpointBreaker struct {
+	mu                  sync.Mutex
+	consecutiveFailures int
+	openUntil           time.Time
+	halfOpenInFlight    bool
+}
+
+func (b *endpointBreaker) allow(now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if now.Before(b.openUntil) {
+		return false
+	}
+	if b.consecutiveFailures >= breakerFailureThreshold {
+		if b.halfOpenInFlight {
+			return false
+		}
+		b.halfOpenInFlight = true
+	}
+	return true
+}
+
+func (b *endpointBreaker) recordSuccess() {
+	b.mu.Lock()
+	b.consecutiveFailures = 0
+	b.openUntil = time.Time{}
+	b.halfOpenInFlight = false
+	b.mu.Unlock()
+}
+
+func (b *endpointBreaker) releaseWithoutPenalty() {
+	b.mu.Lock()
+	b.halfOpenInFlight = false
+	b.mu.Unlock()
+}
+
+func (b *endpointBreaker) recordFailure(now time.Time) {
+	b.mu.Lock()
+	b.consecutiveFailures++
+	b.halfOpenInFlight = false
+	if b.consecutiveFailures >= breakerFailureThreshold {
+		b.openUntil = now.Add(breakerOpenCooldown)
+	}
+	b.mu.Unlock()
+}
+
+var (
+	breakersMu sync.Mutex
+	breakers   = make(map[string]*endpointBreaker)
+)
+
+func getEndpointBreaker(endpoint string) *endpointBreaker {
+	breakersMu.Lock()
+	defer breakersMu.Unlock()
+	b, ok := breakers[endpoint]
+	if !ok {
+		b = &endpointBreaker{}
+		breakers[endpoint] = b
+	}
+	return b
+}
+
+// ResetJevCircuitBreakers 清空端点熔断器状态（供测试与配置切换使用）。
+func ResetJevCircuitBreakers() {
+	breakersMu.Lock()
+	breakers = make(map[string]*endpointBreaker)
+	breakersMu.Unlock()
+}
 
 // HTTPJevClient 实现 JevClient 接口，支持本地 k3s GPU (/v1/systemone) 与云端 TypeSafe AI (/v1/systemone)。
 type HTTPJevClient struct {
@@ -73,7 +149,7 @@ func normalizeBaseURL(raw string) string {
 	return strings.TrimRight(ep, "/")
 }
 
-// Evaluate 调用 POST /v1/systemone 并解析答案。
+// Evaluate 调用 POST /v1/systemone 并解析答案（内置单次瞬态重试与端点熔断保护）。
 func (c *HTTPJevClient) Evaluate(ctx context.Context, reqPayload SystemOneRequest) (*SystemOneResponse, error) {
 	if c == nil || c.endpoint == "" {
 		return nil, errors.New("jev: endpoint is empty")
@@ -82,55 +158,98 @@ func (c *HTTPJevClient) Evaluate(ctx context.Context, reqPayload SystemOneReques
 	if err != nil {
 		return nil, fmt.Errorf("jev: marshal request: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("jev: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("TypeSafe-Danger-Zone-Images", "true")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+
+	breaker := getEndpointBreaker(c.endpoint)
+	if !breaker.allow(time.Now()) {
+		return nil, fmt.Errorf("jev: %s: %w", c.endpoint, ErrJevCircuitOpen)
 	}
 
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("jev: POST %s: %w", c.endpoint, err)
-	}
-	defer resp.Body.Close()
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				breaker.releaseWithoutPenalty()
+				return nil, ctx.Err()
+			case <-time.After(transientRetryBackoff):
+			}
+		}
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("jev: %w", ErrJevUnauthorized)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, maxJevErrorSize))
-		return nil, fmt.Errorf("jev: %s returned HTTP %d: %s", c.endpoint, resp.StatusCode, strings.TrimSpace(string(detail)))
-	}
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(bodyBytes))
+		if rerr != nil {
+			breaker.releaseWithoutPenalty()
+			return nil, fmt.Errorf("jev: build request: %w", rerr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("TypeSafe-Danger-Zone-Images", "true")
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
 
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxJevResponseSize))
-	if err != nil {
-		return nil, fmt.Errorf("jev: read response: %w", err)
-	}
-	var out SystemOneResponse
-	if err := json.Unmarshal(respBytes, &out); err != nil {
-		return nil, fmt.Errorf("jev: decode response: %w", err)
-	}
-	if out.Answers == nil {
-		// 兼容部分云端实现直接把问题键置于顶层 JSON 的情况
-		var rawMap map[string]json.RawMessage
-		if err := json.Unmarshal(respBytes, &rawMap); err == nil {
-			out.Answers = make(map[string]SystemOneAnswer)
-			for k, v := range rawMap {
-				if k == "model" || k == "device" || k == "latency_ms" {
-					continue
-				}
-				var ans SystemOneAnswer
-				if err := json.Unmarshal(v, &ans); err == nil && (ans.Type != "" || ans.Choice != "" || ans.Box != nil || ans.HasNoul || ans.Noul > 0 || ans.Score > 0 || len(ans.Probabilities) > 0) {
-					out.Answers[k] = ans
+		resp, doErr := c.hc.Do(req)
+		if doErr != nil {
+			if ctx.Err() != nil {
+				breaker.releaseWithoutPenalty()
+				return nil, fmt.Errorf("jev: POST %s: %w", c.endpoint, doErr)
+			}
+			lastErr = fmt.Errorf("jev: POST %s: %w", c.endpoint, doErr)
+			continue
+		}
+
+		statusCode := resp.StatusCode
+		if statusCode == http.StatusUnauthorized {
+			resp.Body.Close()
+			breaker.releaseWithoutPenalty()
+			return nil, fmt.Errorf("jev: %w", ErrJevUnauthorized)
+		}
+		if statusCode < 200 || statusCode > 299 {
+			detail, _ := io.ReadAll(io.LimitReader(resp.Body, maxJevErrorSize))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("jev: %s returned HTTP %d: %s", c.endpoint, statusCode, strings.TrimSpace(string(detail)))
+			if statusCode == http.StatusBadGateway || statusCode == http.StatusServiceUnavailable || statusCode == http.StatusGatewayTimeout {
+				continue
+			}
+			if statusCode >= 500 {
+				breaker.recordFailure(time.Now())
+			} else {
+				breaker.releaseWithoutPenalty()
+			}
+			return nil, lastErr
+		}
+
+		respBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, maxJevResponseSize))
+		resp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("jev: read response: %w", readErr)
+			continue
+		}
+		var out SystemOneResponse
+		if err := json.Unmarshal(respBytes, &out); err != nil {
+			breaker.releaseWithoutPenalty()
+			return nil, fmt.Errorf("jev: decode response: %w", err)
+		}
+		if out.Answers == nil {
+			// 兼容部分云端实现直接把问题键置于顶层 JSON 的情况
+			var rawMap map[string]json.RawMessage
+			if err := json.Unmarshal(respBytes, &rawMap); err == nil {
+				out.Answers = make(map[string]SystemOneAnswer)
+				for k, v := range rawMap {
+					if k == "model" || k == "device" || k == "latency_ms" {
+						continue
+					}
+					var ans SystemOneAnswer
+					if err := json.Unmarshal(v, &ans); err == nil && (ans.Type != "" || ans.Choice != "" || ans.Box != nil || ans.HasNoul || ans.Noul > 0 || ans.Score > 0 || len(ans.Probabilities) > 0) {
+						out.Answers[k] = ans
+					}
 				}
 			}
 		}
+		breaker.recordSuccess()
+		return &out, nil
 	}
-	return &out, nil
+
+	breaker.recordFailure(time.Now())
+	return nil, lastErr
 }
 
 // ProbeResult 表示 TestVisionSettings 的探测结果。

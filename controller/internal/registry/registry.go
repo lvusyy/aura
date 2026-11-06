@@ -388,6 +388,11 @@ type NodeRegistry struct {
 	// scheduler（维持 M2 分层：闭包注入，方向由 main.go 装配）。nil 时 Remove 为纯出表。
 	onRemove func(nodeID string)
 
+	// peerLiveness 是可选的跨副本节点在线探测（M10/M18 HA 跨副本舰队视野聚合，闭合 ISS-20260713-002）。
+	// 装配期由 SetPeerLiveness 一次性注入（RedisStore 天然实现）；nil 时退化为单副本本机视野，行为零变化。
+	peerLiveness  PeerLiveness
+	selfReplicaID string
+
 	// --- 舰队状态变更广播（M8 WatchFleet 事件源）---
 	// registry 是节点状态单一真源，却无现成 Watch/Notify；此处新建 observer 注册表：Subscribe 注册有界
 	// chan，Add/Remove 与 status tick 经 broadcast 扇出增量事件。分层沿 SetRemovalHook 先例——事件类型
@@ -441,6 +446,52 @@ func NewRegistry(store Store) *NodeRegistry {
 // import scheduler（保持依赖单向）。
 func (r *NodeRegistry) SetRemovalHook(hook func(nodeID string)) {
 	r.onRemove = hook
+}
+
+// PeerLiveness 抽象跨副本节点在线探测（M10/M18 HA 跨副本舰队视野聚合，闭合 ISS-20260713-002）。
+// RedisStore 天然实现 GetNodeOwner 与 IsAlive。未注入（nil）时退化为单副本本机视野，行为零变化。
+type PeerLiveness interface {
+	GetNodeOwner(ctx context.Context, nodeID string) (string, error)
+	IsAlive(ctx context.Context, nodeID string) (bool, error)
+}
+
+// SetPeerLiveness 注入跨副本节点归属与心跳探活读取器（装配期一次性调用）。
+func (r *NodeRegistry) SetPeerLiveness(peer PeerLiveness, selfReplicaID string) {
+	r.peerLiveness = peer
+	r.selfReplicaID = selfReplicaID
+}
+
+// IsActiveInCluster 报告节点在集群任一副本上是否处于活跃连接态（本机会话优先，miss 时查跨副本 owner）。
+// 供 DeleteNode 守卫与 ReapOnce 保护集共用，防止在副本 B 上误删连在副本 A 上的活跃节点。
+func (r *NodeRegistry) IsActiveInCluster(ctx context.Context, nodeID string) bool {
+	if _, ok := r.Get(nodeID); ok {
+		return true
+	}
+	return r.peerNodeStatus(ctx, nodeID) != "offline"
+}
+
+// peerNodeStatus 查询非本机连接节点在对端副本上的活跃状态（"online" / "unhealthy" / "offline"）。
+// 遵循 ha-contract §7#5 读降级原则：Redis 不可达或超时视为 offline 并告警，绝不阻塞舰队查询。
+func (r *NodeRegistry) peerNodeStatus(ctx context.Context, nodeID string) string {
+	if r.peerLiveness == nil || nodeID == "" {
+		return "offline"
+	}
+	pctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	owner, err := r.peerLiveness.GetNodeOwner(pctx, nodeID)
+	if err != nil {
+		slog.Warn("fleet peer liveness: owner lookup failed; treating as offline", "node_id", nodeID, "err", err)
+		return "offline"
+	}
+	// 无 owner 或 owner 指向本副本自身（但本副本 r.sessions 已 miss，属断连清理竞态或残键）→ offline。
+	if owner == "" || (r.selfReplicaID != "" && owner == r.selfReplicaID) {
+		return "offline"
+	}
+	alive, aerr := r.peerLiveness.IsAlive(pctx, nodeID)
+	if aerr == nil && !alive {
+		return "unhealthy"
+	}
+	return "online"
 }
 
 // Register 处理注册首帧，返回最终 node_id 与生效元数据快照（供调用方以库权威值建会话）。
@@ -639,7 +690,7 @@ func (r *NodeRegistry) ListFleet(ctx context.Context) []*aurav1.NodeInfo {
 		if live, ok := online[id]; ok {
 			out = append(out, live) // 在线：live 态（label/location 已由会话与库同步）
 		} else {
-			row.Status = "offline" // 无活跃会话：一律 offline（不信表内 stale status）
+			row.Status = r.peerNodeStatus(ctx, id) // 跨副本探活：对端持有活跃会话则为 online/unhealthy，否则 offline
 			out = append(out, row)
 		}
 	}
@@ -815,8 +866,27 @@ func (r *NodeRegistry) ReapOnce(ctx context.Context, age time.Duration) (int, er
 	if r.store == nil {
 		return 0, nil
 	}
+	protected := r.liveNodeIDs()
+	if r.peerLiveness != nil {
+		if persisted, err := r.store.ListNodes(ctx); err == nil {
+			seen := make(map[string]struct{}, len(protected))
+			for _, id := range protected {
+				seen[id] = struct{}{}
+			}
+			for _, row := range persisted {
+				id := row.GetNodeId()
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				if r.peerNodeStatus(ctx, id) != "offline" {
+					protected = append(protected, id)
+					seen[id] = struct{}{}
+				}
+			}
+		}
+	}
 	before := time.Now().Add(-age)
-	reaped, err := r.store.ReapOfflineNodes(ctx, before, r.liveNodeIDs())
+	reaped, err := r.store.ReapOfflineNodes(ctx, before, protected)
 	if err != nil {
 		return 0, err
 	}

@@ -72,9 +72,9 @@ func (s *ConsoleServiceServer) DeleteNode(
 	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
 		return nil, err
 	}
-	// offline 守卫（安全核心）：活跃会话在册=在线，拒删（防误删活跃节点）。先于 store 判空——「拒删在线」
-	// 与持久化后端无关，是最优先的安全语义。
-	if _, online := s.reg.Get(nodeID); online {
+	// offline 守卫（安全核心）：活跃会话在册（含本副本或 HA 对端副本）=在线，拒删（防误删活跃节点）。
+	// 先于 store 判空——「拒删在线」与持久化后端无关，是最优先的安全语义。
+	if s.reg.IsActiveInCluster(ctx, nodeID) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("E_NODE_ONLINE: node %q is online; refuse to delete an active node", nodeID))
 	}
