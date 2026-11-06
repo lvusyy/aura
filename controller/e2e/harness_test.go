@@ -14,6 +14,8 @@
 package e2e
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -22,12 +24,18 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -62,11 +70,19 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
-	// M16 e2e MinIO（self-update 场景⑥选装）：AURA_E2E_MINIO_* 就位则映射为 controller 进程的
-	// AURA_MINIO_*（startController 的子进程继承本进程 env）。未配则该场景自 skip、其余场景照跑。
-	// PUBLIC 端点即内部端点：单机 e2e 节点可达面与控制面同一 localhost；节点下载腿 http-only，
-	// e2e MinIO 须为明文 http（dev 缺省形态）。
-	if ep := os.Getenv("AURA_E2E_MINIO_ENDPOINT"); ep != "" {
+	// M16 e2e S3/MinIO（self-update 场景⑥）：未显式指定外部 MinIO 或设为 "inmem" 时，由 TestMain
+	// 自起进程内 S3 兼容 HTTP stub（免依赖已下架的 minio/minio 公共镜像）。
+	var s3Srv *httptest.Server
+	ep := os.Getenv("AURA_E2E_MINIO_ENDPOINT")
+	if ep == "" || ep == "inmem" {
+		s3Srv = startInMemS3Server()
+		u, _ := url.Parse(s3Srv.URL)
+		ep = u.Host
+		os.Setenv("AURA_E2E_MINIO_ENDPOINT", ep)
+		os.Setenv("AURA_E2E_MINIO_ACCESS_KEY", "aura")
+		os.Setenv("AURA_E2E_MINIO_SECRET_KEY", "aura-e2e-minio")
+	}
+	if ep != "" {
 		os.Setenv("AURA_MINIO_ENDPOINT", ep)
 		os.Setenv("AURA_MINIO_PUBLIC_ENDPOINT", ep)
 		os.Setenv("AURA_MINIO_ACCESS_KEY", os.Getenv("AURA_E2E_MINIO_ACCESS_KEY"))
@@ -130,10 +146,77 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	stop()
+	if s3Srv != nil {
+		s3Srv.Close()
+	}
 	// 显式清理：os.Exit 跳过 defer，须在此手动删临时目录，否则每次 e2e 全跑残留证书/二进制/node 数据
 	// （本地反复跑会积累，CI runner 一次性无害但一并清）。
 	_ = os.RemoveAll(tmp)
 	os.Exit(code)
+}
+
+func startInMemS3Server() *httptest.Server {
+	var mu sync.Mutex
+	objs := make(map[string][]byte)
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 1 || parts[1] == "" {
+			if _, ok := r.URL.Query()["location"]; ok {
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		key := parts[0] + "/" + parts[1]
+		switch r.Method {
+		case http.MethodPut:
+			raw, _ := io.ReadAll(r.Body)
+			body := raw
+			if strings.HasPrefix(r.Header.Get("x-amz-content-sha256"), "STREAMING-") {
+				br := bufio.NewReader(bytes.NewReader(raw))
+				var out bytes.Buffer
+				for {
+					hdr, err := br.ReadString('\n')
+					if err != nil {
+						break
+					}
+					hdr = strings.TrimRight(hdr, "\r\n")
+					if semi := strings.IndexByte(hdr, ';'); semi > 0 {
+						hdr = hdr[:semi]
+					}
+					n, err := strconv.ParseInt(strings.TrimSpace(hdr), 16, 64)
+					if err != nil || n == 0 {
+						break
+					}
+					_, _ = io.CopyN(&out, br, n)
+					_, _ = br.ReadString('\n')
+				}
+				body = out.Bytes()
+			}
+			mu.Lock()
+			objs[key] = body
+			mu.Unlock()
+			w.Header().Set("ETag", `"e2e-etag"`)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodHead, http.MethodGet:
+			mu.Lock()
+			body, ok := objs[key]
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("ETag", `"e2e-etag"`)
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			http.ServeContent(w, r, parts[1], time.Now().UTC(), bytes.NewReader(body))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
 }
 
 // buildController 在本 module 内 `go build` 出 controller 二进制到临时目录（e2e 用当前源码，非生产二进制）。

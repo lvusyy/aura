@@ -1,11 +1,47 @@
 package storage
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+func decodeS3Body(r *http.Request) []byte {
+	raw, _ := io.ReadAll(r.Body)
+	if !strings.HasPrefix(r.Header.Get("x-amz-content-sha256"), "STREAMING-") {
+		return raw
+	}
+	br := bufio.NewReader(bytes.NewReader(raw))
+	var out bytes.Buffer
+	for {
+		hdr, err := br.ReadString('\n')
+		if err != nil {
+			break
+		}
+		hdr = strings.TrimRight(hdr, "\r\n")
+		semi := strings.IndexByte(hdr, ';')
+		if semi > 0 {
+			hdr = hdr[:semi]
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(hdr), 16, 64)
+		if err != nil || n == 0 {
+			break
+		}
+		_, _ = io.CopyN(&out, br, n)
+		_, _ = br.ReadString('\n')
+	}
+	return out.Bytes()
+}
 
 // TestParseZoneEndpoints 证 AURA_MINIO_ENDPOINTS 解析：zone=endpoint 逗号分隔、空项跳过、
 // 首个等号分隔（endpoint host:port 不含等号无歧义）；格式非法 fail fast。
@@ -94,5 +130,85 @@ func TestPresignedPutFallsBackWithoutEndpoints(t *testing.T) {
 		if u.Host != "192.168.22.240:9000" {
 			t.Errorf("PresignedPut(zone=%q): host = %q, want 192.168.22.240:9000 (无 ENDPOINTS 全回落默认)", zone, u.Host)
 		}
+	}
+}
+
+func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
+	var mu sync.Mutex
+	objs := make(map[string][]byte)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 1 || parts[1] == "" {
+			if _, ok := r.URL.Query()["location"]; ok {
+				w.Header().Set("Content-Type", "application/xml")
+				_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		key := parts[0] + "/" + parts[1]
+		switch r.Method {
+		case http.MethodPut:
+			body := decodeS3Body(r)
+			mu.Lock()
+			objs[key] = body
+			mu.Unlock()
+			w.Header().Set("ETag", `"fake-etag"`)
+			w.WriteHeader(http.StatusOK)
+		case http.MethodHead, http.MethodGet:
+			mu.Lock()
+			body, ok := objs[key]
+			mu.Unlock()
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("ETag", `"fake-etag"`)
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			http.ServeContent(w, r, parts[1], time.Now().UTC(), bytes.NewReader(body))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	store, err := NewMinioStore(u.Host, "aura", "aura-secret", false)
+	if err != nil {
+		t.Fatalf("NewMinioStore: %v", err)
+	}
+	ctx := context.Background()
+	if err := store.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket: %v", err)
+	}
+	if err := store.EnsureRecordingRetention(ctx, 7); err != nil {
+		t.Fatalf("EnsureRecordingRetention: %v", err)
+	}
+	want := []byte("hello-s3-roundtrip")
+	if err := store.PutObject(ctx, "releases/linux-x86_64/0.4.1/aura-node", want, "application/octet-stream"); err != nil {
+		t.Fatalf("PutObject: %v", err)
+	}
+	got, _, err := store.GetObject(ctx, "releases/linux-x86_64/0.4.1/aura-node")
+	if err != nil {
+		t.Fatalf("GetObject: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("GetObject = %q, want %q", got, want)
+	}
+	dlURL, err := store.PresignedGet(ctx, "releases/linux-x86_64/0.4.1/aura-node", time.Minute)
+	if err != nil {
+		t.Fatalf("PresignedGet: %v", err)
+	}
+	resp, err := http.Get(dlURL.String())
+	if err != nil {
+		t.Fatalf("GET PresignedGet URL: %v", err)
+	}
+	defer resp.Body.Close()
+	dlBytes, _ := io.ReadAll(resp.Body)
+	if !bytes.Equal(dlBytes, want) {
+		t.Fatalf("PresignedGet download = %q, want %q", dlBytes, want)
 	}
 }
