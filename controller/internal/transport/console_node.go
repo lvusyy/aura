@@ -22,21 +22,30 @@ func (s *ConsoleServiceServer) UpdateNodeMeta(
 	if nodeID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
 	}
+	tok := IdentityFromContext(ctx)
+	if tok.Scope == ScopeReadOnly {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("token scope 'ro' cannot update node metadata"))
+	}
 	if s.store == nil {
 		// 纯内存运行（未配置 PG）：元数据无持久化后端，编辑不可用（降级 Unavailable，同 ReadNodeScreen
 		// 未配 scheduler 惯例）。
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("node metadata store not configured"))
 	}
-	// M15 项目隔离：项目令牌只能编辑本项目节点，且**不得改归属**（迁移节点跨项目是越权）。全域令牌可
+	// M15 项目隔离：项目令牌只能编辑本项目节点，且**不得改归属**（迁移节点跨项目是越权）。全域 admin 令牌可
 	// 改任意节点归属（proto project 为 optional：未携带=不动归属，携带即写）。先校验节点归属再看改归属请求。
 	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
 		return nil, err
 	}
 	var project *string
 	if req.Msg.Project != nil {
-		if IdentityFromContext(ctx).Project != "" {
+		if tok.Project != "" {
 			return nil, connect.NewError(connect.CodePermissionDenied,
 				errors.New("project-scoped token cannot change a node's project assignment"))
+		}
+		if tok.Scope != "" && tok.Scope != ScopeAdmin {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				errors.New("changing a node's project assignment requires admin scope"))
 		}
 		project = req.Msg.Project
 	}
@@ -67,6 +76,10 @@ func (s *ConsoleServiceServer) DeleteNode(
 	nodeID := req.Msg.GetNodeId()
 	if nodeID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
+	}
+	if tok := IdentityFromContext(ctx); tok.Scope != "" && tok.Scope != ScopeAdmin {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("deleting a node requires admin scope"))
 	}
 	// M15：项目令牌只能删本项目节点（越界 403，先于 offline 守卫——权限判定不依赖在线态）。
 	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
@@ -109,6 +122,10 @@ func (s *ConsoleServiceServer) RevokeNodeCert(
 	nodeID := req.Msg.GetNodeId()
 	if nodeID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
+	}
+	if tok := IdentityFromContext(ctx); tok.Scope != "" && tok.Scope != ScopeAdmin {
+		return nil, connect.NewError(connect.CodePermissionDenied,
+			errors.New("revoking a node certificate requires admin scope"))
 	}
 	// M15：项目令牌只能吊销本项目节点证书（越界 403）。
 	if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {

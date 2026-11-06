@@ -49,13 +49,15 @@ export function EditNodeMetaModal({
     }
     setSaving(true);
     try {
+      const nextProject = v.project?.trim() ?? "";
+      const prevProject = (node.project ?? "").trim();
       const res: UpdateNodeMetaResponse = await consoleClient.updateNodeMeta({
         nodeId: node.nodeId,
         label: v.label?.trim() ?? "",
         location: v.location?.trim() ?? "",
-        // M15：project 为 optional（presence 语义），编辑面总是写入归属（含空=清除）。项目令牌改归属
-        // 会被后端拒（PermissionDenied），错误经 message.error 呈现。
-        project: v.project?.trim() ?? "",
+        // M15：project 为 optional（presence 语义），仅当用户在表单中实际改动了项目归属时才发送 project，
+        // 避免仅编辑标签/位置时触发后端项目归属变更权限校验（项目令牌或 ops 令牌仍可编辑标签/位置）。
+        project: nextProject !== prevProject ? nextProject : undefined,
       });
       if (!res.updated) {
         message.warning("节点不存在或未更新");

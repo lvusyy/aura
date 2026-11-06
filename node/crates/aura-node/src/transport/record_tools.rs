@@ -198,10 +198,23 @@ impl AuraTools {
                 frame_count: artifact.frame_count,
                 truncated: artifact.truncated,
             }),
-            None => Envelope::error(env.error.unwrap_or_else(|| ErrObj {
-                code: "E_INTERNAL".to_string(),
-                message: "stop_recording failed".to_string(),
-            })),
+            None => {
+                // 若底层 stop 失败（非会话已不存在），保留登记条目以便调用方重试 stop 或交由 TTL 惰性回收。
+                let is_gone = env
+                    .error
+                    .as_ref()
+                    .map(|e| e.message.contains("no active recording"))
+                    .unwrap_or(false);
+                if !is_gone {
+                    recordings_guard(&self.recordings)
+                        .entry(rec_id)
+                        .or_insert(session);
+                }
+                Envelope::error(env.error.unwrap_or_else(|| ErrObj {
+                    code: "E_INTERNAL".to_string(),
+                    message: "stop_recording failed".to_string(),
+                }))
+            }
         }
     }
 }

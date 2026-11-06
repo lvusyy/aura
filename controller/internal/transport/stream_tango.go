@@ -194,22 +194,34 @@ func (b *TangoBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	got := []byte(tangoToken(r))
 	want := []byte(b.token)
 	authed := len(got) > 0 && len(want) > 0 && subtle.ConstantTimeCompare(got, want) == 1
+	matchedScope := ""
+	matchedProject := ""
+	if authed {
+		matchedScope = ScopeAdmin
+	}
 	if !authed && len(got) > 0 {
-		for tok := range b.scopes {
+		for tok, sc := range b.scopes {
 			if subtle.ConstantTimeCompare(got, []byte(tok)) == 1 {
 				authed = true
+				matchedScope = sc
 			}
 		}
 		if !authed && b.tokens != nil {
 			sum := sha256.Sum256(got)
-			if _, err := b.tokens.LookupApiToken(r.Context(), hex.EncodeToString(sum[:])); err == nil {
+			if rec, err := b.tokens.LookupApiToken(r.Context(), hex.EncodeToString(sum[:])); err == nil {
 				authed = true
+				matchedScope = rec.Scope
+				matchedProject = rec.Project
 			}
 		}
 	}
 	if !authed {
 		observability.IncAuthFailure("tango")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if matchedScope == ScopeReadOnly {
+		http.Error(w, "forbidden: read-only token cannot open adb tunnel", http.StatusForbidden)
 		return
 	}
 
@@ -219,6 +231,18 @@ func (b *TangoBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if node == "" {
 		http.Error(w, "missing ?node", http.StatusBadRequest)
 		return
+	}
+	if matchedProject != "" {
+		type nodeProjectLooker interface {
+			NodeProject(ctx context.Context, nodeID string) (string, error)
+		}
+		if looker, ok := b.tokens.(nodeProjectLooker); ok {
+			proj, err := looker.NodeProject(r.Context(), node)
+			if err != nil || proj != matchedProject {
+				http.Error(w, "forbidden: token project does not cover this node", http.StatusForbidden)
+				return
+			}
+		}
 	}
 	addr, err := b.resolve(node, q.Get("serial"))
 	if err != nil {

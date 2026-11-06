@@ -27,17 +27,26 @@ func (s *ConsoleServiceServer) RunOrchestration(
 	if err := CheckDispatchScope(ctx, req.Msg.GetTool()); err != nil {
 		return nil, err
 	}
+	for _, nid := range req.Msg.GetNodeIds() {
+		if nid == "" {
+			continue
+		}
+		if err := CheckNodeProjectAccess(ctx, s.store, nid); err != nil {
+			return nil, err
+		}
+	}
 	auditDispatch(ctx, "RunOrchestration", req.Msg.GetWho(),
 		fmt.Sprintf("fanout:%d+group:%s", len(req.Msg.GetNodeIds()), req.Msg.GetEnvGroup()),
 		req.Msg.GetTool(), len(req.Msg.GetJsonArgs()))
 	m := req.Msg
 	res, err := s.orch.Run(ctx, orchestrator.OrchestrationSpec{
-		Tool:       m.GetTool(),
-		JsonArgs:   m.GetJsonArgs(),
-		NodeIDs:    m.GetNodeIds(),
-		EnvGroup:   m.GetEnvGroup(),
-		DeadlineMs: m.GetDeadlineMs(),
-		Who:        m.GetWho(),
+		Tool:           m.GetTool(),
+		JsonArgs:       m.GetJsonArgs(),
+		NodeIDs:        m.GetNodeIds(),
+		EnvGroup:       m.GetEnvGroup(),
+		DeadlineMs:     m.GetDeadlineMs(),
+		Who:            m.GetWho(),
+		AllowedProject: IdentityFromContext(ctx).Project,
 	})
 	if err != nil {
 		// 目标解析失败（node_ids/env_group 均空或解析空集、超上限）——调用方入参问题。

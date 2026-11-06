@@ -38,7 +38,7 @@ func (s *ConsoleServiceServer) WatchFleet(
 		Seq:        snapshotSeq,
 		Type:       aurav1.FleetEventType_FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT,
 		Snapshot:   snapshot,
-		Recordings: s.fleetRecordings(ctx),
+		Recordings: filterRecordingsByNodes(s.fleetRecordings(ctx), snapshot, IdentityFromContext(ctx).Project != ""),
 	}); err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (s *ConsoleServiceServer) WatchFleet(
 				Seq:        s.reg.CurrentSeq(),
 				Type:       aurav1.FleetEventType_FLEET_EVENT_TYPE_HEARTBEAT_SNAPSHOT,
 				Snapshot:   snap,
-				Recordings: s.fleetRecordings(ctx),
+				Recordings: filterRecordingsByNodes(s.fleetRecordings(ctx), snap, IdentityFromContext(ctx).Project != ""),
 			}); err != nil {
 				return err // 心跳发送失败=流断（含中间层已回收连接的显式暴露）
 			}
@@ -108,6 +108,24 @@ func (s *ConsoleServiceServer) fleetRecordings(ctx context.Context) []*aurav1.No
 		recs = append(recs, &aurav1.NodeRecording{NodeId: l.NodeID, Who: l.Who, TraceId: l.TraceID})
 	}
 	return recs
+}
+
+// filterRecordingsByNodes 在项目令牌视界下按当前可见快照节点集过滤录制占用态，防止泄露跨项目节点的活跃录制信息。
+func filterRecordingsByNodes(recs []*aurav1.NodeRecording, visible []*aurav1.NodeInfo, restrict bool) []*aurav1.NodeRecording {
+	if !restrict || len(recs) == 0 {
+		return recs
+	}
+	allowed := make(map[string]struct{}, len(visible))
+	for _, n := range visible {
+		allowed[n.GetNodeId()] = struct{}{}
+	}
+	out := make([]*aurav1.NodeRecording, 0, len(recs))
+	for _, r := range recs {
+		if _, ok := allowed[r.GetNodeId()]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // nodeRecording 组装增量帧覆盖节点的录制占用态（0/1 项）：Get 单节点租约（较 List 免全量扫描）。

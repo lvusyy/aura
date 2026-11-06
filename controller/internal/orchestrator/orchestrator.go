@@ -74,12 +74,13 @@ var (
 // OrchestrationSpec 一次并行编排的输入：一条用例（tool+args）fan-out 至目标集（NodeIDs 直指 or EnvGroup
 // 平台过滤，二选一），各目标以 DeadlineMs 为相对超时并发下发。
 type OrchestrationSpec struct {
-	Tool       string
-	JsonArgs   []byte
-	NodeIDs    []string // 目标节点直指（与 EnvGroup 二选一，优先）
-	EnvGroup   string   // 环境组名（解析为 N 个在线同 platform 节点；与 NodeIDs 二选一）
-	DeadlineMs int64    // 各目标相对超时（透传 scheduler.Dispatch）
-	Who        string   // 审计：发起方标识
+	Tool           string
+	JsonArgs       []byte
+	NodeIDs        []string // 目标节点直指（与 EnvGroup 二选一，优先）
+	EnvGroup       string   // 环境组名（解析为 N 个在线同 platform 节点；与 NodeIDs 二选一）
+	DeadlineMs     int64    // 各目标相对超时（透传 scheduler.Dispatch）
+	Who            string   // 审计：发起方标识
+	AllowedProject string   // M15 项目隔离：非空时 EnvGroup 解析仅保留匹配该项目的节点
 }
 
 // EnvResult 单目标（一个环境）的执行结果，是 join 聚合的一格。
@@ -127,7 +128,7 @@ func NewOrchestrator(reg *registry.NodeRegistry, sched *scheduler.Scheduler, pg 
 // 计入 failed 桶（partial 语义）。store 写入全程 best-effort（失败仅告警不阻断——节点动作已发生，审计
 // 不可回退动作事实）。
 func (o *Orchestrator) Run(ctx context.Context, spec OrchestrationSpec) (Result, error) {
-	targets, err := o.resolveTargets(spec)
+	targets, err := o.resolveTargets(ctx, spec)
 	if err != nil {
 		return Result{}, err
 	}
@@ -171,13 +172,13 @@ func (o *Orchestrator) Run(ctx context.Context, spec OrchestrationSpec) (Result,
 
 // resolveTargets 解析目标节点集：NodeIDs 直指优先（去重保序），否则 EnvGroup 平台过滤；二者皆空或解析
 // 空集 → ErrNoTargets；超上限 → ErrTooManyTargets。
-func (o *Orchestrator) resolveTargets(spec OrchestrationSpec) ([]string, error) {
+func (o *Orchestrator) resolveTargets(ctx context.Context, spec OrchestrationSpec) ([]string, error) {
 	var targets []string
 	switch {
 	case len(spec.NodeIDs) > 0:
 		targets = dedupe(spec.NodeIDs)
 	case spec.EnvGroup != "":
-		targets = o.resolveEnvGroup(spec.EnvGroup)
+		targets = o.resolveEnvGroup(ctx, spec.EnvGroup, spec.AllowedProject)
 	}
 	if len(targets) == 0 {
 		return nil, ErrNoTargets
@@ -188,18 +189,33 @@ func (o *Orchestrator) resolveTargets(spec OrchestrationSpec) ([]string, error) 
 	return targets, nil
 }
 
+// clusterNodeLister 是可选的跨副本在线节点列表接口（*registry.NodeRegistry 实现 ListOnlineCluster）。
+// 单测假实现仅需满足 nodeLister.List()，生产环境自动升级为集群范围在线节点解析。
+type clusterNodeLister interface {
+	ListOnlineCluster(ctx context.Context) []*aurav1.NodeInfo
+}
+
 // resolveEnvGroup 把环境组名解析为在线目标节点集：本 phase 取「platform 过滤」基础语义——env_group 匹配
-// 节点 platform（大小写不敏感）且状态 online 者入选。完整 session-set/label 语义后续增强（YAGNI；NodeInfo
-// 现无 label 维度，不臆造）。
-func (o *Orchestrator) resolveEnvGroup(group string) []string {
+// 节点 platform（大小写不敏感）且状态 online 者入选。若指定了 allowedProject，则同时按节点项目归属过滤。
+func (o *Orchestrator) resolveEnvGroup(ctx context.Context, group, allowedProject string) []string {
 	if o.reg == nil {
 		return nil
 	}
+	var candidates []*aurav1.NodeInfo
+	if cl, ok := o.reg.(clusterNodeLister); ok {
+		candidates = cl.ListOnlineCluster(ctx)
+	} else {
+		candidates = o.reg.List()
+	}
 	var out []string
-	for _, n := range o.reg.List() {
-		if n.GetStatus() == "online" && strings.EqualFold(n.GetPlatform(), group) {
-			out = append(out, n.GetNodeId())
+	for _, n := range candidates {
+		if n.GetStatus() != "online" || !strings.EqualFold(n.GetPlatform(), group) {
+			continue
 		}
+		if allowedProject != "" && n.GetProject() != allowedProject {
+			continue
+		}
+		out = append(out, n.GetNodeId())
 	}
 	return out
 }

@@ -79,11 +79,12 @@ type NodeSession struct {
 
 	mu       sync.RWMutex
 	lastSeen time.Time
-	// label / location：console 可编辑元数据，会话建时以库权威值（Register 经 UpsertNode RETURNING 取）
-	// 初始化，UpdateNodeMeta 经 SetMeta 同步——令 fleet 帧（快照 ListFleet + 增量 broadcast）始终携库
-	// 一致 label/location（消除节点重连自报空值覆盖既有 console 编辑的 stale 展示）。
+	// label / location / project：console 可编辑元数据，会话建时以库权威值（Register 经 UpsertNode RETURNING 取）
+	// 初始化，UpdateNodeMeta 经 SetMeta / SetProject 同步——令 fleet 帧（快照 ListFleet + 增量 broadcast）始终携库
+	// 一致 label/location/project（消除节点重连自报空值覆盖既有 console 编辑或在线节点丢弃 project 的 stale 展示）。
 	label    string
 	location string
+	project  string
 	// M17 能力健康（session-only，同 os_version 先例不入库）：节点心跳捎带的周期巡检结果
 	//（display/screenshot/a11y），SetHealth 整体替换（幂等覆盖）、nodeInfo 回填 NodeInfo.health。
 	// 心跳期持续写 + fleet 快照读，故与 lastSeen 同 mu 守护。
@@ -148,6 +149,20 @@ func (s *NodeSession) SetMeta(label, location string) {
 	s.label = label
 	s.location = location
 	s.mu.Unlock()
+}
+
+// SetProject 设置节点所属项目（会话建时以库权威值初始化 + UpdateNodeMeta 变更归属时同步）。
+func (s *NodeSession) SetProject(project string) {
+	s.mu.Lock()
+	s.project = project
+	s.mu.Unlock()
+}
+
+// Project 返回会话缓存的节点所属项目。
+func (s *NodeSession) Project() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.project
 }
 
 // SetHealth 整体替换能力健康巡检结果（M17，transport 心跳臂调用）。切片元素为 pb 指针，写方
@@ -522,11 +537,31 @@ func (r *NodeRegistry) enrichPeerNode(ctx context.Context, row *aurav1.NodeInfo)
 
 // IsActiveInCluster 报告节点在集群任一副本上是否处于活跃连接态（本机会话优先，miss 时查跨副本 owner）。
 // 供 DeleteNode 守卫与 ReapOnce 保护集共用，防止在副本 B 上误删连在副本 A 上的活跃节点。
+// Redis 瞬断或查询出错时保守视同活跃（fail-safe），绝不因跨副本状态未知而误删在线节点。
 func (r *NodeRegistry) IsActiveInCluster(ctx context.Context, nodeID string) bool {
 	if _, ok := r.Get(nodeID); ok {
 		return true
 	}
-	return r.peerNodeStatus(ctx, nodeID) != "offline"
+	return r.peerNodeActiveOrUnknown(ctx, nodeID)
+}
+
+// peerNodeActiveOrUnknown 供删除/reap 破坏性治理路径判断节点是否在对端副本活跃：
+// 当 Redis owner 查询出错（网络瞬断/超时）时保守返回 true，宁可暂缓删除也不误删对端在线节点。
+func (r *NodeRegistry) peerNodeActiveOrUnknown(ctx context.Context, nodeID string) bool {
+	if r.peerLiveness == nil || nodeID == "" {
+		return false
+	}
+	pctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	owner, err := r.peerLiveness.GetNodeOwner(pctx, nodeID)
+	if err != nil {
+		slog.Warn("fleet peer liveness: owner lookup failed during destructive guard; conservatively treating as active", "node_id", nodeID, "err", err)
+		return true
+	}
+	if owner == "" || (r.selfReplicaID != "" && owner == r.selfReplicaID) {
+		return false
+	}
+	return true
 }
 
 // peerNodeStatus 查询非本机连接节点在对端副本上的活跃状态（"online" / "unhealthy" / "offline"）。
@@ -639,6 +674,7 @@ func (r *NodeRegistry) Remove(s *NodeSession) {
 		Name:       s.Name,
 		Label:      label,
 		Location:   location,
+		Project:    s.Project(),
 	})
 }
 
@@ -684,6 +720,7 @@ func (r *NodeRegistry) nodeInfo(s *NodeSession) *aurav1.NodeInfo {
 		Name:            s.Name,            // M12 节点自报可读名（fleet 替裸 UUID）
 		Label:           label,             // M12 用户标签（库同步，console 编辑权威）
 		Location:        location,          // M12 用户位置（库同步）
+		Project:         s.Project(),       // M15 项目归属（库同步）
 		// M12 批B（节点元数据扩展，在线会话回填）：OsVersion/IpAddress 节点自报（Phase3 node 采集，
 		// 未滚更节点空）；NetworkZone 会话既定（node 探测上报，含未滚更节点）；ConnectedAtMs 会话建立时刻
 		// （console 算 now−此=本次在线时长）。离线节点走 ListFleet 表分支（无会话，os/ip/conn 空，zone 取表）。
@@ -747,7 +784,10 @@ func (r *NodeRegistry) ListFleet(ctx context.Context) []*aurav1.NodeInfo {
 		id := row.GetNodeId()
 		seen[id] = struct{}{}
 		if live, ok := online[id]; ok {
-			out = append(out, live) // 在线：live 态（label/location 已由会话与库同步）
+			if live.GetProject() == "" && row.GetProject() != "" {
+				live.Project = row.GetProject()
+			}
+			out = append(out, live) // 在线：live 态（label/location/project 已由会话与库同步）
 		} else {
 			row.Status = r.peerNodeStatus(ctx, id) // 跨副本探活：对端持有活跃会话则为 online/unhealthy，否则 offline
 			if row.Status != "offline" {
@@ -799,6 +839,9 @@ func (r *NodeRegistry) UpdateNodeMeta(ctx context.Context, nodeID, label, locati
 	// （载荷 NodeInfo 带新 label/location 即元数据变更信号，前端按 node_id 幂等 upsert，无需新增枚举）。
 	if s, ok := r.Get(nodeID); ok {
 		s.SetMeta(label, location)
+		if project != nil {
+			s.SetProject(*project)
+		}
 		r.broadcast(EventStatusChanged, r.nodeInfo(s))
 	}
 	return true, nil
@@ -956,7 +999,7 @@ func (r *NodeRegistry) ReapOnce(ctx context.Context, age time.Duration) (int, er
 				if _, ok := seen[id]; ok {
 					continue
 				}
-				if r.peerNodeStatus(ctx, id) != "offline" {
+				if r.peerNodeActiveOrUnknown(ctx, id) {
 					protected = append(protected, id)
 					seen[id] = struct{}{}
 				}

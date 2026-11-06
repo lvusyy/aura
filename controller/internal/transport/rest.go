@@ -65,24 +65,34 @@ func (s *ControllerAdminServer) ListNodes(
 	return connect.NewResponse(&aurav1.ListNodesResponse{Nodes: nodes}), nil
 }
 
-// filterNodesByProject 按令牌项目视界过滤 NodeInfo 集（M15）：全域令牌原样返回（零 DB 成本）；项目
-// 令牌以 ProjectNodeIDs 集合取交（registry 会话不携 project——归属是管理面持久列非节点自报，故按
-// 库侧集合过滤而非读 NodeInfo 字段，在线/离线路径同一判据）。解析失败 fail-closed 报错。
-func filterNodesByProject(ctx context.Context, pg *store.PGStore, nodes []*aurav1.NodeInfo) ([]*aurav1.NodeInfo, error) {
+// projectAllowedNodeSet 解析项目令牌可见的 node_id 集合：全域令牌返回 (nil, false, nil) 零成本短路；
+// 项目令牌返回 (allowedSet, true, nil)，供 ListTasks/ListTraces/ListRecordings 过滤跨项目数据。
+func projectAllowedNodeSet(ctx context.Context, pg *store.PGStore) (map[string]struct{}, bool, error) {
 	tok := IdentityFromContext(ctx)
 	if tok.Project == "" {
-		return nodes, nil
+		return nil, false, nil
 	}
 	if pg == nil {
-		return nil, nil // 无持久层即无归属节点：项目令牌视界为空集（不变量：无 PG 即无 DB 项目令牌）
+		return map[string]struct{}{}, true, nil
 	}
 	ids, err := pg.ProjectNodeIDs(ctx, tok.Project)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve project nodes: %w", err))
+		return nil, true, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve project nodes: %w", err))
 	}
 	allowed := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		allowed[id] = struct{}{}
+	}
+	return allowed, true, nil
+}
+
+// filterNodesByProject 按令牌项目视界过滤 NodeInfo 集（M15）：全域令牌原样返回（零 DB 成本）；项目
+// 令牌以 ProjectNodeIDs 集合取交（registry 会话不携 project——归属是管理面持久列非节点自报，故按
+// 库侧集合过滤而非读 NodeInfo 字段，在线/离线路径同一判据）。解析失败 fail-closed 报错。
+func filterNodesByProject(ctx context.Context, pg *store.PGStore, nodes []*aurav1.NodeInfo) ([]*aurav1.NodeInfo, error) {
+	allowed, restricted, err := projectAllowedNodeSet(ctx, pg)
+	if err != nil || !restricted {
+		return nodes, err
 	}
 	out := make([]*aurav1.NodeInfo, 0, len(nodes))
 	for _, n := range nodes {

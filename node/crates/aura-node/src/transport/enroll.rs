@@ -96,9 +96,8 @@ pub fn run_enroll(args: EnrollArgs) -> Result<()> {
         .with_context(|| format!("create data dir {}", data_dir.display()))?;
     let platform = args.platform.clone().unwrap_or_else(default_platform);
 
-    // 1) 生成密钥对 + CSR（私钥永不离节点，CSR 路线 Q1）。私钥先落盘 0600（换证成功前即持有，重试幂等）。
+    // 1) 生成密钥对 + CSR（私钥永不离节点，CSR 路线 Q1）。待服务端签发成功后再原子落盘，避免换证失败覆盖既有可用私钥。
     let (key_pem, csr_pem) = generate_keypair_and_csr()?;
-    write_private_key(&data_dir.join("node.key"), &key_pem)?;
 
     // 2) POST /v1/enroll（server-TLS 钉 CA + body token 认证）。
     let ca_pem = std::fs::read(&args.ca)
@@ -112,10 +111,11 @@ pub fn run_enroll(args: EnrollArgs) -> Result<()> {
     };
     let resp: EnrollResponse = http_post_enroll(&args.controller, &ca_pem, &req)?;
 
-    // 3) 落盘 cert/ca/node_id（后续反连以 per-node cert 自证，grpc_reverse 读 <data-dir>/{node.crt,node.key,ca.crt,node_id}）。
-    std::fs::write(data_dir.join("node.crt"), &resp.node_cert_pem).context("write node.crt")?;
-    std::fs::write(data_dir.join("ca.crt"), &resp.ca_cert_pem).context("write ca.crt")?;
-    std::fs::write(data_dir.join("node_id"), &resp.node_id).context("write node_id")?;
+    // 3) 落盘 key/cert/ca/node_id（后续反连以 per-node cert 自证，grpc_reverse 读 <data-dir>/{node.crt,node.key,ca.crt,node_id}）。
+    write_private_key(&data_dir.join("node.key"), &key_pem)?;
+    write_atomic(&data_dir.join("node.crt"), resp.node_cert_pem.as_bytes()).context("write node.crt")?;
+    write_atomic(&data_dir.join("ca.crt"), resp.ca_cert_pem.as_bytes()).context("write ca.crt")?;
+    write_atomic(&data_dir.join("node_id"), resp.node_id.as_bytes()).context("write node_id")?;
     eprintln!(
         "aura-node enrolled: node_id={} platform={} data_dir={}",
         resp.node_id,
@@ -148,10 +148,10 @@ pub fn run_renew(args: RenewArgs) -> Result<()> {
     let req = RenewRequest { csr_pem: &csr_pem, platform: &platform };
     let resp: RenewResponse = http_post_renew(&args.controller, &ca_pem, &identity_pem, &req)?;
 
-    // 换证落盘：新私钥（0600）+ 新证书 + 信任根。旧证书留待自然过期（或 console 吊销）。
+    // 换证落盘：新私钥（0600）+ 新证书 + 信任根（均经同目录临时文件原子替换）。旧证书留待自然过期（或 console 吊销）。
     write_private_key(&node_key, &new_key_pem)?;
-    std::fs::write(&node_crt, &resp.node_cert_pem).context("write renewed node.crt")?;
-    std::fs::write(&ca_crt, &resp.ca_cert_pem).context("write ca.crt")?;
+    write_atomic(&node_crt, resp.node_cert_pem.as_bytes()).context("write renewed node.crt")?;
+    write_atomic(&ca_crt, resp.ca_cert_pem.as_bytes()).context("write ca.crt")?;
     eprintln!("aura-node cert renewed at {}", data_dir.display());
     Ok(())
 }
@@ -232,9 +232,10 @@ fn http_post_renew(
 
 // —— 小工具 ————————————————————————————————————————————————————————————————————
 
-/// 写私钥文件（Unix 0600 仅所有者可读；Windows 靠部署目录 ACL）。私钥红线：永不上传（design §10）。
+/// 写私钥文件（Unix 0600 仅所有者可读；Windows 靠部署目录 ACL），经临时文件写完后 rename 原子替换。私钥红线：永不上传（design §10）。
 fn write_private_key(path: &Path, pem: &str) -> Result<()> {
     use std::io::Write;
+    let tmp = path.with_extension("key.tmp");
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -242,9 +243,26 @@ fn write_private_key(path: &Path, pem: &str) -> Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts.open(path).with_context(|| format!("open {}", path.display()))?;
-    f.write_all(pem.as_bytes())
-        .with_context(|| format!("write {}", path.display()))?;
+    {
+        let mut f = opts.open(&tmp).with_context(|| format!("open {}", tmp.display()))?;
+        f.write_all(pem.as_bytes())
+            .with_context(|| format!("write {}", tmp.display()))?;
+        f.sync_all()
+            .with_context(|| format!("sync {}", tmp.display()))?;
+    }
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
+}
+
+/// 同目录临时文件写入后 rename 原子替换，防止半写损坏凭据。
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
     Ok(())
 }
 

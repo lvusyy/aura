@@ -412,6 +412,7 @@ func (s *NodeControlServer) Connect(
 	// M16：二进制宿主平台回填会话（SelfUpdateNode 制品选型判据；持久面同上由 UpsertNode 落库）。
 	sess.HostPlatform = reg.GetHostPlatform()
 	sess.SetMeta(eff.GetLabel(), eff.GetLocation())
+	sess.SetProject(eff.GetProject())
 	s.registry.Add(sess)
 	defer func() {
 		sess.Close()

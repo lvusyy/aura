@@ -145,10 +145,14 @@ export const usePollingRenderer: DisplayRenderer<PollingRendererParams> = ({
         );
         const env = decodeEnvelope(resp.jsonEnvelope);
         const frame = parseScreenshotEnvelope(env);
-        if (frame && canvasRef.current) {
-          await drawFrameToCanvas(canvasRef.current, frame);
-          frameRef.current = frame;
-          if (!cancelled) {
+        if (frame && canvasRef.current && !cancelled && !ac.signal.aborted) {
+          const drawn = await drawFrameToCanvas(
+            canvasRef.current,
+            frame,
+            () => !cancelled && !ac.signal.aborted,
+          );
+          if (drawn && !cancelled && !ac.signal.aborted) {
+            frameRef.current = frame;
             setLive(true);
             setError(null);
           }

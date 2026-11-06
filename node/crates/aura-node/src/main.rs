@@ -171,8 +171,14 @@ async fn main() -> Result<()> {
     // （下方服务面 match 仍可移动）。
     #[cfg(feature = "enroll")]
     match cli.transport {
-        TransportCmd::Enroll(ref args) => return transport::enroll::run_enroll(args.clone()),
-        TransportCmd::Renew(ref args) => return transport::enroll::run_renew(args.clone()),
+        TransportCmd::Enroll(ref args) => {
+            let args = args.clone();
+            return tokio::task::spawn_blocking(move || transport::enroll::run_enroll(args)).await?;
+        }
+        TransportCmd::Renew(ref args) => {
+            let args = args.clone();
+            return tokio::task::spawn_blocking(move || transport::enroll::run_renew(args)).await?;
+        }
         _ => {}
     }
 

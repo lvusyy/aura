@@ -339,9 +339,12 @@ impl WdaClient {
         Ok(sid)
     }
 
-    /// 清缓存 sid（L1 失效恢复：invalid session → 清后重建重试一次）。
-    fn clear_sid(&self) {
-        *self.sid.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    /// 清缓存 sid（L1 失效恢复：仅当缓存仍为刚才失败的 expected_sid 时才清除，防并发下误抹其他调用刚重建的新 sid）。
+    fn clear_sid_if(&self, expected_sid: &str) {
+        let mut guard = self.sid.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.as_deref() == Some(expected_sid) {
+            *guard = None;
+        }
     }
 
     /// 建 session 后设 WDA 快照深度上限（`POST /session/{sid}/appium/settings`）。直接 [`WdaClient::http_call`]
@@ -385,8 +388,8 @@ impl WdaClient {
         let sid = self.ensure_session()?;
         match self.http_call(method, path, Some(&sid), json_body.as_deref()) {
             Ok((status, body)) if is_invalid_session(status, &body) => {
-                // L1：sid 失效 → 清缓存 → 重建 session → 重试一次（仅一次，§3.3）。
-                self.clear_sid();
+                // L1：sid 失效 → 按值比对清缓存 → 重建 session → 重试一次（仅一次，§3.3）。
+                self.clear_sid_if(&sid);
                 let sid2 = self.ensure_session()?;
                 self.http_call(method, path, Some(&sid2), json_body.as_deref())
                     .map_err(|e| self.map_transport_failure(path, e))

@@ -78,6 +78,15 @@ func (s *ConsoleServiceServer) ListTasks(
 	if s.store == nil {
 		return connect.NewResponse(&aurav1.ListTasksResponse{}), nil
 	}
+	if nodeID := req.Msg.GetNodeId(); nodeID != "" {
+		if err := CheckNodeProjectAccess(ctx, s.store, nodeID); err != nil {
+			return nil, err
+		}
+	}
+	allowed, restricted, err := projectAllowedNodeSet(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
 	pageSize := normalizeTracePageSize(req.Msg.GetPageSize())
 	rows, next, err := s.store.ListTasks(ctx, pageSize, req.Msg.GetPageToken(), req.Msg.GetNodeId(), req.Msg.GetOrchestrationId())
 	if err != nil {
@@ -86,6 +95,11 @@ func (s *ConsoleServiceServer) ListTasks(
 	}
 	tasks := make([]*aurav1.TaskSummary, 0, len(rows))
 	for _, r := range rows {
+		if restricted {
+			if _, ok := allowed[r.NodeID]; !ok {
+				continue
+			}
+		}
 		tasks = append(tasks, taskRowToSummary(r))
 	}
 	return connect.NewResponse(&aurav1.ListTasksResponse{Tasks: tasks, NextPageToken: next}), nil
@@ -112,6 +126,11 @@ func (s *ConsoleServiceServer) GetTask(
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get task: %w", err))
 	}
+	if d.NodeID != "" {
+		if err := CheckNodeProjectAccess(ctx, s.store, d.NodeID); err != nil {
+			return nil, err
+		}
+	}
 	resp := &aurav1.GetTaskResponse{
 		Task:         taskRowToSummary(d.TaskRow),
 		JsonEnvelope: d.JsonEnvelope,
@@ -136,6 +155,10 @@ func (s *ConsoleServiceServer) ListTraces(
 	if s.store == nil {
 		return connect.NewResponse(&aurav1.ListTracesResponse{}), nil
 	}
+	allowed, restricted, err := projectAllowedNodeSet(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
 	pageSize := normalizeTracePageSize(req.Msg.GetPageSize())
 	rows, next, err := s.store.ListTraces(ctx, pageSize, req.Msg.GetPageToken())
 	if err != nil {
@@ -143,6 +166,11 @@ func (s *ConsoleServiceServer) ListTraces(
 	}
 	traces := make([]*aurav1.TraceSummary, 0, len(rows))
 	for _, r := range rows {
+		if restricted {
+			if _, ok := allowed[r.NodeID]; !ok {
+				continue
+			}
+		}
 		traces = append(traces, traceRowToSummary(r))
 	}
 	return connect.NewResponse(&aurav1.ListTracesResponse{Traces: traces, NextPageToken: next}), nil

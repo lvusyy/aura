@@ -53,3 +53,25 @@ func TestRevokeNodeCertGuards(t *testing.T) {
 		t.Fatalf("RevokeNodeCert 纯内存: want Unavailable, got %v", err)
 	}
 }
+
+// TestNodeGovernanceScopeGuards 验证 UpdateNodeMeta / DeleteNode / RevokeNodeCert 的 RBAC 作用域门控：
+// ro 禁改节点元数据，ro/ops 禁删节点与吊销证书。
+func TestNodeGovernanceScopeGuards(t *testing.T) {
+	reg := registry.NewRegistry(nil)
+	srv := NewConsoleServiceServer(reg, nil, nil, nil, nil)
+
+	roCtx := WithIdentity(context.Background(), TokenIdentity{Name: "ro-tok", Scope: ScopeReadOnly})
+	opsCtx := WithIdentity(context.Background(), TokenIdentity{Name: "ops-tok", Scope: ScopeOps})
+
+	if _, err := srv.UpdateNodeMeta(roCtx, connect.NewRequest(&aurav1.UpdateNodeMetaRequest{NodeId: "n1", Label: "x"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("UpdateNodeMeta ro: want PermissionDenied, got %v", err)
+	}
+	for _, c := range []context.Context{roCtx, opsCtx} {
+		if _, err := srv.DeleteNode(c, connect.NewRequest(&aurav1.DeleteNodeRequest{NodeId: "n1"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+			t.Fatalf("DeleteNode non-admin: want PermissionDenied, got %v", err)
+		}
+		if _, err := srv.RevokeNodeCert(c, connect.NewRequest(&aurav1.RevokeNodeCertRequest{NodeId: "n1"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+			t.Fatalf("RevokeNodeCert non-admin: want PermissionDenied, got %v", err)
+		}
+	}
+}

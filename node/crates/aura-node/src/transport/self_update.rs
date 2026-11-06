@@ -96,16 +96,15 @@ pub async fn handle(
         IN_FLIGHT.store(false, Ordering::SeqCst);
         return;
     }
-    // M17 T2：换刀成功即写 pending 标记——新二进制启动后 register 成功才 commit 清除；
-    // 启动崩溃循环 / 试用窗内未注册由 startup_check_and_arm 依此回滚 .old（启动健康回滚闭环）。
-    write_pending(&data_dir, &version);
-
     tracing::info!(version = %version, exe = %ctx.exe.display(), "self-update swapped; reporting and restarting");
     send_result(&mut resp_tx, &version, Ok(())).await;
     tokio::time::sleep(RESULT_FLUSH_DELAY).await;
     // 进行中录制逐个 stop finalize（沿 T1.4 优雅退出同一收尾面）；in-flight 工具请求随重启中断，
     // rollout 应选空闲窗执行（文档约定，不做节点侧排空——KISS）。
     tools.flush_recordings_on_shutdown().await;
+    // M17 T2：在旧进程即将 exec/重启前的最后一刻写 pending 标记——避免在 RESULT_FLUSH_DELAY 期间旧进程
+    // 偶发重连收到 RegisterAck 误提前 commit；新二进制启动后 register 成功才 commit 清除。
+    write_pending(&data_dir, &version);
     restart(&ctx);
 }
 
@@ -479,6 +478,9 @@ pub fn startup_check_and_arm(data_dir: &Path, ctx: &Option<UpdateContext>) {
 /// register 成功（RegisterAck accepted）后 commit（connect_once 调用，幂等）：pending 在即
 /// 「试用通过」清除标记；不在为 no-op（心跳期重连路径零成本）。
 pub fn commit_pending(data_dir: &Path) {
+    if IN_FLIGHT.load(Ordering::SeqCst) {
+        return;
+    }
     let p = pending_path(data_dir);
     if !p.exists() {
         return;

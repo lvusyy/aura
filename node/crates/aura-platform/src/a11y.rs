@@ -121,7 +121,9 @@ mod backend {
             truncated: false,
         };
         // 顶层 nodes = 选定根的直接子节点（各为一棵子树），depth 自其下计。
-        let children = root.find_all(TreeScope::Children, &cond).unwrap_or_default();
+        let children = root
+            .find_all(TreeScope::Children, &cond)
+            .map_err(|e| CapError::Internal(format!("enumerate root a11y children failed: {e}")))?;
         let mut nodes = Vec::new();
         for child in children {
             if budget.remaining == 0 {
@@ -185,7 +187,13 @@ mod backend {
             children: Vec::new(),
         };
 
-        let children = element.find_all(TreeScope::Children, cond).unwrap_or_default();
+        let children = match element.find_all(TreeScope::Children, cond) {
+            Ok(c) => c,
+            Err(_) => {
+                budget.truncated = true;
+                Vec::new()
+            }
+        };
         if depth == 0 {
             // 到达深度上限：若确有子节点则标记截断（树未完整）。
             if !children.is_empty() {
@@ -311,7 +319,10 @@ mod backend {
             // peer 永不可得——总线路由是唯一可用且正确的路径。
             let obj_name = match obj.name() {
                 Some(n) => n.to_owned(),
-                None => return None,
+                None => {
+                    budget.truncated = true;
+                    return None;
+                }
             };
             let builder = AccessibleProxy::builder(conn.connection())
                 .destination(obj_name)
@@ -319,9 +330,15 @@ mod backend {
             let proxy = match builder {
                 Ok(b) => match b.cache_properties(CacheProperties::No).build().await {
                     Ok(p) => p,
-                    Err(_) => return None,
+                    Err(_) => {
+                        budget.truncated = true;
+                        return None;
+                    }
                 },
-                Err(_) => return None,
+                Err(_) => {
+                    budget.truncated = true;
+                    return None;
+                }
             };
             let role = proxy
                 .get_role_name()
@@ -340,7 +357,13 @@ mod backend {
                 children: Vec::new(),
             };
 
-            let children = proxy.get_children().await.unwrap_or_default();
+            let children = match proxy.get_children().await {
+                Ok(c) => c,
+                Err(_) => {
+                    budget.truncated = true;
+                    Vec::new()
+                }
+            };
             if depth == 0 {
                 if !children.is_empty() {
                     budget.truncated = true;

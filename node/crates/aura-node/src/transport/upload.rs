@@ -110,22 +110,23 @@ pub async fn put_bytes(presigned_url: &str, body: Vec<u8>, local_addr: Option<Ip
     let client: Client<_, Full<Bytes>> =
         Client::builder(TokioExecutor::new()).build(local_bound_connector(local_addr));
 
-    // 硬超时：对象存储不读 body 而挂起时快速失败，避免连接无限泄漏（冒烟期真实踩中跨网段丢包挂起）。
-    let resp = tokio::time::timeout(PUT_TIMEOUT, client.request(req))
-        .await
-        .map_err(|_| anyhow!("presigned PUT timed out after {}s", PUT_TIMEOUT.as_secs()))?
-        .context("send PUT request")?;
-    let status = resp.status();
-    let etag = resp
-        .headers()
-        .get(hyper::header::ETAG)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .trim_matches('"')
-        .to_string();
-
-    // 收尽响应体以释放连接（预签名 PUT 响应体通常为空）。
-    let _ = resp.into_body().collect().await;
+    // 建连→响应头→响应体收尽单伞硬超时：对象存储不读 body 或响应体半途挂起时快速失败，避免连接无限泄漏。
+    let (status, etag) = tokio::time::timeout(PUT_TIMEOUT, async {
+        let resp = client.request(req).await.context("send PUT request")?;
+        let status = resp.status();
+        let etag = resp
+            .headers()
+            .get(hyper::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .trim_matches('"')
+            .to_string();
+        // 收尽响应体以释放连接（预签名 PUT 响应体通常为空）。
+        let _ = resp.into_body().collect().await;
+        Ok::<_, anyhow::Error>((status, etag))
+    })
+    .await
+    .map_err(|_| anyhow!("presigned PUT timed out after {}s", PUT_TIMEOUT.as_secs()))??;
 
     if !status.is_success() {
         return Err(anyhow!("presigned PUT failed: HTTP {}", status.as_u16()));

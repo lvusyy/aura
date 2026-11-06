@@ -93,6 +93,10 @@ fn input_thread_main(mut rx: mpsc::Receiver<(InputCommand, Reply)>) {
         }
     };
     while let Some((cmd, reply)) = rx.blocking_recv() {
+        // 若调用方已因超时取消（oneshot receiver 已 drop），直接跳过该积压命令，防止迟到的幽灵点击/按键污染当前界面。
+        if reply.is_closed() {
+            continue;
+        }
         let _ = reply.send(apply(&mut enigo, cmd));
     }
 }
@@ -138,12 +142,13 @@ fn apply(enigo: &mut Enigo, cmd: InputCommand) -> Result<(), CapError> {
             enigo
                 .button(Button::Left, Direction::Press)
                 .map_err(input_err)?;
-            enigo
+            let move_res = enigo
                 .move_mouse(to.0, to.1, EnigoCoord::Abs)
-                .map_err(input_err)?;
-            enigo
+                .map_err(input_err);
+            let release_res = enigo
                 .button(Button::Left, Direction::Release)
-                .map_err(input_err)
+                .map_err(input_err);
+            move_res.and(release_res)
         }
         InputCommand::MoveMouse { x, y } => {
             let (x, y) = native_to_input(x, y);

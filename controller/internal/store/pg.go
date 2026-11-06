@@ -96,7 +96,7 @@ ON CONFLICT (id) DO UPDATE SET
 	host_platform = COALESCE(NULLIF(EXCLUDED.host_platform, ''), nodes.host_platform),
 	last_seen    = now(),
 	status       = EXCLUDED.status
-RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
+RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, ''), COALESCE(project, '')`
 	eff := &aurav1.NodeInfo{
 		NodeId:   node.GetNodeId(),
 		Platform: node.GetPlatform(),
@@ -104,7 +104,7 @@ RETURNING COALESCE(name, ''), COALESCE(label, ''), COALESCE(location, '')`
 	}
 	if err := s.pool.QueryRow(ctx, q, id, node.GetPlatform(), node.GetName(), hostname, node.GetLabel(), node.GetLocation(), networkZone, certFP,
 		node.GetRuntimeKind(), node.GetInfraHost(), node.GetAttached(), node.GetNodeVersion(), node.GetHostPlatform(), node.GetStatus()).
-		Scan(&eff.Name, &eff.Label, &eff.Location); err != nil {
+		Scan(&eff.Name, &eff.Label, &eff.Location, &eff.Project); err != nil {
 		return nil, fmt.Errorf("upsert node: %w", err)
 	}
 	return eff, nil

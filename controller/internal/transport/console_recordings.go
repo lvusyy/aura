@@ -48,8 +48,24 @@ func (s *ConsoleServiceServer) ListRecordings(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list recordings: %w", err))
 	}
+	allowed, restricted, err := projectAllowedNodeSet(ctx, s.store)
+	if err != nil {
+		return nil, err
+	}
 	pageSize := normalizeRecordingsPageSize(req.Msg.GetPageSize())
 	offset := parseOffsetToken(req.Msg.GetPageToken())
+	if restricted {
+		allMeta := s.recordingMeta(ctx, objs)
+		filtered := make([]storage.RecordingObject, 0, len(objs))
+		for _, o := range objs {
+			if m, ok := allMeta[o.Key]; ok {
+				if _, ok := allowed[m.NodeID]; ok {
+					filtered = append(filtered, o)
+				}
+			}
+		}
+		objs = filtered
+	}
 	page, next := pageRecordings(objs, offset, pageSize)
 	meta := s.recordingMeta(ctx, page)
 	recs := make([]*aurav1.Recording, 0, len(page))

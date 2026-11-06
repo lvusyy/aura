@@ -66,11 +66,19 @@ function numOr(v: unknown, fallback: number): number {
 }
 
 // 将 webp base64 帧绘制到 canvas：canvas 内部像素缓冲设为 display 尺寸（1:1 XGA），异步等图解码后 drawImage。
-// 返回 Promise 在绘制完成/失败后 resolve（失败静默，保留上一帧、下一帧重试）。
-export function drawFrameToCanvas(canvas: HTMLCanvasElement, frame: ScreenFrame): Promise<void> {
+// 返回 Promise<boolean> 表示是否实际绘制成功（若解码期间切走节点 shouldCommit() 返回 false 或解码失败，则不污染 canvas 并返回 false）。
+export function drawFrameToCanvas(
+  canvas: HTMLCanvasElement,
+  frame: ScreenFrame,
+  shouldCommit?: () => boolean,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      if (shouldCommit && !shouldCommit()) {
+        resolve(false);
+        return;
+      }
       // canvas 缓冲 = display 尺寸；图片固有像素即 display（XGA 缩放图），drawImage 铺满 1:1 无重采样。
       canvas.width = frame.displayW;
       canvas.height = frame.displayH;
@@ -78,9 +86,9 @@ export function drawFrameToCanvas(canvas: HTMLCanvasElement, frame: ScreenFrame)
       if (ctx) {
         ctx.drawImage(img, 0, 0, frame.displayW, frame.displayH);
       }
-      resolve();
+      resolve(true);
     };
-    img.onerror = () => resolve(); // webp 解码失败静默（浏览器兼容兜底，内网 Chromium 假定 OK）
+    img.onerror = () => resolve(false); // webp 解码失败静默（浏览器兼容兜底，内网 Chromium 假定 OK）
     img.src = `data:${frame.mime};base64,${frame.imageBase64}`;
   });
 }
