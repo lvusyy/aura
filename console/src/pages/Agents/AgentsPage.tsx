@@ -57,7 +57,22 @@ function accessGuides(addr: string): { key: string; label: string; body: string 
     {
       key: "claude-code",
       label: "Claude Code",
-      body: `# 原生 MCP 客户端，Streamable HTTP 直连\nclaude mcp add --transport http aura ${url}\n\n# 若节点开启了访问令牌门槛（AURA_MCP_TOKEN）：\nclaude mcp add --transport http aura ${url} \\\n  --header "Authorization: Bearer <你的 AURA_MCP_TOKEN>"`,
+      body: `# 方式一（推荐）：auractl 自动写入配置\nauractl mcp setup --client claude-code --url ${url}\n\n# 方式二：Claude Code 原生命令行注册\nclaude mcp add --transport http aura ${url}\n\n# 若节点开启了访问令牌门槛（AURA_MCP_TOKEN）：\nclaude mcp add --transport http aura ${url} \\\n  --header "Authorization: Bearer <你的 AURA_MCP_TOKEN>"`,
+    },
+    {
+      key: "cursor",
+      label: "Cursor",
+      body: `# 方式一（推荐）：一条命令自动无损合并至 ~/.cursor/mcp.json\nauractl mcp setup --client cursor --url ${url}\n\n# 方式二：手动编辑 ~/.cursor/mcp.json 或项目级 .cursor/mcp.json\n{\n  "mcpServers": {\n    "aura": {\n      "url": "${url}"\n    }\n  }\n}`,
+    },
+    {
+      key: "claude-desktop",
+      label: "Claude Desktop（经 auractl mcp bridge）",
+      body: `# Claude Desktop 原生仅支持 stdio MCP，auractl 内置桥接器可零依赖将 stdio 转发至 HTTP/网关：\nauractl mcp setup --client claude-desktop --url ${url}\n\n# 自动生成的 claude_desktop_config.json 等效内容：\n{\n  "mcpServers": {\n    "aura": {\n      "command": "auractl",\n      "args": ["mcp", "bridge", "--url", "${url}"]\n    }\n  }\n}`,
+    },
+    {
+      key: "windsurf",
+      label: "Windsurf",
+      body: `# 方式一（推荐）：一条命令自动无损合并至 ~/.codeium/windsurf/mcp_config.json\nauractl mcp setup --client windsurf --url ${url}\n\n# 方式二：手动配置 ~/.codeium/windsurf/mcp_config.json\n{\n  "mcpServers": {\n    "aura": {\n      "serverUrl": "${url}"\n    }\n  }\n}`,
     },
     {
       key: "codex",
@@ -189,6 +204,11 @@ export function AgentsPage() {
     return nodeFilter
       ? `${window.location.origin}/v1/mcp/${nodeFilter}`
       : `${window.location.origin}/v1/mcp/<节点ID>`;
+  }, [nodeFilter]);
+
+  const autoSetupCmd = useMemo(() => {
+    const nodeArg = nodeFilter || "<节点ID>";
+    return `auractl --server ${window.location.origin} --token <你的访问令牌> --insecure mcp setup ${nodeArg}`;
   }, [nodeFilter]);
 
   const callsTotal = overview ? Number(overview.callsTotal) : 0;
@@ -376,6 +396,25 @@ export function AgentsPage() {
       </Card>
 
       <Card title="接入指引" size="small">
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="一键自动适配主流 Agent（推荐：免手改 JSON/TOML）"
+          description={
+            <>
+              <Paragraph style={{ marginBottom: 4 }}>
+                运行 <Text code>auractl mcp setup</Text> 自动探测本机已安装的 Coding Agent（Claude Code / Claude Desktop /
+                Cursor / Windsurf / Codex / Gemini CLI / Cline / OpenCode / OpenClaw），无损合并配置并自动创建{" "}
+                <Text code>.bak</Text> 备份；针对自签名 HTTPS 或仅支持 <Text code>stdio</Text> 的客户端自动挂载{" "}
+                <Text code>auractl mcp bridge</Text>：
+              </Paragraph>
+              <Paragraph copyable={{ text: autoSetupCmd }} style={{ marginBottom: 0 }}>
+                <Text code>{autoSetupCmd}</Text>
+              </Paragraph>
+            </>
+          }
+        />
         <Alert
           type="info"
           showIcon

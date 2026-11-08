@@ -83,6 +83,8 @@ func run(argv []string) error {
 		return cmdComputer(ctx, client, args[1:])
 	case "agent":
 		return cmdAgent(ctx, client, args[1:])
+	case "mcp":
+		return cmdMcp(ctx, client, restConfig{httpClient: httpClient, server: *server, token: *token}, *insecure, *cacert, args[1:])
 	case "a11y":
 		return cmdA11y(ctx, client, args[1:])
 	case "env":
@@ -159,6 +161,8 @@ Commands:
   wait-element <node-id> <target> [--state present|absent]             poll until UI element appears or disappears
   computer <node-id> [--action A] [--som N] [--ui-tars S] [--target T] multi-model Computer-Use adapter (Claude/OpenAI/UI-TARS)
   agent run <node-id> <goal> [--max-steps N] [--llm-endpoint URL]      autonomous multi-step GUI agent loop
+  mcp setup [<node-id>] [--client auto|all|cursor,claude-code,...]     one-command auto-onboarding for coding agents
+  mcp bridge <node-id> [--url HTTP_MCP_URL]                            stdio-to-Streamable-HTTP MCP bridge
   a11y <node-id> [--depth N] [--role R] [--max-nodes N]                inspect node accessibility tree
   env create --kind ephemeral|persistent [--template N]               create an environment
   env destroy <env-id>                                                destroy an environment
