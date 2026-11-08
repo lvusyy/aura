@@ -11,6 +11,28 @@ export default defineConfig({
     outDir: "../controller/internal/console/dist",
     // outDir 在工程根之外，显式允许清空。
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("@ant-design/icons")) {
+              return "vendor-icons";
+            }
+            if (id.includes("antd") || id.includes("@ant-design") || id.includes("rc-")) {
+              return "vendor-antd";
+            }
+            if (id.includes("@connectrpc") || id.includes("@bufbuild")) {
+              return "vendor-rpc";
+            }
+            if (id.includes("@yume-chan") || id.includes("scrcpy")) {
+              return "vendor-tango";
+            }
+            return "vendor-core";
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {
