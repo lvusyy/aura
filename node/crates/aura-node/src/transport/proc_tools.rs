@@ -25,6 +25,7 @@ pub struct KillProcessParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FilePushParams {
     /// 节点侧目标路径。
+    #[serde(alias = "path")]
     pub remote_path: String,
     /// base64 编码的文件内容。
     pub content_base64: String,
@@ -34,6 +35,7 @@ pub struct FilePushParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FilePullParams {
     /// 节点侧源路径。
+    #[serde(alias = "path")]
     pub remote_path: String,
 }
 
@@ -41,6 +43,7 @@ pub struct FilePullParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RunCommandParams {
     /// 可执行命令。
+    #[serde(alias = "command")]
     pub cmd: String,
     /// 命令参数。
     #[serde(default)]

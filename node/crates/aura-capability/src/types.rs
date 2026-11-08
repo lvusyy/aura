@@ -300,9 +300,10 @@ pub struct AssertParams {
     /// 判 passed，缺省 0.05）、`method`（`pixel` 缺省 / `ssim`）。
     pub mode: AssertMode,
     /// 期望匹配的目标串。
+    #[serde(alias = "expected")]
     pub expect: String,
     /// 匹配方式：`contains`（缺省）| `equals`。
-    #[serde(default)]
+    #[serde(default, alias = "match_kind")]
     pub match_type: MatchType,
     /// 期望成立性：`true`（缺省）= 期望匹配存在（命中则 passed=true）；
     /// `false` = 反向断言，期望匹配不存在（未命中则 passed=true）。
