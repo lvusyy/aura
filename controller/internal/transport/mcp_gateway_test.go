@@ -1,13 +1,21 @@
 package transport
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
+
+	aurav1 "github.com/aura/controller/gen/aura/v1"
+	"github.com/aura/controller/internal/fusion"
 	"github.com/aura/controller/internal/registry"
 	"github.com/aura/controller/internal/scheduler"
+	"github.com/aura/controller/internal/selection"
 )
 
 // gwRequest 构造一次带 scope 的网关请求（scope 经 ctx 注入，模拟 BearerMiddleware 之后的形态；
@@ -117,5 +125,136 @@ func TestMaybeAugmentToolsListIncludesAllSemanticTools(t *testing.T) {
 		if !strings.Contains(aug, want) {
 			t.Fatalf("expected augmented tools/list to contain %q, got %s", want, aug)
 		}
+	}
+}
+
+type fakeGatewayDisp struct {
+	shotB64 string
+}
+
+func (f *fakeGatewayDisp) Dispatch(_ context.Context, _, tool string, _ []byte, _ int64, _, _ string) (*aurav1.ToolResponse, string, error) {
+	var data any
+	switch tool {
+	case "get_a11y_tree":
+		b := [4]int32{100, 80, 160, 40}
+		data = fusion.A11yTree{
+			Nodes: []fusion.A11yNode{
+				{Role: "button", Name: "Confirm", Bounds: &b},
+			},
+		}
+	case "screenshot":
+		data = map[string]any{
+			"image_base64": f.shotB64,
+			"mime":         "image/webp",
+			"meta": map[string]any{
+				"native_w":    1920,
+				"native_h":    1080,
+				"display_w":   960,
+				"display_h":   540,
+				"scale":       2.0,
+				"snapshot_id": "snap-gw-e2e",
+			},
+		}
+	default:
+		data = map[string]any{"ok": true}
+	}
+	raw, _ := json.Marshal(map[string]any{"ok": true, "data": data})
+	return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+}
+
+// TestMcpGatewayAndRestAllSixSemanticToolsEndToEnd 系统性验证控制面合成的 6 项高阶 GUI 工具
+// （locate_element / click_element / annotate_screen / wait_for_element / computer / run_agent_task）
+// 在 `/v1/mcp/<node_id>` (MCP JSON-RPC) 与 `ControllerAdmin.DispatchTool` (REST) 双入口下的端到端闭环。
+func TestMcpGatewayAndRestAllSixSemanticToolsEndToEnd(t *testing.T) {
+	disp := &fakeGatewayDisp{
+		shotB64: base64.StdEncoding.EncodeToString([]byte("fake-webp-bytes")),
+	}
+	sel := selection.NewSelectorEngine(disp, nil, "", "")
+	reg := registry.NewRegistry(nil)
+	gwHandler := McpGatewayHandler(reg, nil, nil, sel)
+	adminSrv := &ControllerAdminServer{selector: sel}
+
+	cases := []struct {
+		name     string
+		tool     string
+		argsJSON string
+		wantImg  bool
+	}{
+		{
+			name:     "locate_element",
+			tool:     "locate_element",
+			argsJSON: `{"target":"Confirm"}`,
+		},
+		{
+			name:     "click_element_with_type_and_key",
+			tool:     "click_element",
+			argsJSON: `{"target":"Confirm","double_click":true,"type_text":"aura","press_key":"Return"}`,
+		},
+		{
+			name:     "annotate_screen_som",
+			tool:     "annotate_screen",
+			argsJSON: `{"max_elements":10}`,
+			wantImg:  true,
+		},
+		{
+			name:     "wait_for_element_present",
+			tool:     "wait_for_element",
+			argsJSON: `{"target":"Confirm","state":"present","timeout_ms":1000}`,
+		},
+		{
+			name:     "computer_ui_tars_and_auto_screenshot",
+			tool:     "computer",
+			argsJSON: `{"ui_tars_action":"Action: click(start_box='(500, 500)')","auto_screenshot":true}`,
+			wantImg:  true,
+		},
+		{
+			name:     "run_agent_task_pipeline",
+			tool:     "run_agent_task",
+			argsJSON: `{"goal":"wait_for Confirm -> click Confirm -> type ready -> key Return"}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 1. 验证 MCP Gateway `/v1/mcp/node-1`
+			rpcPayload := `{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"` + tc.tool + `","arguments":` + tc.argsJSON + `}}`
+			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/node-1", strings.NewReader(rpcPayload))
+			rec := httptest.NewRecorder()
+			gwHandler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("MCP gateway %s: HTTP %d: %s", tc.tool, rec.Code, rec.Body.String())
+			}
+			var rpcResp struct {
+				Result struct {
+					IsError bool             `json:"isError"`
+					Content []map[string]any `json:"content"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &rpcResp); err != nil {
+				t.Fatalf("MCP gateway %s invalid JSON: %v", tc.tool, err)
+			}
+			if rpcResp.Result.IsError {
+				t.Fatalf("MCP gateway %s returned isError=true: %s", tc.tool, rec.Body.String())
+			}
+			if tc.wantImg && len(rpcResp.Result.Content) < 2 {
+				t.Fatalf("MCP gateway %s expected image content block, got %d blocks", tc.tool, len(rpcResp.Result.Content))
+			}
+
+			// 2. 验证 ControllerAdmin.DispatchTool REST 入口
+			restResp, err := adminSrv.DispatchTool(context.Background(), connect.NewRequest(&aurav1.DispatchToolRequest{
+				NodeId:   "node-1",
+				Tool:     tc.tool,
+				JsonArgs: []byte(tc.argsJSON),
+			}))
+			if err != nil {
+				t.Fatalf("REST DispatchTool %s error: %v", tc.tool, err)
+			}
+			var env struct {
+				Ok bool `json:"ok"`
+			}
+			if err := json.Unmarshal(restResp.Msg.GetJsonEnvelope(), &env); err != nil || !env.Ok {
+				t.Fatalf("REST DispatchTool %s ok=false: %s", tc.tool, string(restResp.Msg.GetJsonEnvelope()))
+			}
+		})
 	}
 }
