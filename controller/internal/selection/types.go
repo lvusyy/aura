@@ -308,6 +308,7 @@ type VLMPlanRequest struct {
 	Goal      string
 	Annotated AnnotateOutput
 	History   []AgentStepLog
+	StuckHint string
 }
 
 // AgentPlannerClient 是多模态 VLM 规划器窄接口（隔离第三方 HTTP 协议与鉴权）。
@@ -332,16 +333,18 @@ type AgentTaskInput struct {
 
 // AgentStepLog 记录端到端 Agent Loop 单步决策与执行轨迹。
 type AgentStepLog struct {
-	Step       int      `json:"step"`
-	SubGoal    string   `json:"sub_goal,omitempty"`
-	Thought    string   `json:"thought,omitempty"`
-	Action     string   `json:"action"`
-	Target     string   `json:"target,omitempty"`
-	SoMIndex   *int     `json:"som_index,omitempty"`
-	Coordinate [2]int32 `json:"coordinate,omitempty"`
-	Status     string   `json:"status"` // "ok" | "completed" | "failed"
-	LatencyMs  int64    `json:"latency_ms"`
-	Detail     string   `json:"detail"`
+	Step          int      `json:"step"`
+	SubGoal       string   `json:"sub_goal,omitempty"`
+	Thought       string   `json:"thought,omitempty"`
+	Action        string   `json:"action"`
+	Target        string   `json:"target,omitempty"`
+	SoMIndex      *int     `json:"som_index,omitempty"`
+	Coordinate    [2]int32 `json:"coordinate,omitempty"`
+	Status        string   `json:"status"` // "ok" | "completed" | "failed"
+	ScreenChanged bool     `json:"screen_changed,omitempty"`
+	StuckWarning  string   `json:"stuck_warning,omitempty"`
+	LatencyMs     int64    `json:"latency_ms"`
+	Detail        string   `json:"detail"`
 }
 
 // AgentTaskOutput 是端到端 GUI Agent 任务闭环的结构化输出。

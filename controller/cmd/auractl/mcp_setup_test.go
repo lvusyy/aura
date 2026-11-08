@@ -109,6 +109,32 @@ func TestMcpSetupMergesNonDestructivelyAndRemoves(t *testing.T) {
 	if !strings.Contains(string(codexCleaned), "[profiles.work] # inline section comment") || strings.Contains(string(codexCleaned), "mcp_servers.aura") {
 		t.Fatalf("unexpected codex config after remove:\n%s", string(codexCleaned))
 	}
+	// 验证含空白、单引号及多行字符串内伪造 [mcp_servers.aura] 的 Codex TOML 能被精准剥离与保留
+	trickyTOML := strings.Join([]string{
+		`notes = """`,
+		`[mcp_servers.aura]`,
+		`url = "http://inside-multiline-string-must-stay"`,
+		`"""`,
+		``,
+		`[ mcp_servers . 'aura' ]`,
+		`url = "http://old-single-quoted"`,
+		``,
+		`[profiles.work]`,
+		`model = "o3"`,
+	}, "\n")
+	if err := os.WriteFile(codexPath, []byte(trickyTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mergedTricky, err := applyAgentConfigFile(codexSpec, codexPath, opts, false)
+	if err != nil {
+		t.Fatalf("applyAgentConfigFile on tricky TOML failed: %v", err)
+	}
+	if strings.Contains(mergedTricky, "http://old-single-quoted") {
+		t.Fatalf("expected [ mcp_servers . 'aura' ] section to be replaced, got:\n%s", mergedTricky)
+	}
+	if !strings.Contains(mergedTricky, "http://inside-multiline-string-must-stay") {
+		t.Fatalf("expected [mcp_servers.aura] inside multiline string to stay untouched, got:\n%s", mergedTricky)
+	}
 }
 
 func TestRunMcpStdioBridgeForwardsAndHandlesErrors(t *testing.T) {

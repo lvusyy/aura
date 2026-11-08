@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -141,6 +142,31 @@ func (s *strictContractDisp) Dispatch(_ context.Context, _, tool string, jsonArg
 			return nil, "", fmt.Errorf("strict node wait contract violation: %s", string(jsonArgs))
 		}
 		data = map[string]any{"ok": true}
+	case "zoom":
+		var rawMap map[string]any
+		var p struct {
+			Region []int32 `json:"region"`
+		}
+		if err := json.Unmarshal(jsonArgs, &rawMap); err != nil {
+			return nil, "", err
+		}
+		if _, hasCoordSpace := rawMap["coord_space"]; hasCoordSpace {
+			return nil, "", fmt.Errorf("strict node zoom contract violation: ZoomParams does not accept coord_space, got %s", string(jsonArgs))
+		}
+		if err := json.Unmarshal(jsonArgs, &p); err != nil || len(p.Region) != 4 {
+			return nil, "", fmt.Errorf("strict node zoom contract violation: require region:[x0,y0,x1,y1], got %s", string(jsonArgs))
+		}
+		data = map[string]any{
+			"image_base64": s.shotB64,
+			"mime":         "image/webp",
+			"meta": map[string]any{
+				"native_w":  p.Region[2] - p.Region[0],
+				"native_h":  p.Region[3] - p.Region[1],
+				"display_w": p.Region[2] - p.Region[0],
+				"display_h": p.Region[3] - p.Region[1],
+				"scale":     1.0,
+			},
+		}
 	default:
 		return nil, "", fmt.Errorf("E_UNSUPPORTED: unknown node tool %q", tool)
 	}
@@ -408,5 +434,120 @@ func TestRunAgentTaskSecurityBudgetAndWaitForSemantics(t *testing.T) {
 	})
 	if err != nil || !presentOut.Satisfied || presentOut.Polls < 2 {
 		t.Fatalf("expected WaitFor(present) with vision_disabled to poll until element appears on poll #2, got %+v, err=%v", presentOut, err)
+	}
+}
+
+func TestVLMSoMLoopMultiTurnMemoryAndStuckDetection(t *testing.T) {
+	b0 := [4]int32{100, 80, 120, 40}
+	b1 := [4]int32{320, 80, 120, 40}
+	disp := &strictContractDisp{
+		tree: fusion.A11yTree{
+			Nodes: []fusion.A11yNode{
+				{Role: "button", Name: "DisabledBtn", Bounds: &b0},
+				{Role: "button", Name: "RealSubmit", Bounds: &b1},
+			},
+		},
+		shotB64:    base64.StdEncoding.EncodeToString([]byte("fake-webp-bytes")),
+		snapshotID: "snap-303",
+		nativeW:    1920,
+		nativeH:    1080,
+		displayW:   960,
+		displayH:   540,
+		scale:      2.0,
+	}
+	eng := NewSelectorEngine(disp, nil, "", "")
+
+	var prompts []string
+	stepCall := 0
+	vlmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		prompts = append(prompts, string(body))
+		stepCall++
+		w.Header().Set("Content-Type", "application/json")
+		var reply string
+		switch stepCall {
+		case 1:
+			// 第 1 步点击 DisabledBtn，画面未发生变化
+			reply = `{"thought":"Try clicking DisabledBtn first","action":"left_click","som_index":0}`
+		case 2:
+			// 第 2 步收到 Stuck Recovery Hint 与 Step 1 History 后，改点 RealSubmit 并改变 A11y 状态
+			bAfter := [4]int32{320, 80, 120, 40}
+			disp.mu.Lock()
+			disp.tree = fusion.A11yTree{
+				Nodes: []fusion.A11yNode{
+					{Role: "text", Name: "SubmittedSuccessfully", Bounds: &bAfter},
+				},
+			}
+			disp.mu.Unlock()
+			reply = `{"thought":"DisabledBtn did not change screen, click RealSubmit [1]","action":"left_click","som_index":1}`
+		default:
+			reply = `{"thought":"Submission confirmed","action":"finished","finished":true}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": reply}},
+			},
+		})
+	}))
+	defer vlmSrv.Close()
+
+	out, err := eng.RunAgentTask(context.Background(), AgentTaskInput{
+		NodeID:      "node-1",
+		Goal:        "Submit the form",
+		MaxSteps:    5,
+		LLMEndpoint: vlmSrv.URL,
+		TraceID:     "trace-vlm-memory-1",
+	})
+	if err != nil || !out.Completed || len(out.Steps) != 3 {
+		t.Fatalf("unexpected VLM task output: %+v, err=%v", out, err)
+	}
+	// Step 1 未改变界面，必须记录 ScreenChanged=false 与 StuckWarning
+	if out.Steps[0].ScreenChanged || out.Steps[0].StuckWarning == "" {
+		t.Fatalf("expected Step 1 to record ScreenChanged=false and StuckWarning, got %+v", out.Steps[0])
+	}
+	// Step 2 改变了界面，必须记录 ScreenChanged=true
+	if !out.Steps[1].ScreenChanged {
+		t.Fatalf("expected Step 2 to record ScreenChanged=true after A11y state change, got %+v", out.Steps[1])
+	}
+	// 第 2 轮发送给 VLM 的 Prompt 必须包含 [STUCK RECOVERY HINT] 与第 1 步的 Thought/History
+	if len(prompts) < 2 || !strings.Contains(prompts[1], "STUCK RECOVERY HINT") || !strings.Contains(prompts[1], "Try clicking DisabledBtn first") {
+		t.Fatalf("expected turn 2 VLM prompt to include STUCK RECOVERY HINT and Step 1 thought, got %s", prompts[1])
+	}
+
+	// 验证超过 6 步（vlmHistoryWindowSize=6）时滑动窗口仅保留最近 6 步，且 zoom 动作将 display 区域回映射为原生像素并剥离 coord_space
+	var windowPrompts []string
+	winStep := 0
+	winSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		windowPrompts = append(windowPrompts, string(body))
+		winStep++
+		w.Header().Set("Content-Type", "application/json")
+		var reply string
+		if winStep <= 7 {
+			reply = `{"thought":"UniqueStepMarker_` + string(rune('A'+winStep-1)) + `","action":"zoom","region":[10,20,110,120]}`
+		} else {
+			reply = `{"thought":"Window test done","action":"finished","finished":true}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": reply}},
+			},
+		})
+	}))
+	defer winSrv.Close()
+
+	winOut, err := eng.RunAgentTask(context.Background(), AgentTaskInput{
+		NodeID:      "node-1",
+		Goal:        "Inspect 7 regions then finish",
+		MaxSteps:    10,
+		LLMEndpoint: winSrv.URL,
+	})
+	if err != nil || !winOut.Completed || len(winOut.Steps) != 8 {
+		t.Fatalf("unexpected 8-step window output: %+v, err=%v", winOut, err)
+	}
+	// 第 8 步请求时历史已有 7 步（A..G），滑动窗口上限 6 步应丢弃 Step 1 (UniqueStepMarker_A) 并保留 B..G
+	lastPrompt := windowPrompts[len(windowPrompts)-1]
+	if strings.Contains(lastPrompt, "UniqueStepMarker_A") || !strings.Contains(lastPrompt, "UniqueStepMarker_B") || !strings.Contains(lastPrompt, "UniqueStepMarker_G") {
+		t.Fatalf("expected sliding history window on step 8 to evict UniqueStepMarker_A and keep B..G, got:\n%s", lastPrompt)
 	}
 }

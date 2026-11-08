@@ -1,0 +1,207 @@
+{
+  "contract_version": "aura.v1/2026-07",
+  "tool_names": [
+    "screenshot",
+    "zoom",
+    "list_displays",
+    "switch_display",
+    "click",
+    "type",
+    "key",
+    "scroll",
+    "drag",
+    "move_mouse",
+    "wait",
+    "list_processes",
+    "kill_process",
+    "file_push",
+    "file_pull",
+    "run_command",
+    "get_a11y_tree",
+    "assert",
+    "start_recording",
+    "stop_recording",
+    "audio_inject"
+  ],
+  "tools": {
+    "screenshot": {
+      "required": [],
+      "properties": {
+        "display": "integer",
+        "output": "string",
+        "quality": "number",
+        "max_dim": "integer"
+      }
+    },
+    "zoom": {
+      "required": ["region"],
+      "properties": {
+        "region": "array_int4",
+        "output": "string",
+        "quality": "number",
+        "max_dim": "integer"
+      }
+    },
+    "list_displays": {
+      "required": [],
+      "properties": {}
+    },
+    "switch_display": {
+      "required": ["display"],
+      "properties": {
+        "display": "integer"
+      }
+    },
+    "click": {
+      "required": ["coordinate"],
+      "properties": {
+        "coordinate": "array_int2",
+        "button": "string",
+        "coord_space": "string",
+        "snapshot_id": "string"
+      }
+    },
+    "type": {
+      "required": ["text"],
+      "properties": {
+        "text": "string"
+      }
+    },
+    "key": {
+      "required": ["keys"],
+      "properties": {
+        "keys": "string"
+      },
+      "aliases": {
+        "key": "keys"
+      }
+    },
+    "scroll": {
+      "required": ["coordinate"],
+      "properties": {
+        "coordinate": "array_int2",
+        "scroll_direction": "string",
+        "scroll_amount": "integer",
+        "coord_space": "string",
+        "snapshot_id": "string"
+      }
+    },
+    "drag": {
+      "required": ["from", "to"],
+      "properties": {
+        "from": "array_int2",
+        "to": "array_int2",
+        "coord_space": "string",
+        "snapshot_id": "string"
+      }
+    },
+    "move_mouse": {
+      "required": ["coordinate"],
+      "properties": {
+        "coordinate": "array_int2",
+        "coord_space": "string",
+        "snapshot_id": "string"
+      }
+    },
+    "wait": {
+      "required": ["duration_ms"],
+      "properties": {
+        "duration_ms": "integer"
+      }
+    },
+    "list_processes": {
+      "required": [],
+      "properties": {}
+    },
+    "kill_process": {
+      "required": ["pid"],
+      "properties": {
+        "pid": "integer"
+      }
+    },
+    "file_push": {
+      "required": ["remote_path", "content_base64"],
+      "properties": {
+        "remote_path": "string",
+        "content_base64": "string"
+      },
+      "aliases": {
+        "path": "remote_path"
+      }
+    },
+    "file_pull": {
+      "required": ["remote_path"],
+      "properties": {
+        "remote_path": "string"
+      },
+      "aliases": {
+        "path": "remote_path"
+      }
+    },
+    "run_command": {
+      "required": ["cmd"],
+      "properties": {
+        "cmd": "string",
+        "args": "array_string",
+        "timeout_ms": "integer",
+        "cwd": "string",
+        "detach": "boolean"
+      },
+      "aliases": {
+        "command": "cmd"
+      }
+    },
+    "get_a11y_tree": {
+      "required": [],
+      "properties": {
+        "root": "string",
+        "depth": "integer",
+        "role": "string",
+        "max_nodes": "integer"
+      }
+    },
+    "assert": {
+      "required": ["mode", "expect"],
+      "properties": {
+        "mode": "string",
+        "expect": "string",
+        "match_type": "string",
+        "present": "boolean",
+        "actual": "string",
+        "field": "string",
+        "query": "object",
+        "reference_image_base64": "string",
+        "region": "array_int4",
+        "threshold": "number",
+        "method": "string",
+        "baseline_key": "string",
+        "save_baseline": "boolean"
+      },
+      "aliases": {
+        "expected": "expect",
+        "match_kind": "match_type"
+      }
+    },
+    "start_recording": {
+      "required": [],
+      "properties": {
+        "fps": "integer",
+        "max_duration_secs": "integer",
+        "display": "integer"
+      }
+    },
+    "stop_recording": {
+      "required": ["rec_id"],
+      "properties": {
+        "rec_id": "string"
+      }
+    },
+    "audio_inject": {
+      "required": [],
+      "properties": {
+        "wav_base64": "string",
+        "file": "string"
+      }
+    }
+  }
+}

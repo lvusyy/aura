@@ -168,9 +168,18 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 		return nil
 	}
 
+	isInternalRelPath := func(relSlash string) bool {
+		for _, seg := range strings.Split(relSlash, "/") {
+			if strings.EqualFold(seg, internalDirName) {
+				return true
+			}
+		}
+		return false
+	}
+
 	safePath := func(bucket, key string) (string, error) {
 		cleanBucket := filepath.Clean(bucket)
-		if cleanBucket == "." || cleanBucket == ".." || cleanBucket == internalDirName || strings.ContainsAny(cleanBucket, `/\:`) {
+		if cleanBucket == "." || cleanBucket == ".." || strings.EqualFold(cleanBucket, internalDirName) || strings.ContainsAny(cleanBucket, `/\:`) {
 			return "", fmt.Errorf("invalid bucket %q", bucket)
 		}
 		bDir := filepath.Join(absDir, cleanBucket)
@@ -182,7 +191,7 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 		}
 		slashKey := filepath.ToSlash(key)
 		for _, seg := range strings.Split(slashKey, "/") {
-			if seg == "" || seg == "." || seg == ".." || seg == internalDirName {
+			if seg == "" || seg == "." || seg == ".." || strings.EqualFold(seg, internalDirName) {
 				return "", fmt.Errorf("invalid key segment in %q", key)
 			}
 		}
@@ -264,6 +273,9 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 				return nil
 			}
 			k := filepath.ToSlash(rel)
+			if isInternalRelPath(k) {
+				return nil
+			}
 			info, ierr := d.Info()
 			if ierr != nil {
 				return nil
@@ -388,7 +400,7 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 							return nil
 						}
 						k := filepath.ToSlash(rel)
-						if strings.HasPrefix(k, internalDirName+"/") || k == internalDirName {
+						if isInternalRelPath(k) {
 							return nil
 						}
 						if prefix != "" && !strings.HasPrefix(k, prefix) {
@@ -533,7 +545,8 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 							writeS3Error(w, http.StatusBadRequest, "InvalidPart", fmt.Sprintf("part %d not found", rp.PartNumber))
 							return
 						}
-						if normalizeETag(rp.ETag) != "" && normalizeETag(rp.ETag) != normalizeETag(stored.ETag) {
+						reqETag := normalizeETag(rp.ETag)
+						if reqETag == "" || reqETag != normalizeETag(stored.ETag) {
 							mu.Unlock()
 							writeS3Error(w, http.StatusBadRequest, "InvalidPart", fmt.Sprintf("part %d ETag mismatch", rp.PartNumber))
 							return
@@ -595,11 +608,16 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 						writeS3Error(w, http.StatusInternalServerError, "InternalError", err.Error())
 						return
 					}
-					_ = writeMeta(bucket, key, objectMeta{
+					if err := writeMeta(bucket, key, objectMeta{
 						ContentType: "application/octet-stream",
 						ETag:        etag,
 						Size:        totalSize,
-					})
+					}); err != nil {
+						sess.Completing = false
+						mu.Unlock()
+						writeS3Error(w, http.StatusInternalServerError, "InternalError", err.Error())
+						return
+					}
 					delete(mpSessions, upID)
 					mu.Unlock()
 					_ = os.RemoveAll(filepath.Join(absDir, internalDirName, "uploads", upID))
@@ -631,12 +649,7 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 					size, etag, derr := streamAWSBodyToFile(tmpPart, r, maxUpload)
 					if derr != nil {
 						_ = os.Remove(tmpPart)
-						status := http.StatusBadRequest
-						code := "IncompleteBody"
-						if errors.Is(derr, errUploadTooLarge) {
-							status = http.StatusRequestEntityTooLarge
-							code = "EntityTooLarge"
-						}
+						status, code := classifyStreamUploadError(derr)
 						writeS3Error(w, status, code, derr.Error())
 						return
 					}
@@ -673,12 +686,7 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 				size, etag, derr := streamAWSBodyToFile(tmpPut, r, maxUpload)
 				if derr != nil {
 					_ = os.Remove(tmpPut)
-					status := http.StatusBadRequest
-					code := "IncompleteBody"
-					if errors.Is(derr, errUploadTooLarge) {
-						status = http.StatusRequestEntityTooLarge
-						code = "EntityTooLarge"
-					}
+					status, code := classifyStreamUploadError(derr)
 					writeS3Error(w, status, code, derr.Error())
 					return
 				}
@@ -700,11 +708,15 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 					writeS3Error(w, http.StatusInternalServerError, "InternalError", err.Error())
 					return
 				}
-				_ = writeMeta(bucket, key, objectMeta{
+				if err := writeMeta(bucket, key, objectMeta{
 					ContentType: ct,
 					ETag:        etag,
 					Size:        size,
-				})
+				}); err != nil {
+					mu.Unlock()
+					writeS3Error(w, http.StatusInternalServerError, "InternalError", err.Error())
+					return
+				}
 				mu.Unlock()
 
 				w.Header().Set("ETag", etag)
@@ -775,22 +787,75 @@ func StartLocalS3ServerWithOptions(opts LocalS3Options) (string, func(), error) 
 	return ln.Addr().String(), closeFn, nil
 }
 
-var errUploadTooLarge = errors.New("upload exceeds maximum allowed size")
+var (
+	errUploadTooLarge = errors.New("upload exceeds maximum allowed size")
+	errBadDigest      = errors.New("X-Amz-Content-Sha256 payload digest mismatch")
+)
+
+func classifyStreamUploadError(err error) (int, string) {
+	if errors.Is(err, errUploadTooLarge) {
+		return http.StatusRequestEntityTooLarge, "EntityTooLarge"
+	}
+	if errors.Is(err, errBadDigest) {
+		return http.StatusBadRequest, "BadDigest"
+	}
+	return http.StatusBadRequest, "IncompleteBody"
+}
+
+func readBoundedCRLFLine(br *bufio.Reader, maxBytes int) (string, error) {
+	var buf []byte
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		buf = append(buf, b)
+		if len(buf) > maxBytes {
+			return "", errors.New("aws-chunked line exceeds maximum header length")
+		}
+		if b == '\n' {
+			if len(buf) < 2 || buf[len(buf)-2] != '\r' {
+				return "", errors.New("aws-chunked line missing CRLF termination")
+			}
+			return string(buf[:len(buf)-2]), nil
+		}
+	}
+}
 
 func streamAWSBodyToFile(tmpPath string, r *http.Request, maxBytes int64) (int64, string, error) {
-	if !strings.HasPrefix(r.Header.Get("x-amz-content-sha256"), "STREAMING-") && r.ContentLength > maxBytes {
+	contentSha := strings.TrimSpace(firstNonEmptyStr(r.URL.Query().Get("X-Amz-Content-Sha256"), r.Header.Get("X-Amz-Content-Sha256")))
+	isStreaming := strings.HasPrefix(contentSha, "STREAMING-")
+	if !isStreaming && r.ContentLength > maxBytes {
 		return 0, "", errUploadTooLarge
 	}
+
+	var expectedDecodedLen int64
+	hasExpectedDecodedLen := false
+	if isStreaming {
+		if decStr := strings.TrimSpace(r.Header.Get("X-Amz-Decoded-Content-Length")); decStr != "" {
+			parsedDec, perr := strconv.ParseInt(decStr, 10, 64)
+			if perr != nil || parsedDec < 0 {
+				return 0, "", fmt.Errorf("invalid x-amz-decoded-content-length %q", decStr)
+			}
+			if parsedDec > maxBytes {
+				return 0, "", errUploadTooLarge
+			}
+			expectedDecodedLen = parsedDec
+			hasExpectedDecodedLen = true
+		}
+	}
+
 	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return 0, "", err
 	}
 	defer f.Close()
 
-	hasher := md5.New()
-	dst := io.MultiWriter(f, hasher)
+	md5Hasher := md5.New()
+	sha256Hasher := sha256.New()
+	dst := io.MultiWriter(f, md5Hasher, sha256Hasher)
 
-	if !strings.HasPrefix(r.Header.Get("x-amz-content-sha256"), "STREAMING-") {
+	if !isStreaming {
 		limited := io.LimitReader(r.Body, maxBytes+1)
 		n, cerr := io.Copy(dst, limited)
 		if cerr != nil {
@@ -802,23 +867,28 @@ func streamAWSBodyToFile(tmpPath string, r *http.Request, maxBytes int64) (int64
 		if r.ContentLength >= 0 && n != r.ContentLength {
 			return 0, "", fmt.Errorf("truncated request body: got %d bytes, expected %d", n, r.ContentLength)
 		}
+		if contentSha != "" && !strings.EqualFold(contentSha, "UNSIGNED-PAYLOAD") {
+			gotSha := hex.EncodeToString(sha256Hasher.Sum(nil))
+			if !strings.EqualFold(gotSha, contentSha) {
+				return 0, "", fmt.Errorf("%w: expected %s, got %s", errBadDigest, contentSha, gotSha)
+			}
+		}
 		if err := f.Close(); err != nil {
 			return 0, "", err
 		}
-		etag := `"` + hex.EncodeToString(hasher.Sum(nil)) + `"`
+		etag := `"` + hex.EncodeToString(md5Hasher.Sum(nil)) + `"`
 		return n, etag, nil
 	}
 
-	// AWS SigV4 STREAMING-AWS4-HMAC-SHA256-PAYLOAD 分块流解码与完整性校验
+	// AWS SigV4 STREAMING-AWS4-HMAC-SHA256-PAYLOAD 分块流解码与严格 CRLF/长度校验
 	br := bufio.NewReader(r.Body)
 	var total int64
 	sawTerminalZeroChunk := false
 	for {
-		hdr, herr := br.ReadString('\n')
+		hdr, herr := readBoundedCRLFLine(br, 4096)
 		if herr != nil {
 			return 0, "", fmt.Errorf("malformed aws-chunked header: %w", herr)
 		}
-		hdr = strings.TrimRight(hdr, "\r\n")
 		if semi := strings.IndexByte(hdr, ';'); semi >= 0 {
 			hdr = hdr[:semi]
 		}
@@ -828,11 +898,19 @@ func streamAWSBodyToFile(tmpPath string, r *http.Request, maxBytes int64) (int64
 		}
 		if chunkLen == 0 {
 			sawTerminalZeroChunk = true
-			// 消费结尾 CRLF
-			_, _ = br.ReadString('\n')
+			// 消费可选 trailer headers 及最终结尾空行 CRLF
+			for {
+				tLine, terr := readBoundedCRLFLine(br, 4096)
+				if terr != nil {
+					return 0, "", fmt.Errorf("missing terminating CRLF after 0 chunk: %w", terr)
+				}
+				if tLine == "" {
+					break
+				}
+			}
 			break
 		}
-		if total+chunkLen > maxBytes {
+		if chunkLen > maxBytes-total {
 			return 0, "", errUploadTooLarge
 		}
 		written, cerr := io.CopyN(dst, br, chunkLen)
@@ -840,18 +918,21 @@ func streamAWSBodyToFile(tmpPath string, r *http.Request, maxBytes int64) (int64
 			return 0, "", fmt.Errorf("truncated aws-chunked payload: expected %d bytes, got %d (%v)", chunkLen, written, cerr)
 		}
 		total += written
-		trailer, terr := br.ReadString('\n')
-		if terr != nil || !strings.HasSuffix(trailer, "\n") {
+		trailer, terr := readBoundedCRLFLine(br, 4)
+		if terr != nil || trailer != "" {
 			return 0, "", errors.New("missing CRLF after aws-chunked data")
 		}
 	}
 	if !sawTerminalZeroChunk {
 		return 0, "", errors.New("incomplete aws-chunked stream: missing terminal 0 chunk")
 	}
+	if hasExpectedDecodedLen && total != expectedDecodedLen {
+		return 0, "", fmt.Errorf("aws-chunked decoded length mismatch: expected %d, got %d", expectedDecodedLen, total)
+	}
 	if err := f.Close(); err != nil {
 		return 0, "", err
 	}
-	etag := `"` + hex.EncodeToString(hasher.Sum(nil)) + `"`
+	etag := `"` + hex.EncodeToString(md5Hasher.Sum(nil)) + `"`
 	return total, etag, nil
 }
 

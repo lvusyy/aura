@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Grid, Input, Layout, Menu, Popover, Space, Tag, Typography } from "antd";
+import { Component, type ReactNode, Suspense, useEffect, useState } from "react";
+import { Alert, Badge, Button, Grid, Input, Layout, Menu, Popover, Result, Space, Spin, Tag, Typography } from "antd";
 import {
   ApiOutlined,
   ClusterOutlined,
@@ -16,6 +16,45 @@ import { clearToken, getToken, onAuthFailure, setToken } from "../auth";
 import { consoleClient } from "../api/transport";
 
 const { Header, Sider, Content } = Layout;
+
+interface RouteErrorBoundaryState {
+  error: Error | null;
+}
+
+class RouteErrorBoundary extends Component<{ resetKey: string; children: ReactNode }, RouteErrorBoundaryState> {
+  state: RouteErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): RouteErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: { resetKey: string }) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <Result
+          status="warning"
+          title="模块加载失败"
+          subTitle={this.state.error.message || "页面脚本分块加载异常（可能因版本刚升级或网络抖动）。"}
+          extra={[
+            <Button key="retry" type="primary" onClick={() => this.setState({ error: null })}>
+              重试加载当前模块
+            </Button>,
+            <Button key="reload" onClick={() => window.location.reload()}>
+              刷新整页
+            </Button>,
+          ]}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // 令牌来源引导文案（批E B2）：首次打开无引导 → 明示从哪拿 token，替代满屏空表的困惑源。
 const tokenHelp = (
@@ -212,7 +251,17 @@ export function AppLayout() {
               description="控制面拒绝了当前令牌（401）。请在右上角重新配置 bearer token。"
             />
           )}
-          <Outlet />
+          <RouteErrorBoundary resetKey={location.pathname}>
+            <Suspense
+              fallback={
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "50vh" }}>
+                  <Spin size="large" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
+          </RouteErrorBoundary>
         </Content>
       </Layout>
     </Layout>

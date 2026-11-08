@@ -439,9 +439,38 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		if len(in.Region) != 4 {
 			return ComputerActionOutput{}, errors.New("zoom requires region [x0, y0, x1, y1]")
 		}
+		region := [4]int32{in.Region[0], in.Region[1], in.Region[2], in.Region[3]}
+		if coordSpace == "normalized_1000" || coordSpace == "display" {
+			shot, serr := e.fetchNodeShot(ctx, in.NodeID, deadlineMs, who, in.TraceID)
+			if serr != nil {
+				return ComputerActionOutput{}, fmt.Errorf("resolve screen geometry for zoom (%s): %w", coordSpace, serr)
+			}
+			if coordSpace == "normalized_1000" {
+				w, h := float64(shot.Meta.NativeW), float64(shot.Meta.NativeH)
+				if w <= 0 || h <= 0 {
+					w, h = float64(shot.Meta.DisplayW), float64(shot.Meta.DisplayH)
+				}
+				if w > 0 && h > 0 {
+					region = [4]int32{
+						int32(math.Round(float64(region[0]) * w / 1000.0)),
+						int32(math.Round(float64(region[1]) * h / 1000.0)),
+						int32(math.Round(float64(region[2]) * w / 1000.0)),
+						int32(math.Round(float64(region[3]) * h / 1000.0)),
+					}
+				}
+			} else if shot.Meta.Scale > 0 && shot.Meta.Scale != 1.0 {
+				s := shot.Meta.Scale
+				region = [4]int32{
+					int32(math.Round(float64(region[0]) * s)),
+					int32(math.Round(float64(region[1]) * s)),
+					int32(math.Round(float64(region[2]) * s)),
+					int32(math.Round(float64(region[3]) * s)),
+				}
+			}
+		}
+		// 对齐 Rust aura-node ZoomParams 契约：仅传 region: [x1, y1, x2, y2]
 		zoomArgs, _ := json.Marshal(map[string]any{
-			"region":      in.Region,
-			"coord_space": coordSpace,
+			"region": region,
 		})
 		raw, err := e.dispatchNodeTool(ctx, in.NodeID, "zoom", zoomArgs, deadlineMs, who, in.TraceID)
 		if err != nil {
@@ -556,7 +585,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		cached, hasCached := e.getSoMSnapshot(in.NodeID)
 
 		if resolvedSnapshotID != "" {
-			if !hasCached || cached.out.SnapshotID != resolvedSnapshotID || cached.mutated {
+			if !hasCached || cached.out.SnapshotID != resolvedSnapshotID || cached.mutated || time.Since(cached.at) > candidateCacheTTL {
 				return ComputerActionOutput{
 					Executed:       false,
 					NormalizedOp:   action,
@@ -1271,6 +1300,52 @@ func parseSubGoalIntent(
 	}, WaitForInput{}, false, fmt.Sprintf("%s on target %q", action, target)
 }
 
+func isMutatingAgentAction(action string) bool {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "left_click", "click", "left_single", "right_click", "right_single", "middle_click",
+		"double_click", "left_double", "triple_click", "click_element",
+		"left_click_drag", "drag", "swipe",
+		"type", "key", "keypress", "hotkey", "scroll":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRepeatedAgentStep(prev AgentStepLog, nextAction, nextTarget string, nextSoM *int, nextCoord [2]int32) bool {
+	if !strings.EqualFold(prev.Action, nextAction) {
+		return false
+	}
+	if nextSoM != nil && prev.SoMIndex != nil && *nextSoM == *prev.SoMIndex {
+		return true
+	}
+	if nextTarget != "" && strings.EqualFold(prev.Target, nextTarget) {
+		return true
+	}
+	if (nextCoord[0] != 0 || nextCoord[1] != 0) && (prev.Coordinate[0] != 0 || prev.Coordinate[1] != 0) {
+		dx := nextCoord[0] - prev.Coordinate[0]
+		if dx < 0 {
+			dx = -dx
+		}
+		dy := nextCoord[1] - prev.Coordinate[1]
+		if dy < 0 {
+			dy = -dy
+		}
+		if dx <= 8 && dy <= 8 {
+			return true
+		}
+	}
+	return false
+}
+
+func computeAnnotatedFingerprint(items []AnnotatedCandidate) string {
+	var b strings.Builder
+	for _, c := range items {
+		fmt.Fprintf(&b, "%s|%s|%s|%v;", c.Role, c.Name, c.Caption, c.Bounds)
+	}
+	return b.String()
+}
+
 func (e *SelectorEngine) runVLMSoMLoop(
 	ctx context.Context,
 	in AgentTaskInput,
@@ -1283,6 +1358,10 @@ func (e *SelectorEngine) runVLMSoMLoop(
 ) (AgentTaskOutput, error) {
 	planner := e.resolveAgentPlanner()
 	steps := make([]AgentStepLog, 0, maxSteps)
+	var prevA11yFP string
+	var prevShotB64 string
+	var stuckHint string
+
 	for stepNum := 1; stepNum <= maxSteps; stepNum++ {
 		if err := ctx.Err(); err != nil {
 			return AgentTaskOutput{}, err
@@ -1309,13 +1388,44 @@ func (e *SelectorEngine) runVLMSoMLoop(
 			}, nil
 		}
 
+		curA11yFP := computeAnnotatedFingerprint(ann.Candidates)
+		curShotB64 := ann.SoMImageBase64
+		if stepNum > 1 && len(steps) > 0 {
+			lastIdx := len(steps) - 1
+			if isMutatingAgentAction(steps[lastIdx].Action) {
+				changed := (curA11yFP != "" && curA11yFP != prevA11yFP) || (curShotB64 != "" && curShotB64 != prevShotB64)
+				steps[lastIdx].ScreenChanged = changed
+				if !changed {
+					warn := fmt.Sprintf("step %d (%s) produced no observable UI state change", steps[lastIdx].Step, steps[lastIdx].Action)
+					if steps[lastIdx].StuckWarning == "" {
+						steps[lastIdx].StuckWarning = warn
+					}
+					stuckHint = fmt.Sprintf(
+						"WARNING: Your previous action (step %d: %s) did NOT change the screen state. Do NOT repeat the exact same click/coordinate; try a different candidate index, scroll, press a keyboard shortcut (e.g. Tab/Enter/Escape), or adjust your approach.",
+						steps[lastIdx].Step, steps[lastIdx].Action,
+					)
+				} else {
+					stuckHint = ""
+				}
+			}
+		}
+		prevA11yFP = curA11yFP
+		prevShotB64 = curShotB64
+
+		// 滑动窗口保留最近 6 步记忆注入 VLM，兼顾多轮上下文与 Token 预算
+		historyWindow := steps
+		if len(historyWindow) > 6 {
+			historyWindow = historyWindow[len(historyWindow)-6:]
+		}
+
 		actIn, thought, err := planner.PlanNextAction(ctx, VLMPlanRequest{
 			Endpoint:  llmEndpoint,
 			APIKey:    llmAPIKey,
 			Model:     llmModel,
 			Goal:      goal,
 			Annotated: ann,
-			History:   steps,
+			History:   historyWindow,
+			StuckHint: stuckHint,
 		})
 		if err != nil {
 			return AgentTaskOutput{
@@ -1339,28 +1449,30 @@ func (e *SelectorEngine) runVLMSoMLoop(
 			actIn.SnapshotID = ann.SnapshotID
 		}
 
-		// 若 VLM 决策为 SoM 索引，直接从本次已捕获的 ann.Candidates 解析 native 坐标，避免重复 Annotate
-		if actIn.SoMIndex != nil && len(actIn.Coordinate) < 2 {
-			targetIdx := *actIn.SoMIndex
-			for _, cand := range ann.Candidates {
-				if cand.Index == targetIdx {
-					actIn.Coordinate = []int32{cand.ClickPoint[0], cand.ClickPoint[1]}
-					actIn.CoordSpace = "native"
-					break
-				}
-			}
+		// 不在循环层提前将 SoMIndex 展开为 Coordinate，统一交由 ExecuteComputerAction 在执行点校验
+		// SnapshotID 一致性、mutated 状态与 candidateCacheTTL（修复 Codex 发现 #3）。
+		cOut, execErr := e.ExecuteComputerAction(ctx, actIn)
+		normAction := firstNonEmpty(cOut.NormalizedOp, actIn.Action)
+		var stepStuckWarn string
+		if len(steps) > 0 && isRepeatedAgentStep(steps[len(steps)-1], normAction, actIn.Target, actIn.SoMIndex, cOut.Coordinate) {
+			stepStuckWarn = fmt.Sprintf("repeated action %s on identical target/coordinate as step %d", normAction, steps[len(steps)-1].Step)
+			stuckHint = fmt.Sprintf(
+				"WARNING: Step %d repeated the exact same action (%s) as Step %d. You MUST choose a different UI candidate or action on the next turn.",
+				stepNum, normAction, steps[len(steps)-1].Step,
+			)
 		}
 
-		cOut, execErr := e.ExecuteComputerAction(ctx, actIn)
 		logEntry := AgentStepLog{
-			Step:       stepNum,
-			Thought:    thought,
-			Action:     firstNonEmpty(cOut.NormalizedOp, actIn.Action),
-			Target:     actIn.Target,
-			SoMIndex:   actIn.SoMIndex,
-			Coordinate: cOut.Coordinate,
-			LatencyMs:  time.Since(stepStart).Milliseconds(),
-			Detail:     cOut.Message,
+			Step:          stepNum,
+			Thought:       thought,
+			Action:        normAction,
+			Target:        actIn.Target,
+			SoMIndex:      actIn.SoMIndex,
+			Coordinate:    cOut.Coordinate,
+			ScreenChanged: false,
+			StuckWarning:  stepStuckWarn,
+			LatencyMs:     time.Since(stepStart).Milliseconds(),
+			Detail:        cOut.Message,
 		}
 		if execErr != nil || !cOut.Executed {
 			logEntry.Status = "failed"
@@ -1381,6 +1493,7 @@ func (e *SelectorEngine) runVLMSoMLoop(
 		}
 		if cOut.Finished {
 			logEntry.Status = "completed"
+			logEntry.ScreenChanged = true
 			steps = append(steps, logEntry)
 			return AgentTaskOutput{
 				NodeID:         in.NodeID,
@@ -1431,8 +1544,12 @@ func NewHTTPVLMPlannerClient(base *http.Client) *HTTPVLMPlannerClient {
 			if len(via) >= 3 {
 				return errors.New("stopped after 3 redirects")
 			}
-			if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
-				req.Header.Del("Authorization")
+			if len(via) > 0 {
+				orig := via[0].URL
+				if !strings.EqualFold(req.URL.Scheme, orig.Scheme) || !strings.EqualFold(req.URL.Host, orig.Host) {
+					return fmt.Errorf("cross-origin or scheme-downgrade redirect from %s://%s to %s://%s is forbidden",
+						orig.Scheme, orig.Host, req.URL.Scheme, req.URL.Host)
+				}
 			}
 			return nil
 		},
@@ -1458,17 +1575,26 @@ func (c *HTTPVLMPlannerClient) PlanNextAction(ctx context.Context, req VLMPlanRe
 		if h.SoMIndex != nil {
 			somStr = strconv.Itoa(*h.SoMIndex)
 		}
-		fmt.Fprintf(&histBuf, "- Step %d: action=%s som_index=%s target=%q status=%s detail=%s\n",
-			h.Step, h.Action, somStr, h.Target, h.Status, h.Detail)
+		fmt.Fprintf(&histBuf, "- Step %d: thought=%q action=%s som_index=%s target=%q coord=(%d,%d) status=%s screen_changed=%v",
+			h.Step, h.Thought, h.Action, somStr, h.Target, h.Coordinate[0], h.Coordinate[1], h.Status, h.ScreenChanged)
+		if h.StuckWarning != "" {
+			fmt.Fprintf(&histBuf, " warning=%q", h.StuckWarning)
+		}
+		fmt.Fprintf(&histBuf, " detail=%s\n", h.Detail)
+	}
+	stuckBlock := ""
+	if strings.TrimSpace(req.StuckHint) != "" {
+		stuckBlock = "\n[STUCK RECOVERY HINT]\n" + strings.TrimSpace(req.StuckHint) + "\n"
 	}
 	prompt := fmt.Sprintf(
 		"You are an autonomous GUI Computer-Use agent controlling a screen (%dx%d).\n"+
 			"Goal: %s\n\n"+
-			"Previous steps:\n%s\n"+
+			"Previous steps:\n%s"+
+			"%s\n"+
 			"Numbered Set-of-Mark UI candidates:\n%s\n\n"+
 			"Respond ONLY with a single JSON object (or UI-TARS Thought/Action):\n"+
 			`{"thought":"...","action":"left_click|double_click|right_click|type|key|scroll|wait|finished","som_index":0,"target":"","text":""}`,
-		ann.DisplayW, ann.DisplayH, req.Goal, histBuf.String(), strings.Join(ann.Choices, "\n"),
+		ann.DisplayW, ann.DisplayH, req.Goal, histBuf.String(), stuckBlock, strings.Join(ann.Choices, "\n"),
 	)
 
 	userContent := []map[string]any{
@@ -1535,8 +1661,12 @@ func (c *HTTPVLMPlannerClient) PlanNextAction(ctx context.Context, req VLMPlanRe
 		SoMIndex        *int    `json:"som_index"`
 		Target          string  `json:"target"`
 		Coordinate      []int32 `json:"coordinate"`
+		StartCoordinate []int32 `json:"start_coordinate"`
+		Region          []int32 `json:"region"`
+		Duration        float64 `json:"duration"`
 		Text            string  `json:"text"`
 		ScrollDirection string  `json:"scroll_direction"`
+		ScrollAmount    int32   `json:"scroll_amount"`
 		Finished        bool    `json:"finished"`
 	}
 	if json.Unmarshal([]byte(reply), &vlmDec) == nil && (vlmDec.Action != "" || vlmDec.Finished) {
@@ -1549,8 +1679,12 @@ func (c *HTTPVLMPlannerClient) PlanNextAction(ctx context.Context, req VLMPlanRe
 			SoMIndex:        vlmDec.SoMIndex,
 			Target:          vlmDec.Target,
 			Coordinate:      vlmDec.Coordinate,
+			StartCoordinate: vlmDec.StartCoordinate,
+			Region:          vlmDec.Region,
+			Duration:        vlmDec.Duration,
 			Text:            vlmDec.Text,
 			ScrollDirection: vlmDec.ScrollDirection,
+			ScrollAmount:    vlmDec.ScrollAmount,
 		}, vlmDec.Thought, nil
 	}
 

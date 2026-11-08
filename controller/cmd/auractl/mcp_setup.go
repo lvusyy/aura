@@ -800,43 +800,170 @@ func stripTOMLInlineComment(line string) string {
 	return line
 }
 
+func parseTOMLTablePath(headerNoComment string) ([]string, bool) {
+	s := strings.TrimSpace(headerNoComment)
+	if strings.HasPrefix(s, "[[") && strings.HasSuffix(s, "]]") {
+		s = strings.TrimSpace(s[2 : len(s)-2])
+	} else if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	} else {
+		return nil, false
+	}
+	if s == "" {
+		return nil, false
+	}
+
+	var segs []string
+	i := 0
+	n := len(s)
+	for i < n {
+		for i < n && (s[i] == ' ' || s[i] == '\t') {
+			i++
+		}
+		if i >= n {
+			return nil, false
+		}
+		switch s[i] {
+		case '"':
+			end := i + 1
+			escaped := false
+			for end < n {
+				if escaped {
+					escaped = false
+					end++
+					continue
+				}
+				if s[end] == '\\' {
+					escaped = true
+					end++
+					continue
+				}
+				if s[end] == '"' {
+					break
+				}
+				end++
+			}
+			if end >= n || s[end] != '"' {
+				return nil, false
+			}
+			var unquoted string
+			if err := json.Unmarshal([]byte(s[i:end+1]), &unquoted); err != nil {
+				return nil, false
+			}
+			segs = append(segs, unquoted)
+			i = end + 1
+		case '\'':
+			end := strings.IndexByte(s[i+1:], '\'')
+			if end < 0 {
+				return nil, false
+			}
+			segs = append(segs, s[i+1:i+1+end])
+			i = i + 1 + end + 1
+		default:
+			start := i
+			for i < n && s[i] != '.' && s[i] != ' ' && s[i] != '\t' {
+				i++
+			}
+			if i == start {
+				return nil, false
+			}
+			segs = append(segs, s[start:i])
+		}
+		for i < n && (s[i] == ' ' || s[i] == '\t') {
+			i++
+		}
+		if i < n {
+			if s[i] != '.' {
+				return nil, false
+			}
+			i++
+			if i >= n {
+				return nil, false
+			}
+		}
+	}
+	return segs, len(segs) > 0
+}
+
 func isTargetCodexMCPHeader(headerNoComment, serverName string) bool {
-	quotedBytes, _ := json.Marshal(serverName)
-	quotedName := string(quotedBytes)
-	candidates := []string{
-		fmt.Sprintf("[mcp_servers.%s]", serverName),
-		fmt.Sprintf("[mcp_servers.%s]", quotedName),
-	}
-	subPrefixes := []string{
-		fmt.Sprintf("[mcp_servers.%s.", serverName),
-		fmt.Sprintf("[mcp_servers.%s.", quotedName),
-	}
-	for _, c := range candidates {
-		if headerNoComment == c {
-			return true
+	segs, ok := parseTOMLTablePath(headerNoComment)
+	return ok && len(segs) >= 2 && segs[0] == "mcp_servers" && segs[1] == serverName
+}
+
+func advanceTOMLMultilineState(line, currentDelim string) string {
+	i := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+	for i < len(line) {
+		if currentDelim != "" {
+			idx := strings.Index(line[i:], currentDelim)
+			if idx < 0 {
+				return currentDelim
+			}
+			i += idx + 3
+			currentDelim = ""
+			continue
 		}
-	}
-	for _, p := range subPrefixes {
-		if strings.HasPrefix(headerNoComment, p) {
-			return true
+		ch := line[i]
+		if escaped {
+			escaped = false
+			i++
+			continue
 		}
+		if inDouble && ch == '\\' {
+			escaped = true
+			i++
+			continue
+		}
+		if !inSingle && !inDouble {
+			if strings.HasPrefix(line[i:], `"""`) {
+				currentDelim = `"""`
+				i += 3
+				continue
+			}
+			if strings.HasPrefix(line[i:], `'''`) {
+				currentDelim = `'''`
+				i += 3
+				continue
+			}
+			if ch == '#' {
+				break
+			}
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+		} else if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+		}
+		i++
 	}
-	return false
+	return currentDelim
 }
 
 func stripCodexTOMLSection(content, serverName string) string {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	var kept []string
 	skipping := false
+	inMultiline := ""
 	for _, line := range lines {
+		if inMultiline != "" {
+			inMultiline = advanceTOMLMultilineState(line, inMultiline)
+			if !skipping {
+				kept = append(kept, line)
+			}
+			continue
+		}
 		noComment := strings.TrimSpace(stripTOMLInlineComment(line))
-		if strings.HasPrefix(noComment, "[") && strings.HasSuffix(noComment, "]") {
+		if _, isHeader := parseTOMLTablePath(noComment); isHeader {
 			if isTargetCodexMCPHeader(noComment, serverName) {
 				skipping = true
+				inMultiline = advanceTOMLMultilineState(line, inMultiline)
 				continue
 			}
 			skipping = false
 		}
+		inMultiline = advanceTOMLMultilineState(line, inMultiline)
 		if !skipping {
 			kept = append(kept, line)
 		}

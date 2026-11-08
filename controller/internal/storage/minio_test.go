@@ -498,3 +498,82 @@ func TestLocalDiskS3MultipartIsolationQuotaAndPagination(t *testing.T) {
 		t.Fatalf("newest recording key = %q, want recordings/zz-latest.mp4 (cross-page sort failed)", recs[0].Key)
 	}
 }
+
+func TestLocalDiskS3DigestAndCaseInsensitiveInternalPath(t *testing.T) {
+	addr, closeFn, err := StartLocalS3ServerWithOptions(LocalS3Options{
+		DataDir:    t.TempDir(),
+		ListenAddr: "127.0.0.1:0",
+		AccessKey:  "test-ak",
+		SecretKey:  "test-secret-key",
+	})
+	if err != nil {
+		t.Fatalf("StartLocalS3ServerWithOptions: %v", err)
+	}
+	defer closeFn()
+
+	ctx := context.Background()
+	store, err := NewMinioStore(addr, "test-ak", "test-secret-key", false)
+	if err != nil {
+		t.Fatalf("NewMinioStore: %v", err)
+	}
+	if err := store.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket: %v", err)
+	}
+
+	// 1) 验证 .AURA-INTERNAL 大小写变体在路径上被拒绝（防止 Windows 大小写不敏感文件系统绕过内部目录隔离）
+	amzDate := time.Now().UTC().Format("20060102T150405Z")
+	dateStamp := amzDate[:8]
+	scope := dateStamp + "/us-east-1/s3/aws4_request"
+	emptySha := sha256Hex(nil)
+	reqInternalCase, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/aura-artifacts/.AURA-INTERNAL/meta/test.json", nil)
+	reqInternalCase.Header.Set("X-Amz-Date", amzDate)
+	reqInternalCase.Header.Set("X-Amz-Content-Sha256", emptySha)
+	canonGet := strings.Join([]string{
+		http.MethodGet,
+		"/aura-artifacts/.AURA-INTERNAL/meta/test.json",
+		"",
+		"host:" + addr + "\n" + "x-amz-content-sha256:" + emptySha + "\n" + "x-amz-date:" + amzDate + "\n",
+		"host;x-amz-content-sha256;x-amz-date",
+		emptySha,
+	}, "\n")
+	sigGet := computeSigV4("test-secret-key", dateStamp, "us-east-1", "s3", "AWS4-HMAC-SHA256\n"+amzDate+"\n"+scope+"\n"+sha256Hex([]byte(canonGet)))
+	reqInternalCase.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test-ak/"+scope+", SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="+sigGet)
+	respInternalCase, err := http.DefaultClient.Do(reqInternalCase)
+	if err != nil {
+		t.Fatalf("GET .AURA-INTERNAL failed: %v", err)
+	}
+	_ = respInternalCase.Body.Close()
+	if respInternalCase.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected .AURA-INTERNAL path to be rejected with 400 BadRequest, got HTTP %d", respInternalCase.StatusCode)
+	}
+
+	// 2) 验证带签名 Header 的非流式 PUT 若请求体内容被篡改（与已签名的 X-Amz-Content-Sha256 不一致），服务端返回 400 BadDigest 拒绝落盘
+	claimedHex := sha256Hex([]byte("signed-authentic-payload"))
+	tamperedBody := []byte("tampered-corrupt-payload")
+	reqBadDigest, _ := http.NewRequest(http.MethodPut, "http://"+addr+"/aura-artifacts/traces/bad-digest.bin", bytes.NewReader(tamperedBody))
+	reqBadDigest.ContentLength = int64(len(tamperedBody))
+	reqBadDigest.Header.Set("X-Amz-Date", amzDate)
+	reqBadDigest.Header.Set("X-Amz-Content-Sha256", claimedHex)
+	canonHeaders := "host:" + addr + "\n" + "x-amz-content-sha256:" + claimedHex + "\n" + "x-amz-date:" + amzDate + "\n"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonReq := strings.Join([]string{
+		http.MethodPut,
+		"/aura-artifacts/traces/bad-digest.bin",
+		"",
+		canonHeaders,
+		signedHeaders,
+		claimedHex,
+	}, "\n")
+	strToSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex([]byte(canonReq))
+	sig := computeSigV4("test-secret-key", dateStamp, "us-east-1", "s3", strToSign)
+	reqBadDigest.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test-ak/"+scope+", SignedHeaders="+signedHeaders+", Signature="+sig)
+	respBadDigest, err := http.DefaultClient.Do(reqBadDigest)
+	if err != nil {
+		t.Fatalf("PUT with mismatched X-Amz-Content-Sha256 failed: %v", err)
+	}
+	badDigestBody, _ := io.ReadAll(respBadDigest.Body)
+	_ = respBadDigest.Body.Close()
+	if respBadDigest.StatusCode != http.StatusBadRequest || !strings.Contains(string(badDigestBody), "BadDigest") {
+		t.Fatalf("expected 400 BadDigest on payload SHA256 mismatch, got HTTP %d (%s)", respBadDigest.StatusCode, string(badDigestBody))
+	}
+}

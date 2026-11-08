@@ -648,4 +648,186 @@ mod tests {
         assert_eq!(pt.x, 150);
         assert_eq!(pt.y, 300);
     }
+
+    /// 跨语言黄金契约守卫（Go Controller ↔ Rust aura-node）：
+    /// 校验 `proto/node_tool_contract.json` 与 Rust 侧 `CONTRACT_VERSION`、`TOOL_NAMES` 以及
+    /// MCP `ToolRouter` 自动派生的 `schemars` JSON Schema 严格一致。任何一侧修改工具名或参数字段
+    /// 而不更新黄金契约，双端单测立即拦截。
+    #[test]
+    fn golden_node_tool_contract_matches_mcp_schemas_and_registry() {
+        use std::collections::BTreeSet;
+
+        let raw = include_str!("../../../../../proto/node_tool_contract.json");
+        let contract: serde_json::Value =
+            serde_json::from_str(raw).expect("parse proto/node_tool_contract.json");
+
+        assert_eq!(
+            contract["contract_version"].as_str(),
+            Some(CONTRACT_VERSION),
+            "contract_version must match CONTRACT_VERSION"
+        );
+
+        let golden_names: Vec<&str> = contract["tool_names"]
+            .as_array()
+            .expect("tool_names array")
+            .iter()
+            .map(|v| v.as_str().expect("string tool name"))
+            .collect();
+        assert_eq!(
+            golden_names.as_slice(),
+            TOOL_NAMES,
+            "golden tool_names must match TOOL_NAMES in exact order"
+        );
+
+        let router = AuraTools::screen_router()
+            + AuraTools::input_router()
+            + AuraTools::proc_router()
+            + AuraTools::a11y_router()
+            + AuraTools::assert_router()
+            + AuraTools::record_router()
+            + AuraTools::audio_router();
+
+        let tools_map = contract["tools"].as_object().expect("tools object");
+        assert_eq!(tools_map.len(), TOOL_NAMES.len());
+
+        for tool in router.list_all() {
+            let name = tool.name.as_ref();
+            let spec = tools_map
+                .get(name)
+                .unwrap_or_else(|| panic!("tool {name} missing from node_tool_contract.json"));
+
+            let expected_props: BTreeSet<String> = spec["properties"]
+                .as_object()
+                .expect("properties object")
+                .keys()
+                .cloned()
+                .collect();
+
+            let actual_props: BTreeSet<String> = tool
+                .input_schema
+                .get("properties")
+                .and_then(|v| v.as_object())
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default();
+
+            assert_eq!(
+                actual_props, expected_props,
+                "tool {name} properties drifted between Rust JsonSchema and proto/node_tool_contract.json"
+            );
+
+            // 逐字段校验 JSON Schema 类型与数组元数（integer/number/string/boolean/array_int2/array_int4/array_string/object）
+            let schema_props = tool
+                .input_schema
+                .get("properties")
+                .and_then(|v| v.as_object());
+            let schema_defs = tool
+                .input_schema
+                .get("$defs")
+                .or_else(|| tool.input_schema.get("definitions"))
+                .and_then(|v| v.as_object());
+            for (prop_name, expected_type_val) in spec["properties"].as_object().unwrap() {
+                let expected_type = expected_type_val.as_str().expect("string property type");
+                let prop_schema = schema_props
+                    .and_then(|m| m.get(prop_name))
+                    .unwrap_or_else(|| panic!("tool {name} missing schema for property {prop_name}"));
+                let mut schema_str = prop_schema.to_string();
+                if let Some(ref_path) = prop_schema.get("$ref").and_then(|v| v.as_str()) {
+                    if let Some(def_name) = ref_path.rsplit('/').next() {
+                        if let Some(def_schema) = schema_defs.and_then(|d| d.get(def_name)) {
+                            schema_str.push(' ');
+                            schema_str.push_str(&def_schema.to_string());
+                        }
+                    }
+                }
+                match expected_type {
+                    "integer" => assert!(
+                        schema_str.contains("\"integer\""),
+                        "tool {name}.{prop_name} expected integer schema, got {schema_str}"
+                    ),
+                    "number" => assert!(
+                        schema_str.contains("\"number\""),
+                        "tool {name}.{prop_name} expected number schema, got {schema_str}"
+                    ),
+                    "string" => assert!(
+                        schema_str.contains("\"string\""),
+                        "tool {name}.{prop_name} expected string schema, got {schema_str}"
+                    ),
+                    "boolean" => assert!(
+                        schema_str.contains("\"boolean\""),
+                        "tool {name}.{prop_name} expected boolean schema, got {schema_str}"
+                    ),
+                    "object" => assert!(
+                        schema_str.contains("\"object\"") || schema_str.contains("additionalProperties"),
+                        "tool {name}.{prop_name} expected object schema, got {schema_str}"
+                    ),
+                    "array_string" => assert!(
+                        schema_str.contains("\"array\"") && schema_str.contains("\"string\""),
+                        "tool {name}.{prop_name} expected array_string schema, got {schema_str}"
+                    ),
+                    "array_int2" => assert!(
+                        schema_str.contains("\"array\"")
+                            && prop_schema.get("minItems").and_then(|v| v.as_u64()) == Some(2)
+                            && prop_schema.get("maxItems").and_then(|v| v.as_u64()) == Some(2),
+                        "tool {name}.{prop_name} expected [i32; 2] schema, got {schema_str}"
+                    ),
+                    "array_int4" => assert!(
+                        schema_str.contains("\"array\"")
+                            && prop_schema.get("minItems").and_then(|v| v.as_u64()) == Some(4)
+                            && prop_schema.get("maxItems").and_then(|v| v.as_u64()) == Some(4),
+                        "tool {name}.{prop_name} expected [i32; 4] schema, got {schema_str}"
+                    ),
+                    other => panic!("unknown golden type {other} for {name}.{prop_name}"),
+                }
+            }
+
+            let expected_req: BTreeSet<String> = spec["required"]
+                .as_array()
+                .expect("required array")
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+
+            let actual_req: BTreeSet<String> = tool
+                .input_schema
+                .get("required")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            assert_eq!(
+                actual_req, expected_req,
+                "tool {name} required fields drifted between Rust JsonSchema and proto/node_tool_contract.json"
+            );
+        }
+
+        // 校验黄金契约声明的 serde 兼容别名（aliases）在 Rust 参数结构体上真实可反序列化
+        let kp: KeyParams =
+            serde_json::from_str(r#"{"key":"Enter"}"#).expect("key alias 'key'");
+        assert_eq!(kp.keys, "Enter");
+
+        let fpush: FilePushParams = serde_json::from_str(
+            r#"{"path":"/tmp/demo.txt","content_base64":"QUJDRA=="}"#,
+        )
+        .expect("file_push alias 'path'");
+        assert_eq!(fpush.remote_path, "/tmp/demo.txt");
+
+        let fp: FilePullParams =
+            serde_json::from_str(r#"{"path":"/tmp/demo.txt"}"#).expect("file_pull alias 'path'");
+        assert_eq!(fp.remote_path, "/tmp/demo.txt");
+
+        let rc: RunCommandParams =
+            serde_json::from_str(r#"{"command":"echo ok"}"#).expect("run_command alias 'command'");
+        assert_eq!(rc.cmd, "echo ok");
+
+        let ap: AssertParams = serde_json::from_str(
+            r#"{"mode":"text","expected":"done","match_kind":"equals"}"#,
+        )
+        .expect("assert aliases 'expected' and 'match_kind'");
+        assert_eq!(ap.expect, "done");
+        assert_eq!(ap.match_type, aura_capability::MatchType::Equals);
+    }
 }

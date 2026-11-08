@@ -720,6 +720,7 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 	}
 
 	// 4. 组装 Jev SystemOne 请求（单次并发询问 Noul + Choice + Box）
+	var jevErr error
 	jevClient := e.resolveJevClient(cfg)
 	if jevClient != nil {
 		choices := FormatCandidateChoices(candidates, meta.Scale)
@@ -775,6 +776,7 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 				usedCloudFallback = jerr == nil
 			}
 		}
+		jevErr = jerr
 		if jerr == nil && sresp != nil {
 			noulProb := 1.0
 			if exAns, ok := sresp.Answers["exists"]; ok {
@@ -939,6 +941,19 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 				Message:           fmt.Sprintf("融合候选 #%d 语义匹配命中", idx),
 			}, nil
 		}
+	}
+
+	if jevErr != nil && len(candidates) == 0 {
+		return LocateOutput{
+			Found:      false,
+			Status:     "observation_unavailable",
+			ScreenW:    meta.NativeW,
+			ScreenH:    meta.NativeH,
+			Scale:      meta.Scale,
+			SnapshotID: snapshotID,
+			LatencyMs:  time.Since(t0).Milliseconds(),
+			Message:    fmt.Sprintf("视觉推理服务不可用且无候选元素: %v", jevErr),
+		}, nil
 	}
 
 	return LocateOutput{

@@ -365,8 +365,11 @@ func (s *MinioStore) ListRecordings(ctx context.Context) ([]RecordingObject, err
 			continue
 		}
 		out = append(out, RecordingObject{Key: obj.Key, Size: obj.Size, Modified: obj.LastModified})
-		if len(out) >= maxRecordingsScan {
-			break
+		// 当内存切片达到 2*maxRecordingsList 时原地按 LastModified 降序收敛保留最新 maxRecordingsList 条，
+		// 既避免 >10,000 对象桶中按字典序在后的新录屏被提前 break 丢弃，又将内存占用严格有界化。
+		if len(out) >= 2*maxRecordingsList {
+			sort.Slice(out, func(i, j int) bool { return out[i].Modified.After(out[j].Modified) })
+			out = out[:maxRecordingsList]
 		}
 	}
 	// 最新录屏在前（对象 LastModified 降序）；ListObjects 按字典序跨页返回，须先排序再截断至 maxRecordingsList。
