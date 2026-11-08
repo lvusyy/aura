@@ -134,7 +134,9 @@ func (s *ControllerAdminServer) DispatchTool(
 
 func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg *aurav1.DispatchToolRequest) ([]byte, bool) {
 	tool := msg.GetTool()
-	if tool != "locate_element" && tool != "click_element" {
+	switch tool {
+	case "locate_element", "click_element", "annotate_screen", "wait_for_element":
+	default:
 		return nil, false
 	}
 	var args struct {
@@ -144,6 +146,9 @@ func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg
 		TypeText    string `json:"type_text"`
 		PressKey    string `json:"press_key"`
 		WaitMs      int64  `json:"wait_ms"`
+		TimeoutMs   int64  `json:"timeout_ms"`
+		State       string `json:"state"`
+		MaxElements int    `json:"max_elements"`
 		ForceVision bool   `json:"force_vision"`
 		Verify      bool   `json:"verify"`
 	}
@@ -217,6 +222,52 @@ func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg
 				"ok":    false,
 				"data":  out,
 				"error": map[string]any{"code": "E_CLICK_ELEMENT_NOT_FOUND", "message": out.Message},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	case "annotate_screen":
+		out, err := s.selector.Annotate(ctx, selection.AnnotateInput{
+			NodeID:      msg.GetNodeId(),
+			ForceVision: args.ForceVision,
+			MaxElements: args.MaxElements,
+			DeadlineMs:  msg.GetDeadlineMs(),
+			Who:         who,
+			TraceID:     msg.GetTraceId(),
+		})
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_ANNOTATE_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	case "wait_for_element":
+		out, err := s.selector.WaitFor(ctx, selection.WaitForInput{
+			NodeID:      msg.GetNodeId(),
+			Target:      args.Target,
+			State:       args.State,
+			TimeoutMs:   args.TimeoutMs,
+			ForceVision: args.ForceVision,
+			DeadlineMs:  msg.GetDeadlineMs(),
+			Who:         who,
+			TraceID:     msg.GetTraceId(),
+		})
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_WAIT_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		if !out.Satisfied {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_WAIT_TIMEOUT", "message": out.Message},
 			})
 			return b, true
 		}

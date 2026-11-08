@@ -252,3 +252,52 @@ func TestMinioStoreFakeS3RoundTrip(t *testing.T) {
 		t.Fatalf("PresignedGet download len = %d, want %d", len(dlBytes), len(want))
 	}
 }
+
+func TestLocalDiskS3ServerPersistenceAndListRecordings(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("AURA_MINIO_ENDPOINT", "local")
+	t.Setenv("AURA_ARTIFACT_DIR", tmpDir)
+
+	store, err := NewMinioStoreFromEnv()
+	if err != nil {
+		t.Fatalf("NewMinioStoreFromEnv(local): %v", err)
+	}
+	if store == nil {
+		t.Fatal("expected non-nil store when AURA_MINIO_ENDPOINT=local")
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket: %v", err)
+	}
+	if err := store.EnsureRecordingRetention(ctx, 30); err != nil {
+		t.Fatalf("EnsureRecordingRetention: %v", err)
+	}
+
+	mp4Data := []byte("FAKE-MP4-STREAM-CONTENT-0123456789")
+	if err := store.PutObject(ctx, "recordings/rec-local-1.mp4", mp4Data, "video/mp4"); err != nil {
+		t.Fatalf("PutObject recording: %v", err)
+	}
+
+	recs, err := store.ListRecordings(ctx)
+	if err != nil {
+		t.Fatalf("ListRecordings: %v", err)
+	}
+	if len(recs) != 1 || recs[0].Key != "recordings/rec-local-1.mp4" || recs[0].Size != int64(len(mp4Data)) {
+		t.Fatalf("unexpected ListRecordings result: %+v", recs)
+	}
+
+	rc, _, err := store.OpenObject(ctx, "recordings/rec-local-1.mp4")
+	if err != nil {
+		t.Fatalf("OpenObject: %v", err)
+	}
+	defer rc.Close()
+	if _, err := rc.Seek(5, io.SeekStart); err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+	tail, err := io.ReadAll(rc)
+	if err != nil || string(tail) != string(mp4Data[5:]) {
+		t.Fatalf("Range Seek read = %q, want %q (err=%v)", string(tail), string(mp4Data[5:]), err)
+	}
+}

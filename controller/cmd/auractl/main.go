@@ -75,6 +75,10 @@ func run(argv []string) error {
 		return cmdLocate(ctx, client, args[1:])
 	case "click-element":
 		return cmdClickElement(ctx, client, args[1:])
+	case "annotate":
+		return cmdAnnotate(ctx, client, args[1:])
+	case "wait-element":
+		return cmdWaitElement(ctx, client, args[1:])
 	case "a11y":
 		return cmdA11y(ctx, client, args[1:])
 	case "env":
@@ -147,11 +151,13 @@ Commands:
   tool call <node-id> <tool> [--args JSON] [--deadline-ms N] [--who W] dispatch a tool call
   locate <node-id> <target> [--force-vision] [--wait-ms N]             hybrid Jev/A11y UI element localization
   click-element <node-id> <target> [--type T] [--key K] [--verify]     one-step UI element locate & click
+  annotate <node-id> [--force-vision] [--max-elements N] [--out FILE]  Set-of-Mark (SoM) screen annotation & candidates
+  wait-element <node-id> <target> [--state present|absent]             poll until UI element appears or disappears
   a11y <node-id> [--depth N] [--role R] [--max-nodes N]                inspect node accessibility tree
   env create --kind ephemeral|persistent [--template N]               create an environment
   env destroy <env-id>                                                destroy an environment
   artifact get <key> [--out FILE]                                     download an artifact via controller/presigned URL
-  trace start <node-id> [--who W] | trace stop <trace-id>             start/stop a recording lease (trace)
+  trace start <node-id> | trace stop <trace-id> | trace export <id>   start/stop/export a recording lease (trace)
   replay <trace-id> [--node <id>] [--platform <p>] [--deadline-ms N]  replay a recorded trace against a target
   release upload --platform P --version V <file>                      upload a node release artifact (admin)
   release list                                                        list registered release artifacts

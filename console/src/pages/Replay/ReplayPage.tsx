@@ -18,7 +18,7 @@ import {
   message,
 } from "antd";
 import type { TableProps } from "antd";
-import { PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, PlayCircleOutlined, ReloadOutlined } from "@ant-design/icons";
 import { create } from "@bufbuild/protobuf";
 import { adminClient, consoleClient } from "../../api/transport";
 import { TraceSummarySchema } from "../../gen/aura/v1/console_pb";
@@ -267,6 +267,31 @@ export function ReplayPage() {
     }
   }, [selected, targetNode, nodes]);
 
+  const onExportScript = useCallback(() => {
+    if (!selected || !detail) return;
+    const nodeDefault = targetNode || detail.nodeId || "<node-id>";
+    const lines: string[] = [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `# AURA Trace Replay Script — trace_id=${selected.traceId} source_node=${detail.nodeId || "-"} platform=${detail.platform || "-"}`,
+      `NODE_ID="\${1:-${nodeDefault}}"`,
+      "",
+    ];
+    for (const step of detail.steps) {
+      const rawArgs = step.jsonArgs?.length ? bytesDecoder.decode(step.jsonArgs).trim() : "{}";
+      const safeArgs = (rawArgs || "{}").replace(/'/g, "'\\''");
+      lines.push(`# Step #${Number(step.seq)}: ${step.tool}`);
+      lines.push(`auractl tool call "$NODE_ID" ${step.tool} --args '${safeArgs}'`);
+    }
+    const blob = new Blob([lines.join("\n") + "\n"], { type: "text/x-shellscript;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trace-${selected.traceId}.sh`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [selected, detail, targetNode]);
+
   // 批E B8：状态/步数/who 列补齐——TraceSummary 早已回真值（数据现成），此前列表丢弃未展示。
   const traceColumns: TableProps<TraceSummary>["columns"] = [
     {
@@ -460,6 +485,13 @@ export function ReplayPage() {
                 一键回放
               </Button>
             </Popconfirm>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={onExportScript}
+              disabled={detail.steps.length === 0}
+            >
+              导出重放脚本 (.sh)
+            </Button>
             {platform && sameP.length === 0 && (
               <Text type="warning">无同平台（{platform}）节点，已列出全部节点（best-effort）</Text>
             )}

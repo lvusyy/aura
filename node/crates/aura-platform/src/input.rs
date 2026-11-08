@@ -158,7 +158,33 @@ fn apply(enigo: &mut Enigo, cmd: InputCommand) -> Result<(), CapError> {
     }
 }
 
-/// 可靠文本输入：修复 Linux X11 上 enigo `text` **首字符丢失**。
+/// 将输入文本按字符数切分为批次（`max_chars >= 1`）。
+/// Windows `SendInput(KEYEVENTF_UNICODE)` 与 macOS `CGEventKeyboardSetUnicodeString` 原生支持
+/// 多字符 UTF-16 注入（每批 32 字符可将长文本与 CJK 输入耗时降低一个数量级且规避逐键输入法截获）；
+/// Linux X11 因 `XChangeKeyboardMapping` 空闲 keycode 槽位受限，保持单字符步进（`max_chars = 1`）。
+pub(crate) fn chunk_text_for_typing(text: &str, max_chars: usize) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let step = max_chars.max(1);
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut count = 0usize;
+    for ch in text.chars() {
+        cur.push(ch);
+        count += 1;
+        if count >= step {
+            out.push(std::mem::take(&mut cur));
+            count = 0;
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// 可靠文本输入：修复 Linux X11 上 enigo `text` **首字符丢失**，并在 Windows/macOS 上加速长文本与 CJK 输入。
 ///
 /// 根因：enigo X11 后端把 Unicode 字符动态重映射到空闲 keycode（`XChangeKeyboardMapping`）
 /// 再按键。真实文本的**头几个事件**若落在 XTEST 通道 / keymap 冷启动 + 焦点未就绪的时间窗内会被
@@ -167,7 +193,8 @@ fn apply(enigo: &mut Enigo, cmd: InputCommand) -> Result<(), CapError> {
 /// 策略（三管齐下，均限于 type 路径，不影响其他方法）：
 /// 1. 预热：先发一个无害的 Shift 按下+释放（不产生任何字符），让冷启动事件被它吸收、通道就绪；
 /// 2. 稳定：短暂 sleep 等 keymap / 焦点通道落定（独占线程内串行，几十 ms 可接受）；
-/// 3. 抬高每键延迟输入正文，给逐字符 keymap 重映射足够传播时间，输入后恢复原延迟。
+/// 3. 分批输入：Linux X11 逐字符（`batch=1`）配 20ms 间隔防 keymap 溢出；Windows/macOS 按 32 字符批次
+///    直接走原生 Unicode 事件注入，大幅提速并规避逐键 IME 干扰。
 fn type_text_reliable(enigo: &mut Enigo, text: &str) -> Result<(), CapError> {
     if text.is_empty() {
         return Ok(());
@@ -178,11 +205,10 @@ fn type_text_reliable(enigo: &mut Enigo, text: &str) -> Result<(), CapError> {
     let _ = enigo.key(Key::Shift, Direction::Release);
     // 2) 稳定窗口。
     std::thread::sleep(TYPE_WARMUP_SETTLE);
-    // 3) 逐字符输入 + 每字符间延迟，给逐字符 keymap 重映射足够传播时间。
-    //    用手动 sleep 而非 enigo.set_delay/delay：后两者仅 X11 后端提供，Windows/macOS 后端无此方法
-    //    （enigo 跨平台 API 不一致，直接调会导致 Windows 编译 E0599 method not found）。
-    for ch in text.chars() {
-        enigo.text(&ch.to_string()).map_err(input_err)?;
+    // 3) 分平台批次输入。
+    let batch_size = if cfg!(target_os = "linux") { 1 } else { 32 };
+    for chunk in chunk_text_for_typing(text, batch_size) {
+        enigo.text(&chunk).map_err(input_err)?;
         std::thread::sleep(Duration::from_millis(TYPE_KEY_DELAY_MS as u64));
     }
     Ok(())
@@ -570,5 +596,18 @@ mod tests {
         assert!(matches!(map_button(MouseButton::Left), Button::Left));
         assert!(matches!(map_button(MouseButton::Right), Button::Right));
         assert!(matches!(map_button(MouseButton::Middle), Button::Middle));
+    }
+
+    #[test]
+    fn chunk_text_for_typing_preserves_unicode_and_boundaries() {
+        assert!(chunk_text_for_typing("", 32).is_empty());
+        assert_eq!(
+            chunk_text_for_typing("你好AURA", 1),
+            vec!["你", "好", "A", "U", "R", "A"]
+        );
+        assert_eq!(
+            chunk_text_for_typing("你好世界AURA", 3),
+            vec!["你好世", "界AU", "RA"]
+        );
     }
 }

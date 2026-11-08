@@ -976,14 +976,30 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 		clickTool = "double_click"
 	}
 	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, clickTool, rawArgs, deadlineMs, who, in.TraceID); cerr != nil {
-		return ClickOutput{
-			Located:        loc,
-			Clicked:        false,
-			Verified:       false,
-			Status:         "click_failed",
-			TotalLatencyMs: time.Since(t0).Milliseconds(),
-			Message:        fmt.Sprintf("定位成功但执行点击失败: %v", cerr),
-		}, nil
+		// 兼容真实 aura-node（仅注册单次 "click" 工具，未单独注册 "double_click"）：
+		// 当 double_click 返回 E_UNSUPPORTED / unknown tool 时，自动回退为连续两次快速 click。
+		if in.DoubleClick && (strings.Contains(cerr.Error(), "E_UNSUPPORTED") || strings.Contains(cerr.Error(), "unknown tool")) {
+			if _, cerr1 := e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who, in.TraceID); cerr1 != nil {
+				cerr = cerr1
+			} else {
+				select {
+				case <-ctx.Done():
+					cerr = ctx.Err()
+				case <-time.After(40 * time.Millisecond):
+					_, cerr = e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who, in.TraceID)
+				}
+			}
+		}
+		if cerr != nil {
+			return ClickOutput{
+				Located:        loc,
+				Clicked:        false,
+				Verified:       false,
+				Status:         "click_failed",
+				TotalLatencyMs: time.Since(t0).Milliseconds(),
+				Message:        fmt.Sprintf("定位成功但执行点击失败: %v", cerr),
+			}, nil
+		}
 	}
 
 	// 点击已发生，立即失效该节点同屏候选缓存
@@ -1151,4 +1167,234 @@ func parseChoiceIndex(choice string, choices []string) int {
 		}
 	}
 	return -1
+}
+
+// Annotate 采集节点 A11y 树 + 屏幕截图 + 可选 YOLO 视觉候选框，执行 IoU 融合并绘制 Set-of-Mark (SoM)
+// 编号叠加图与候选坐标索引表，供多模态 Agent 直接按编号与坐标理解当前界面。
+func (e *SelectorEngine) Annotate(ctx context.Context, in AnnotateInput) (AnnotateOutput, error) {
+	t0 := time.Now()
+	if strings.TrimSpace(in.NodeID) == "" {
+		return AnnotateOutput{}, errors.New("node_id is required")
+	}
+	deadlineMs := in.DeadlineMs
+	if deadlineMs <= 0 {
+		deadlineMs = defaultLocateDeadlineMs
+	}
+	who := in.Who
+	if who == "" {
+		who = "console"
+	}
+	maxElem := in.MaxElements
+	if maxElem <= 0 {
+		maxElem = 48
+	}
+	if maxElem > 120 {
+		maxElem = 120
+	}
+
+	cfg, err := e.GetSettings(ctx)
+	if err != nil {
+		cfg = store.DefaultVisionSettings(e.defaultLocalEndpoint)
+		cfg.Mode = "disabled"
+	}
+
+	var flatA11y []fusion.FusedElement
+	if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", []byte(`{"depth":10,"max_nodes":600}`), deadlineMs, who, in.TraceID); aerr == nil {
+		var tree fusion.A11yTree
+		if json.Unmarshal(treeRaw, &tree) == nil {
+			flatA11y = fusion.FlattenA11y(tree)
+		}
+	}
+
+	shotRaw, err := e.dispatchNodeTool(ctx, in.NodeID, "screenshot", nil, deadlineMs, who, in.TraceID)
+	if err != nil {
+		return AnnotateOutput{}, fmt.Errorf("annotate screenshot: %w", err)
+	}
+	var shot shotPayload
+	if err := json.Unmarshal(shotRaw, &shot); err != nil {
+		return AnnotateOutput{}, fmt.Errorf("decode screenshot payload: %w", err)
+	}
+	imgBytes, err := base64.StdEncoding.DecodeString(shot.ImageBase64)
+	if err != nil || len(imgBytes) == 0 {
+		return AnnotateOutput{}, errors.New("annotate: empty or invalid screenshot image")
+	}
+	meta := shot.Meta
+	if meta.Scale <= 0 {
+		meta.Scale = 1.0
+	}
+	snapshotID := strings.TrimSpace(meta.SnapshotID)
+	if snapshotID == "" {
+		snapshotID = strings.TrimSpace(shot.SnapshotID)
+	}
+	mime := shot.Mime
+	if mime == "" {
+		mime = "image/webp"
+	}
+
+	candidates := flatA11y
+	if cfg.Mode != "disabled" || in.ForceVision {
+		if detClient := e.resolveDetector(cfg); detClient != nil {
+			exactHash := ComputeExactHash(imgBytes)
+			dHash, _ := ComputeDHash(imgBytes)
+			withCaption := cfg.CaptionMode == "florence"
+			boxes, cached := e.getCachedBoxes(in.NodeID, exactHash, withCaption)
+			var derr error
+			if !cached {
+				if od, ok := detClient.(fusion.OptsDetectorClient); ok {
+					boxes, derr = od.DetectWithOpts(ctx, imgBytes, mime, withCaption)
+				} else {
+					boxes, derr = detClient.Detect(ctx, imgBytes, mime)
+				}
+				if derr == nil {
+					e.putCachedBoxes(in.NodeID, exactHash, dHash, withCaption, boxes)
+				}
+			}
+			if derr == nil && len(boxes) > 0 {
+				aligned := make([]fusion.VisualBoxNative, 0, len(boxes))
+				for _, b := range boxes {
+					aligned = append(aligned, fusion.VisualBoxNative{
+						Bbox:       fusion.AlignBox(b, meta.Scale),
+						Kind:       b.Kind,
+						Caption:    b.Caption,
+						Confidence: b.Confidence,
+					})
+				}
+				candidates = MergeCandidatesIoU(flatA11y, aligned, DefaultCandidateIoUThreshold)
+			}
+		}
+	}
+
+	if len(candidates) > maxElem {
+		candidates = candidates[:maxElem]
+	}
+
+	somB64, somMime := RenderSoMOverlay(imgBytes, mime, candidates, meta.Scale)
+	choices := FormatCandidateChoices(candidates, meta.Scale)
+	indexed := make([]AnnotatedCandidate, 0, len(candidates))
+	for i, c := range candidates {
+		db := NativeToDisplayBounds(c.Bounds, meta.Scale)
+		indexed = append(indexed, AnnotatedCandidate{
+			Index:             i,
+			Source:            c.Source,
+			Role:              c.Role,
+			Name:              c.Name,
+			Caption:           c.Caption,
+			Bounds:            c.Bounds,
+			DisplayBounds:     db,
+			ClickPoint:        CenterPoint(c.Bounds),
+			DisplayClickPoint: CenterPoint(db),
+			Confidence:        c.Confidence,
+		})
+	}
+
+	return AnnotateOutput{
+		NodeID:         in.NodeID,
+		ScreenW:        meta.NativeW,
+		ScreenH:        meta.NativeH,
+		DisplayW:       meta.DisplayW,
+		DisplayH:       meta.DisplayH,
+		Scale:          meta.Scale,
+		SnapshotID:     snapshotID,
+		SoMImageBase64: somB64,
+		SoMMime:        somMime,
+		Choices:        choices,
+		Candidates:     indexed,
+		LatencyMs:      time.Since(t0).Milliseconds(),
+		Message:        fmt.Sprintf("已标注 %d 个界面元素 (scale=%.2f, snapshot=%s)", len(indexed), meta.Scale, snapshotID),
+	}, nil
+}
+
+// WaitFor 轮询等待目标 UI 元素出现（state="present"，缺省）或消失（state="absent"|"gone"）。
+// 适用于等待弹窗关闭、加载指示器消失或异步渲染结果就位。
+func (e *SelectorEngine) WaitFor(ctx context.Context, in WaitForInput) (WaitForOutput, error) {
+	t0 := time.Now()
+	target := strings.TrimSpace(in.Target)
+	if strings.TrimSpace(in.NodeID) == "" {
+		return WaitForOutput{}, errors.New("node_id is required")
+	}
+	if target == "" {
+		return WaitForOutput{}, errors.New("target is required")
+	}
+	wantAbsent := false
+	stateNorm := strings.ToLower(strings.TrimSpace(in.State))
+	switch stateNorm {
+	case "", "present", "visible", "appear":
+		stateNorm = "present"
+	case "absent", "gone", "hidden", "disappear":
+		stateNorm = "absent"
+		wantAbsent = true
+	default:
+		return WaitForOutput{}, fmt.Errorf("invalid state %q (must be present or absent)", in.State)
+	}
+
+	timeoutMs := in.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 5_000
+	}
+	if timeoutMs > 30_000 {
+		timeoutMs = 30_000
+	}
+	deadlineDur := time.Duration(timeoutMs) * time.Millisecond
+
+	polls := 0
+	var last LocateOutput
+	for {
+		polls++
+		e.invalidateNodeCache(in.NodeID)
+		out, err := e.locateOnce(ctx, LocateInput{
+			NodeID:      in.NodeID,
+			Target:      target,
+			ForceVision: in.ForceVision,
+			DeadlineMs:  in.DeadlineMs,
+			Who:         in.Who,
+			TraceID:     in.TraceID,
+		})
+		if err != nil {
+			return WaitForOutput{}, err
+		}
+		last = out
+		last.Candidates = compactCandidates(last.Candidates, 16)
+
+		satisfied := (!wantAbsent && out.Found) || (wantAbsent && !out.Found)
+		elapsed := time.Since(t0).Milliseconds()
+		if satisfied {
+			msg := fmt.Sprintf("目标 %q 已出现（轮询 %d 次，耗时 %dms）", target, polls, elapsed)
+			if wantAbsent {
+				msg = fmt.Sprintf("目标 %q 已消失（轮询 %d 次，耗时 %dms）", target, polls, elapsed)
+			}
+			return WaitForOutput{
+				Satisfied: true,
+				State:     stateNorm,
+				Target:    target,
+				Polls:     polls,
+				ElapsedMs: elapsed,
+				Last:      last,
+				Message:   msg,
+			}, nil
+		}
+		if time.Since(t0) >= deadlineDur || out.Status == "vision_disabled" && !wantAbsent {
+			msg := fmt.Sprintf("等待目标 %q 变为 %s 超时（轮询 %d 次，耗时 %dms）", target, stateNorm, polls, elapsed)
+			return WaitForOutput{
+				Satisfied: false,
+				State:     stateNorm,
+				Target:    target,
+				Polls:     polls,
+				ElapsedMs: elapsed,
+				Last:      last,
+				Message:   msg,
+			}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return WaitForOutput{}, ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+}
+
+func compactCandidates(items []fusion.FusedElement, capN int) []fusion.FusedElement {
+	if len(items) <= capN {
+		return items
+	}
+	return items[:capN]
 }

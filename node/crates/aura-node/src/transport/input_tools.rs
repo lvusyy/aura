@@ -34,10 +34,11 @@ pub struct TypeTextParams {
     pub text: String,
 }
 
-/// key 入参：P0 契约单字符串（如 "ctrl+c"）。
+/// key 入参：P0 契约单字符串（如 "ctrl+c"），兼容 `key` 别名（如控制面 ClickElement 组合按键下发）。
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct KeyParams {
     /// 组合键字符串，如 "ctrl+c"、"enter"。
+    #[serde(alias = "key")]
     pub keys: String,
 }
 
@@ -264,10 +265,13 @@ mod tests {
         assert_eq!(p.to, [30, 40]);
     }
 
-    /// key 入参：P0 单字符串契约。
+    /// key 入参：P0 单字符串契约（兼容 `keys` 与 `key` 别名）。
     #[test]
     fn key_params_deserialize_single_string() {
         let p: KeyParams = serde_json::from_str(r#"{"keys":"ctrl+c"}"#).unwrap();
         assert_eq!(p.keys, "ctrl+c");
+
+        let p_alias: KeyParams = serde_json::from_str(r#"{"key":"Return"}"#).unwrap();
+        assert_eq!(p_alias.keys, "Return");
     }
 }

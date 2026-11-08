@@ -71,6 +71,14 @@ type MinioStore struct {
 	client         *minio.Client
 	presignClients map[string]*minio.Client
 	bucket         string
+	localClose     func()
+}
+
+// Close 释放内嵌本地 S3 网关资源（若经 AURA_MINIO_ENDPOINT=local / AURA_ARTIFACT_DIR 启动）；外部 MinIO 为 no-op。
+func (s *MinioStore) Close() {
+	if s != nil && s.localClose != nil {
+		s.localClose()
+	}
 }
 
 // NewMinioStore 建 MinIO 客户端。endpoint 形如 host:port（不含 scheme）。
@@ -98,18 +106,47 @@ func NewMinioStore(endpoint, accessKey, secretKey string, useSSL bool) (*MinioSt
 // 未配置则回落内部 endpoint 并 warn。AURA_MINIO_ENDPOINTS（zone=endpoint 逗号分隔）增补按域端点，供
 // GrantUpload 按 node 上报的 network_zone 分派签发（T07/REC-6）。
 func NewMinioStoreFromEnv() (*MinioStore, error) {
-	endpoint := os.Getenv("AURA_MINIO_ENDPOINT")
-	if endpoint == "" {
+	endpoint := strings.TrimSpace(os.Getenv("AURA_MINIO_ENDPOINT"))
+	artifactDir := strings.TrimSpace(os.Getenv("AURA_ARTIFACT_DIR"))
+	if endpoint == "" && artifactDir == "" {
 		return nil, nil
 	}
+
+	var localClose func()
+	if strings.EqualFold(endpoint, "local") || (endpoint == "" && artifactDir != "") {
+		if artifactDir == "" {
+			artifactDir = "./aura-data/artifacts"
+		}
+		listenAddr := strings.TrimSpace(os.Getenv("AURA_LOCAL_S3_ADDR"))
+		boundAddr, closeFn, err := StartLocalS3Server(artifactDir, listenAddr)
+		if err != nil {
+			return nil, fmt.Errorf("start embedded local S3 store: %w", err)
+		}
+		endpoint = boundAddr
+		localClose = closeFn
+		slog.Info("embedded local S3 artifact store started", "endpoint", endpoint, "artifact_dir", artifactDir)
+	}
+
 	accessKey := os.Getenv("AURA_MINIO_ACCESS_KEY")
 	secretKey := os.Getenv("AURA_MINIO_SECRET_KEY")
+	if localClose != nil {
+		if accessKey == "" {
+			accessKey = "aura"
+		}
+		if secretKey == "" {
+			secretKey = "aurasecret"
+		}
+	}
 	useSSL := os.Getenv("AURA_MINIO_SECURE") == "true"
 
 	store, err := NewMinioStore(endpoint, accessKey, secretKey, useSSL)
 	if err != nil {
+		if localClose != nil {
+			localClose()
+		}
 		return nil, err
 	}
+	store.localClose = localClose
 
 	// 默认 zone 公网可达端点（节点视角）：AURA_MINIO_PUBLIC_ENDPOINT 覆盖默认 presign client，缺省回落
 	// 内部 endpoint 并告警（既有单端点部署零变化）。

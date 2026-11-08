@@ -230,7 +230,9 @@ func tryServeGatewayJevTool(
 		return false
 	}
 	toolName := rpcReq.Params.Name
-	if toolName != "locate_element" && toolName != "click_element" {
+	switch toolName {
+	case "locate_element", "click_element", "annotate_screen", "wait_for_element":
+	default:
 		return false
 	}
 
@@ -241,6 +243,10 @@ func tryServeGatewayJevTool(
 		TypeText    string `json:"type_text"`
 		PressKey    string `json:"press_key"`
 		WaitMs      int64  `json:"wait_ms"`
+		TimeoutMs   int64  `json:"timeout_ms"`
+		State       string `json:"state"`
+		MaxElements int    `json:"max_elements"`
+		Output      string `json:"output"`
 		ForceVision bool   `json:"force_vision"`
 		Verify      bool   `json:"verify"`
 		DeadlineMs  int64  `json:"deadline_ms"`
@@ -339,6 +345,88 @@ func tryServeGatewayJevTool(
 				"data": out,
 			}
 		}
+	case "annotate_screen":
+		out, err := selector.Annotate(ctx, selection.AnnotateInput{
+			NodeID:      nodeID,
+			ForceVision: args.ForceVision,
+			MaxElements: args.MaxElements,
+			DeadlineMs:  args.DeadlineMs,
+			Who:         who,
+			TraceID:     args.TraceID,
+		})
+		if err != nil {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_ANNOTATE_FAILED", "message": err.Error()},
+			}
+		} else {
+			// MCP structuredContent 仅保留坐标索引与候选列表，避免在 text JSON 与 image block 双份重复多 MB base64
+			slimOut := out
+			imgB64 := out.SoMImageBase64
+			imgMime := out.SoMMime
+			if args.Output != "json" && imgB64 != "" {
+				slimOut.SoMImageBase64 = ""
+			}
+			payload = map[string]any{
+				"ok":   true,
+				"data": slimOut,
+			}
+			textBytes, _ := json.Marshal(payload)
+			contentBlocks := []map[string]any{
+				{"type": "text", "text": string(textBytes)},
+			}
+			if args.Output != "json" && imgB64 != "" {
+				contentBlocks = append(contentBlocks, map[string]any{
+					"type":     "image",
+					"data":     imgB64,
+					"mimeType": imgMime,
+				})
+			}
+			rpcResp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      rpcReq.ID,
+				"result": map[string]any{
+					"content":           contentBlocks,
+					"structuredContent": payload,
+					"isError":           false,
+				},
+			}
+			outBytes, _ := json.Marshal(rpcResp)
+			writeMcpProxyReply(w, http.StatusOK, "application/json", outBytes)
+			auditMcpGateway(r, nodeID, http.StatusOK, len(body), "jev-"+toolName)
+			return true
+		}
+	case "wait_for_element":
+		out, err := selector.WaitFor(ctx, selection.WaitForInput{
+			NodeID:      nodeID,
+			Target:      args.Target,
+			State:       args.State,
+			TimeoutMs:   args.TimeoutMs,
+			ForceVision: args.ForceVision,
+			DeadlineMs:  args.DeadlineMs,
+			Who:         who,
+			TraceID:     args.TraceID,
+		})
+		if err != nil {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_WAIT_FAILED", "message": err.Error()},
+			}
+		} else if !out.Satisfied {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_WAIT_TIMEOUT", "message": out.Message},
+			}
+		} else {
+			payload = map[string]any{
+				"ok":   true,
+				"data": out,
+			}
+		}
 	}
 
 	textBytes, _ := json.Marshal(payload)
@@ -426,6 +514,40 @@ func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
 					"force_vision": map[string]any{"type": "boolean", "description": "Force visual inference"},
 					"verify":       map[string]any{"type": "boolean", "description": "Verify UI state change (L1 A11y + L2 perceptual dHash) after click"},
 					"deadline_ms":  map[string]any{"type": "integer", "description": "Optional deadline in ms"},
+					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
+				},
+				"required": []string{"target"},
+			},
+		})
+	}
+	if !seen["annotate_screen"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "annotate_screen",
+			"description": "Set-of-Mark (SoM) visual + accessibility grounding: captures the screen and A11y tree, merges YOLO visual boxes, draws numbered index badges [0..N], and returns both the annotated image and the indexed coordinate table.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"force_vision": map[string]any{"type": "boolean", "description": "Force visual detector even if vision mode is disabled"},
+					"max_elements": map[string]any{"type": "integer", "description": "Maximum number of interactive candidates to annotate (default 48, max 120)"},
+					"output":       map[string]any{"type": "string", "description": "Output mode: 'image' (default, includes MCP image block) | 'json'"},
+					"deadline_ms":  map[string]any{"type": "integer", "description": "Optional deadline in ms"},
+					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
+				},
+			},
+		})
+	}
+	if !seen["wait_for_element"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "wait_for_element",
+			"description": "Poll until a target UI element appears (state='present', default) or disappears/vanishes (state='absent', e.g. waiting for a loading spinner or modal dialog to close).",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target":       map[string]any{"type": "string", "description": "Natural-language target element description"},
+					"state":        map[string]any{"type": "string", "description": "'present' (default, wait to appear) | 'absent' (wait to disappear)"},
+					"timeout_ms":   map[string]any{"type": "integer", "description": "Max wait duration in ms (default 5000, max 30000)"},
+					"force_vision": map[string]any{"type": "boolean", "description": "Force visual inference"},
+					"deadline_ms":  map[string]any{"type": "integer", "description": "Optional per-poll deadline in ms"},
 					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
 				},
 				"required": []string{"target"},

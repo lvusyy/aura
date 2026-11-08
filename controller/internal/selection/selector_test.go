@@ -561,3 +561,117 @@ func TestCompositeClickAndCandidatesHint(t *testing.T) {
 		t.Fatalf("unexpected key args: %s", string(disp.lastArgs["key"]))
 	}
 }
+
+type clickOnlyDisp struct {
+	mu          sync.Mutex
+	clickCount  int
+	disappearAt int
+	polls       int
+	shotB64     string
+}
+
+func (d *clickOnlyDisp) Dispatch(_ context.Context, _, tool string, _ []byte, _ int64, _, _ string) (*aurav1.ToolResponse, string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	switch tool {
+	case "double_click":
+		raw, _ := json.Marshal(map[string]any{
+			"ok":    false,
+			"error": map[string]any{"code": "E_UNSUPPORTED", "message": "unknown tool: double_click"},
+		})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+	case "click":
+		d.clickCount++
+		raw, _ := json.Marshal(map[string]any{"ok": true, "data": map[string]any{"ok": true}})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+	case "get_a11y_tree":
+		d.polls++
+		var nodes []fusion.A11yNode
+		if d.disappearAt == 0 || d.polls < d.disappearAt {
+			b := [4]int32{100, 80, 120, 40}
+			nodes = []fusion.A11yNode{{Role: "button", Name: "LoadingSpinner", Bounds: &b}}
+		}
+		raw, _ := json.Marshal(map[string]any{
+			"ok":   true,
+			"data": fusion.A11yTree{Nodes: nodes},
+		})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+	case "screenshot":
+		raw, _ := json.Marshal(map[string]any{
+			"ok": true,
+			"data": map[string]any{
+				"image_base64": d.shotB64,
+				"mime":         "image/webp",
+				"meta": map[string]any{
+					"native_w":    1920,
+					"native_h":    1080,
+					"display_w":   960,
+					"display_h":   540,
+					"scale":       2.0,
+					"snapshot_id": "snap-som-1",
+				},
+			},
+		})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+	default:
+		raw, _ := json.Marshal(map[string]any{"ok": true})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+	}
+}
+
+func TestDoubleClickFallbackAnnotateAndWaitForAbsent(t *testing.T) {
+	disp := &clickOnlyDisp{
+		disappearAt: 3,
+		shotB64:     base64.StdEncoding.EncodeToString([]byte("fake-webp-bytes")),
+	}
+	det := &fusion.MockDetector{
+		Boxes: []fusion.VisualBox{
+			{Bbox: [4]int32{200, 100, 60, 30}, Kind: "icon", Caption: "CloseIcon", Confidence: 0.91},
+		},
+	}
+	eng := NewSelectorEngine(disp, nil, "http://127.0.0.1:30808", "tok").WithOverrides(det, nil)
+
+	// 1. Annotate merges A11y + Vision and returns indexed coordinates in both native and display space
+	ann, err := eng.Annotate(context.Background(), AnnotateInput{
+		NodeID:      "node-som",
+		ForceVision: true,
+	})
+	if err != nil {
+		t.Fatalf("Annotate failed: %v", err)
+	}
+	if ann.SnapshotID != "snap-som-1" || len(ann.Candidates) != 2 || len(ann.Choices) != 2 {
+		t.Fatalf("unexpected AnnotateOutput: %+v", ann)
+	}
+	if ann.Candidates[1].Caption != "CloseIcon" || ann.Candidates[1].Bounds != [4]int32{400, 200, 120, 60} {
+		t.Fatalf("unexpected scaled candidate[1]: %+v", ann.Candidates[1])
+	}
+
+	// 2. DoubleClick falls back to 2 rapid "click" calls when node returns E_UNSUPPORTED for "double_click"
+	disp.polls = 0
+	clickOut, err := eng.Click(context.Background(), ClickInput{
+		NodeID:      "node-som",
+		Target:      "LoadingSpinner",
+		DoubleClick: true,
+	})
+	if err != nil {
+		t.Fatalf("DoubleClick fallback failed: %v", err)
+	}
+	if !clickOut.Clicked || !clickOut.DoubleClicked || disp.clickCount != 2 {
+		t.Fatalf("expected 2 click calls via double_click fallback, got clickCount=%d out=%+v", disp.clickCount, clickOut)
+	}
+
+	// 3. WaitFor(state="absent") polls until LoadingSpinner disappears on poll #3
+	disp.polls = 0
+	waitOut, err := eng.WaitFor(context.Background(), WaitForInput{
+		NodeID:    "node-som",
+		Target:    "LoadingSpinner",
+		State:     "absent",
+		TimeoutMs: 2500,
+	})
+	if err != nil {
+		t.Fatalf("WaitFor absent failed: %v", err)
+	}
+	if !waitOut.Satisfied || waitOut.State != "absent" || waitOut.Polls < 2 {
+		t.Fatalf("expected WaitFor absent to satisfy after polling, got %+v", waitOut)
+	}
+}

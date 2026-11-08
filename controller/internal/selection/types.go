@@ -172,3 +172,67 @@ type ClickOutput struct {
 	TotalLatencyMs int64        `json:"total_latency_ms"`
 	Message        string       `json:"message"`
 }
+
+// AnnotateInput 是 SelectorEngine.Annotate（Set-of-Mark 视觉+无障碍标注）的入参。
+type AnnotateInput struct {
+	NodeID      string `json:"node_id"`
+	ForceVision bool   `json:"force_vision,omitempty"`
+	MaxElements int    `json:"max_elements,omitempty"`
+	DeadlineMs  int64  `json:"deadline_ms,omitempty"`
+	Who         string `json:"who,omitempty"`
+	TraceID     string `json:"trace_id,omitempty"`
+}
+
+// AnnotatedCandidate 是 Set-of-Mark 标注后的带序号候选元素（同时携带 native 与 display 坐标）。
+type AnnotatedCandidate struct {
+	Index             int      `json:"index"`
+	Source            string   `json:"source"`
+	Role              string   `json:"role"`
+	Name              string   `json:"name,omitempty"`
+	Caption           string   `json:"caption,omitempty"`
+	Bounds            [4]int32 `json:"bounds"`
+	DisplayBounds     [4]int32 `json:"display_bounds"`
+	ClickPoint        [2]int32 `json:"click_point"`
+	DisplayClickPoint [2]int32 `json:"display_click_point"`
+	Confidence        float64  `json:"confidence"`
+}
+
+// AnnotateOutput 是 SelectorEngine.Annotate 的结构化输出。
+type AnnotateOutput struct {
+	NodeID         string               `json:"node_id"`
+	ScreenW        int32                `json:"screen_w"`
+	ScreenH        int32                `json:"screen_h"`
+	DisplayW       int32                `json:"display_w"`
+	DisplayH       int32                `json:"display_h"`
+	Scale          float64              `json:"scale"`
+	SnapshotID     string               `json:"snapshot_id,omitempty"`
+	SoMImageBase64 string               `json:"som_image_base64,omitempty"`
+	SoMMime        string               `json:"som_mime,omitempty"`
+	Choices        []string             `json:"choices"`
+	Candidates     []AnnotatedCandidate `json:"candidates"`
+	LatencyMs      int64                `json:"latency_ms"`
+	Message        string               `json:"message"`
+}
+
+// WaitForInput 是 SelectorEngine.WaitFor（等待元素出现或消失）的入参。
+type WaitForInput struct {
+	NodeID      string `json:"node_id"`
+	Target      string `json:"target"`
+	State       string `json:"state,omitempty"`      // "present" (缺省，等待出现) | "absent" / "gone" (等待消失)
+	TimeoutMs   int64  `json:"timeout_ms,omitempty"` // 缺省 5000，上限 30000
+	ForceVision bool   `json:"force_vision,omitempty"`
+	DeadlineMs  int64  `json:"deadline_ms,omitempty"`
+	Who         string `json:"who,omitempty"`
+	TraceID     string `json:"trace_id,omitempty"`
+}
+
+// WaitForOutput 是 SelectorEngine.WaitFor 的结构化输出。
+type WaitForOutput struct {
+	Satisfied bool         `json:"satisfied"`
+	State     string       `json:"state"` // "present" | "absent"
+	Target    string       `json:"target"`
+	Polls     int          `json:"polls"`
+	ElapsedMs int64        `json:"elapsed_ms"`
+	Last      LocateOutput `json:"last"`
+	Message   string       `json:"message"`
+}

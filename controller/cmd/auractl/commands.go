@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -168,6 +169,96 @@ func cmdClickElement(ctx context.Context, client aurav1connect.ControllerAdminCl
 	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
 		NodeId:     nodeID,
 		Tool:       "click_element",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
+// cmdAnnotate 处理 `annotate <node-id>`：生成 Set-of-Mark (SoM) 编号标注图 + 候选控件列表。
+func cmdAnnotate(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: auractl annotate <node-id> [--force-vision] [--max-elements N] [--out FILE] [--deadline-ms N] [--who W]")
+	}
+	nodeID := args[0]
+	fs := flag.NewFlagSet("annotate", flag.ContinueOnError)
+	forceVision := fs.Bool("force-vision", false, "run YOLO visual detection even if A11y tree has elements")
+	maxElements := fs.Int("max-elements", 40, "max numbered candidates to annotate (1..99)")
+	outFile := fs.String("out", "", "optional file path to save the Set-of-Mark annotated JPEG image")
+	deadlineMs := fs.Int64("deadline-ms", 25000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"force_vision": *forceVision,
+		"max_elements": *maxElements,
+	})
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "annotate_screen",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	envBytes := resp.Msg.GetJsonEnvelope()
+	if *outFile != "" {
+		var env struct {
+			Ok    bool           `json:"ok"`
+			Data  map[string]any `json:"data"`
+			Error any            `json:"error,omitempty"`
+		}
+		if json.Unmarshal(envBytes, &env) == nil && env.Data != nil {
+			if b64, ok := env.Data["annotated_image_base64"].(string); ok && b64 != "" {
+				imgBytes, decErr := base64.StdEncoding.DecodeString(b64)
+				if decErr != nil {
+					return fmt.Errorf("decode annotated_image_base64: %w", decErr)
+				}
+				if wErr := os.WriteFile(*outFile, imgBytes, 0o644); wErr != nil {
+					return fmt.Errorf("write %s: %w", *outFile, wErr)
+				}
+				env.Data["annotated_image_saved"] = *outFile
+				delete(env.Data, "annotated_image_base64")
+				if stripped, mErr := json.Marshal(env); mErr == nil {
+					envBytes = stripped
+				}
+			}
+		}
+	}
+	return printJSON(envBytes)
+}
+
+// cmdWaitElement 处理 `wait-element <node-id> <target>`：条件轮询等待目标 UI 元素出现或消失。
+func cmdWaitElement(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: auractl wait-element <node-id> <target> [--state present|absent] [--timeout-ms N] [--force-vision] [--deadline-ms N] [--who W]")
+	}
+	nodeID, target := args[0], args[1]
+	fs := flag.NewFlagSet("wait-element", flag.ContinueOnError)
+	state := fs.String("state", "present", "desired element state: present|absent")
+	timeoutMs := fs.Int64("timeout-ms", 10000, "max poll timeout in ms (up to 30000)")
+	forceVision := fs.Bool("force-vision", false, "force visual inference on each poll")
+	deadlineMs := fs.Int64("deadline-ms", 35000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"target":       target,
+		"state":        *state,
+		"timeout_ms":   *timeoutMs,
+		"force_vision": *forceVision,
+	})
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "wait_for_element",
 		JsonArgs:   payload,
 		DeadlineMs: *deadlineMs,
 		Who:        *who,
@@ -361,12 +452,12 @@ type assertData struct {
 	Detail string `json:"detail"`
 }
 
-// cmdTrace 处理 `trace start <node-id> [--who W]` / `trace stop <trace-id>`：
+// cmdTrace 处理 `trace start <node-id> [--who W]` / `trace stop <trace-id>` / `trace export <trace-id>`:
 // start 对 node 建 per-node 独占租约并返回 trace_id（Locked-2 lease 语义，非持有者 dispatch 拒 E_BUSY）；
-// stop 释放租约。消费 TASK-002 StartTrace/StopTrace RPC。
+// stop 释放租约；export 导出可执行重放脚本（sh）或结构化 JSON。
 func cmdTrace(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
 	if len(args) < 1 {
-		return errors.New("usage: auractl trace start <node-id> [--who W] | trace stop <trace-id>")
+		return errors.New("usage: auractl trace start <node-id> [--who W] | trace stop <trace-id> | trace export <trace-id> [--format sh|json] [--node ID] [--out FILE]")
 	}
 	switch args[0] {
 	case "start":
@@ -398,8 +489,107 @@ func cmdTrace(ctx context.Context, client aurav1connect.ControllerAdminClient, a
 		}
 		fmt.Printf("stopped=%t\n", resp.Msg.GetStopped())
 		return nil
+	case "export":
+		if len(args) < 2 {
+			return errors.New("usage: auractl trace export <trace-id> [--format sh|json] [--node ID] [--out FILE]")
+		}
+		traceID := args[1]
+		fs := flag.NewFlagSet("trace export", flag.ContinueOnError)
+		format := fs.String("format", "sh", "export format: sh|json")
+		nodeOverride := fs.String("node", "", "override default target node id in exported script")
+		outFile := fs.String("out", "", "output file path (default stdout)")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		steps, srcNode, srcPlatform, err := fetchTraceSteps(ctx, client, traceID)
+		if err != nil {
+			return err
+		}
+		rendered, err := formatTraceExport(traceID, srcNode, srcPlatform, *nodeOverride, *format, steps)
+		if err != nil {
+			return err
+		}
+		if *outFile != "" {
+			mode := os.FileMode(0o644)
+			if *format == "sh" {
+				mode = 0o755
+			}
+			return os.WriteFile(*outFile, []byte(rendered), mode)
+		}
+		_, err = os.Stdout.WriteString(rendered)
+		return err
 	default:
 		return fmt.Errorf("unknown trace subcommand %q", args[0])
+	}
+}
+
+// formatTraceExport 将 trace 步序渲染为可复现的 bash 脚本（sh）或结构化 JSON 文档（json）。
+func formatTraceExport(traceID, srcNode, srcPlatform, nodeOverride, format string, steps []*aurav1.TraceStep) (string, error) {
+	targetNode := srcNode
+	if nodeOverride != "" {
+		targetNode = nodeOverride
+	}
+	if targetNode == "" {
+		targetNode = "<node-id>"
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "sh", "bash", "":
+		var b strings.Builder
+		b.WriteString("#!/usr/bin/env bash\n")
+		b.WriteString("set -euo pipefail\n")
+		fmt.Fprintf(&b, "# AURA Trace Replay Script — trace_id=%s source_node=%s platform=%s\n", traceID, srcNode, srcPlatform)
+		fmt.Fprintf(&b, "NODE_ID=\"${1:-%s}\"\n\n", targetNode)
+		for _, step := range steps {
+			rawArgs := strings.TrimSpace(string(step.GetJsonArgs()))
+			if rawArgs == "" {
+				rawArgs = "{}"
+			}
+			safeArgs := strings.ReplaceAll(rawArgs, "'", `'\''`)
+			fmt.Fprintf(&b, "# Step #%d: %s\n", step.GetSeq(), step.GetTool())
+			fmt.Fprintf(&b, "auractl tool call \"$NODE_ID\" %s --args '%s'\n", step.GetTool(), safeArgs)
+		}
+		return b.String(), nil
+	case "json":
+		type exportStep struct {
+			Seq           int64           `json:"seq"`
+			Tool          string          `json:"tool"`
+			Args          json.RawMessage `json:"args"`
+			ScreenshotKey string          `json:"screenshot_key,omitempty"`
+			TsUnixMs      int64           `json:"ts_unix_ms,omitempty"`
+		}
+		out := struct {
+			TraceID        string       `json:"trace_id"`
+			SourceNodeID   string       `json:"source_node_id"`
+			SourcePlatform string       `json:"source_platform"`
+			TargetNodeID   string       `json:"target_node_id"`
+			Steps          []exportStep `json:"steps"`
+		}{
+			TraceID:        traceID,
+			SourceNodeID:   srcNode,
+			SourcePlatform: srcPlatform,
+			TargetNodeID:   targetNode,
+			Steps:          make([]exportStep, 0, len(steps)),
+		}
+		for _, step := range steps {
+			argsBytes := step.GetJsonArgs()
+			if len(argsBytes) == 0 || !json.Valid(argsBytes) {
+				argsBytes = []byte("{}")
+			}
+			out.Steps = append(out.Steps, exportStep{
+				Seq:           step.GetSeq(),
+				Tool:          step.GetTool(),
+				Args:          argsBytes,
+				ScreenshotKey: step.GetScreenshotKey(),
+				TsUnixMs:      step.GetTsUnixMs(),
+			})
+		}
+		buf, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(buf) + "\n", nil
+	default:
+		return "", fmt.Errorf("unsupported export format %q (want sh|json)", format)
 	}
 }
 
