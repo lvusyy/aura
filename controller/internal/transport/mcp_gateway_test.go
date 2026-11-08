@@ -113,7 +113,7 @@ func TestMaybeAugmentToolsListIncludesAllSemanticTools(t *testing.T) {
 	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	resp := []byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"screenshot"}]}}`)
 	aug := string(maybeAugmentToolsList(req, resp))
-	for _, want := range []string{"locate_element", "click_element", "annotate_screen", "wait_for_element"} {
+	for _, want := range []string{"locate_element", "click_element", "annotate_screen", "wait_for_element", "computer", "run_agent_task"} {
 		if !strings.Contains(aug, want) {
 			t.Fatalf("expected augmented tools/list to contain %q, got %s", want, aug)
 		}

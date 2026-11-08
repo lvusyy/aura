@@ -236,3 +236,105 @@ type WaitForOutput struct {
 	Last      LocateOutput `json:"last"`
 	Message   string       `json:"message"`
 }
+
+// ComputerPoint 表示 OpenAI Operator / 拖拽轨迹中的二维坐标点。
+type ComputerPoint struct {
+	X int32 `json:"x"`
+	Y int32 `json:"y"`
+}
+
+// ComputerActionInput 是统一 Computer-Use 适配器（兼容 Anthropic computer_20250124、OpenAI Operator、
+// UI-TARS 动作指令及 AURA Set-of-Mark / 语义定位）的入参。
+type ComputerActionInput struct {
+	NodeID          string          `json:"node_id"`
+	Action          string          `json:"action,omitempty"`
+	Coordinate      []int32         `json:"coordinate,omitempty"`
+	StartCoordinate []int32         `json:"start_coordinate,omitempty"`
+	X               *int32          `json:"x,omitempty"`
+	Y               *int32          `json:"y,omitempty"`
+	CoordSpace      string          `json:"coord_space,omitempty"` // "display" (缺省) | "native" | "normalized_1000"
+	Button          string          `json:"button,omitempty"`
+	Text            string          `json:"text,omitempty"`
+	Keys            []string        `json:"keys,omitempty"`
+	Path            []ComputerPoint `json:"path,omitempty"`
+	ScrollDirection string          `json:"scroll_direction,omitempty"`
+	ScrollAmount    int32           `json:"scroll_amount,omitempty"`
+	ScrollX         int32           `json:"scroll_x,omitempty"`
+	ScrollY         int32           `json:"scroll_y,omitempty"`
+	Duration        float64         `json:"duration,omitempty"` // wait 秒数（Anthropic 约定）
+	Region          []int32         `json:"region,omitempty"`   // zoom 区域 [x0, y0, x1, y1]
+	Target          string          `json:"target,omitempty"`   // 可选语义目标或 "[N]" SoM 编号
+	SoMIndex        *int            `json:"som_index,omitempty"`
+	UITarsAction    string          `json:"ui_tars_action,omitempty"`
+	AutoScreenshot  bool            `json:"auto_screenshot,omitempty"`
+	AutoAnnotate    bool            `json:"auto_annotate,omitempty"`
+	ForceVision     bool            `json:"force_vision,omitempty"`
+	Verify          bool            `json:"verify,omitempty"`
+	DeadlineMs      int64           `json:"deadline_ms,omitempty"`
+	Who             string          `json:"who,omitempty"`
+	TraceID         string          `json:"trace_id,omitempty"`
+}
+
+// ComputerActionOutput 是统一 Computer-Use 适配器的结构化输出。
+type ComputerActionOutput struct {
+	Executed       bool                  `json:"executed"`
+	Finished       bool                  `json:"finished,omitempty"`
+	NormalizedOp   string                `json:"normalized_op"`
+	CoordSpace     string                `json:"coord_space,omitempty"`
+	Coordinate     [2]int32              `json:"coordinate,omitempty"`
+	EndCoordinate  [2]int32              `json:"end_coordinate,omitempty"`
+	Text           string                `json:"text,omitempty"`
+	Located        *LocateOutput         `json:"located,omitempty"`
+	ImageBase64    string                `json:"image_base64,omitempty"`
+	ImageMime      string                `json:"image_mime,omitempty"`
+	Candidates     []AnnotatedCandidate  `json:"candidates,omitempty"`
+	Choices        []string              `json:"choices,omitempty"`
+	ScreenW        int32                 `json:"screen_w,omitempty"`
+	ScreenH        int32                 `json:"screen_h,omitempty"`
+	DisplayW       int32                 `json:"display_w,omitempty"`
+	DisplayH       int32                 `json:"display_h,omitempty"`
+	Scale          float64               `json:"scale,omitempty"`
+	TotalLatencyMs int64                 `json:"total_latency_ms"`
+	Message        string                `json:"message"`
+}
+
+// AgentTaskInput 是端到端 GUI Agent 任务闭环（RunAgentTask）的入参。
+type AgentTaskInput struct {
+	NodeID      string `json:"node_id"`
+	Goal        string `json:"goal"`
+	MaxSteps    int    `json:"max_steps,omitempty"`
+	LLMEndpoint string `json:"llm_endpoint,omitempty"`
+	LLMAPIKey   string `json:"llm_api_key,omitempty"`
+	LLMModel    string `json:"llm_model,omitempty"`
+	ForceVision bool   `json:"force_vision,omitempty"`
+	Verify      bool   `json:"verify,omitempty"`
+	DeadlineMs  int64  `json:"deadline_ms,omitempty"`
+	Who         string `json:"who,omitempty"`
+	TraceID     string `json:"trace_id,omitempty"`
+}
+
+// AgentStepLog 记录端到端 Agent Loop 单步决策与执行轨迹。
+type AgentStepLog struct {
+	Step       int      `json:"step"`
+	SubGoal    string   `json:"sub_goal,omitempty"`
+	Thought    string   `json:"thought,omitempty"`
+	Action     string   `json:"action"`
+	Target     string   `json:"target,omitempty"`
+	SoMIndex   *int     `json:"som_index,omitempty"`
+	Coordinate [2]int32 `json:"coordinate,omitempty"`
+	Status     string   `json:"status"` // "ok" | "completed" | "failed"
+	LatencyMs  int64    `json:"latency_ms"`
+	Detail     string   `json:"detail"`
+}
+
+// AgentTaskOutput 是端到端 GUI Agent 任务闭环的结构化输出。
+type AgentTaskOutput struct {
+	NodeID         string         `json:"node_id"`
+	Goal           string         `json:"goal"`
+	Completed      bool           `json:"completed"`
+	Status         string         `json:"status"` // "completed" | "max_steps_reached" | "failed"
+	Planner        string         `json:"planner"` // "hybrid_semantic" | "vlm_som"
+	Steps          []AgentStepLog `json:"steps"`
+	TotalLatencyMs int64          `json:"total_latency_ms"`
+	Message        string         `json:"message"`
+}

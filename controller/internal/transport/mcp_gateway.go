@@ -231,26 +231,50 @@ func tryServeGatewayJevTool(
 	}
 	toolName := rpcReq.Params.Name
 	switch toolName {
-	case "locate_element", "click_element", "annotate_screen", "wait_for_element":
+	case "locate_element", "click_element", "annotate_screen", "wait_for_element", "computer", "run_agent_task":
 	default:
 		return false
 	}
 
 	var args struct {
-		Target      string `json:"target"`
-		Button      string `json:"button"`
-		DoubleClick bool   `json:"double_click"`
-		TypeText    string `json:"type_text"`
-		PressKey    string `json:"press_key"`
-		WaitMs      int64  `json:"wait_ms"`
-		TimeoutMs   int64  `json:"timeout_ms"`
-		State       string `json:"state"`
-		MaxElements int    `json:"max_elements"`
-		Output      string `json:"output"`
-		ForceVision bool   `json:"force_vision"`
-		Verify      bool   `json:"verify"`
-		DeadlineMs  int64  `json:"deadline_ms"`
-		TraceID     string `json:"trace_id"`
+		Target          string                    `json:"target"`
+		Button          string                    `json:"button"`
+		DoubleClick     bool                      `json:"double_click"`
+		TypeText        string                    `json:"type_text"`
+		PressKey        string                    `json:"press_key"`
+		WaitMs          int64                     `json:"wait_ms"`
+		TimeoutMs       int64                     `json:"timeout_ms"`
+		State           string                    `json:"state"`
+		MaxElements     int                       `json:"max_elements"`
+		Output          string                    `json:"output"`
+		ForceVision     bool                      `json:"force_vision"`
+		Verify          bool                      `json:"verify"`
+		DeadlineMs      int64                     `json:"deadline_ms"`
+		TraceID         string                    `json:"trace_id"`
+		Action          string                    `json:"action"`
+		Coordinate      []int32                   `json:"coordinate"`
+		StartCoordinate []int32                   `json:"start_coordinate"`
+		X               *int32                    `json:"x"`
+		Y               *int32                    `json:"y"`
+		CoordSpace      string                    `json:"coord_space"`
+		Text            string                    `json:"text"`
+		Keys            []string                  `json:"keys"`
+		Path            []selection.ComputerPoint `json:"path"`
+		ScrollDirection string                    `json:"scroll_direction"`
+		ScrollAmount    int32                     `json:"scroll_amount"`
+		ScrollX         int32                     `json:"scroll_x"`
+		ScrollY         int32                     `json:"scroll_y"`
+		Duration        float64                   `json:"duration"`
+		Region          []int32                   `json:"region"`
+		SoMIndex        *int                      `json:"som_index"`
+		UITarsAction    string                    `json:"ui_tars_action"`
+		AutoScreenshot  bool                      `json:"auto_screenshot"`
+		AutoAnnotate    bool                      `json:"auto_annotate"`
+		Goal            string                    `json:"goal"`
+		MaxSteps        int                       `json:"max_steps"`
+		LLMEndpoint     string                    `json:"llm_endpoint"`
+		LLMAPIKey       string                    `json:"llm_api_key"`
+		LLMModel        string                    `json:"llm_model"`
 	}
 	if len(rpcReq.Params.Arguments) > 0 {
 		if err := json.Unmarshal(rpcReq.Params.Arguments, &args); err != nil {
@@ -427,6 +451,113 @@ func tryServeGatewayJevTool(
 				"data": out,
 			}
 		}
+	case "computer":
+		out, err := selector.ExecuteComputerAction(ctx, selection.ComputerActionInput{
+			NodeID:          nodeID,
+			Action:          args.Action,
+			Coordinate:      args.Coordinate,
+			StartCoordinate: args.StartCoordinate,
+			X:               args.X,
+			Y:               args.Y,
+			CoordSpace:      args.CoordSpace,
+			Button:          args.Button,
+			Text:            args.Text,
+			Keys:            args.Keys,
+			Path:            args.Path,
+			ScrollDirection: args.ScrollDirection,
+			ScrollAmount:    args.ScrollAmount,
+			ScrollX:         args.ScrollX,
+			ScrollY:         args.ScrollY,
+			Duration:        args.Duration,
+			Region:          args.Region,
+			Target:          args.Target,
+			SoMIndex:        args.SoMIndex,
+			UITarsAction:    args.UITarsAction,
+			AutoScreenshot:  args.AutoScreenshot,
+			AutoAnnotate:    args.AutoAnnotate,
+			ForceVision:     args.ForceVision,
+			Verify:          args.Verify,
+			DeadlineMs:      args.DeadlineMs,
+			Who:             who,
+			TraceID:         args.TraceID,
+		})
+		if err != nil {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_COMPUTER_ACTION_FAILED", "message": err.Error()},
+			}
+		} else if !out.Executed {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_COMPUTER_ACTION_NOT_EXECUTED", "message": out.Message},
+			}
+		} else {
+			slimOut := out
+			imgB64 := out.ImageBase64
+			imgMime := out.ImageMime
+			if args.Output != "json" && imgB64 != "" {
+				slimOut.ImageBase64 = ""
+			}
+			payload = map[string]any{
+				"ok":   true,
+				"data": slimOut,
+			}
+			if args.Output != "json" && imgB64 != "" {
+				textBytes, _ := json.Marshal(payload)
+				rpcResp := map[string]any{
+					"jsonrpc": "2.0",
+					"id":      rpcReq.ID,
+					"result": map[string]any{
+						"content": []map[string]any{
+							{"type": "text", "text": string(textBytes)},
+							{"type": "image", "data": imgB64, "mimeType": imgMime},
+						},
+						"structuredContent": payload,
+						"isError":           false,
+					},
+				}
+				outBytes, _ := json.Marshal(rpcResp)
+				writeMcpProxyReply(w, http.StatusOK, "application/json", outBytes)
+				auditMcpGateway(r, nodeID, http.StatusOK, len(body), "jev-"+toolName)
+				return true
+			}
+		}
+	case "run_agent_task":
+		out, err := selector.RunAgentTask(ctx, selection.AgentTaskInput{
+			NodeID:      nodeID,
+			Goal:        args.Goal,
+			MaxSteps:    args.MaxSteps,
+			LLMEndpoint: args.LLMEndpoint,
+			LLMAPIKey:   args.LLMAPIKey,
+			LLMModel:    args.LLMModel,
+			ForceVision: args.ForceVision,
+			Verify:      args.Verify,
+			DeadlineMs:  args.DeadlineMs,
+			Who:         who,
+			TraceID:     args.TraceID,
+		})
+		if err != nil {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_AGENT_TASK_FAILED", "message": err.Error()},
+			}
+		} else if !out.Completed {
+			isToolErr = true
+			payload = map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_AGENT_TASK_INCOMPLETE", "message": out.Message},
+			}
+		} else {
+			payload = map[string]any{
+				"ok":   true,
+				"data": out,
+			}
+		}
 	}
 
 	textBytes, _ := json.Marshal(payload)
@@ -551,6 +682,49 @@ func maybeAugmentToolsList(reqBody, respBody []byte) []byte {
 					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
 				},
 				"required": []string{"target"},
+			},
+		})
+	}
+	if !seen["computer"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "computer",
+			"description": "Universal Computer-Use adapter compatible with Anthropic computer_20250124, OpenAI Operator computer_call, UI-TARS action strings (normalized_1000), and AURA Set-of-Mark (som_index) or semantic target.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action":           map[string]any{"type": "string", "description": "Action: screenshot | annotate | left_click | right_click | middle_click | double_click | triple_click | mouse_move | left_click_drag | type | key | scroll | wait | zoom | finished"},
+					"coordinate":       map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "[x, y] coordinate"},
+					"start_coordinate": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "[x0, y0] drag start coordinate"},
+					"coord_space":      map[string]any{"type": "string", "description": "'display' (default) | 'native' | 'normalized_1000' (UI-TARS)"},
+					"som_index":        map[string]any{"type": "integer", "description": "Optional Set-of-Mark candidate index [0..N] from annotate_screen"},
+					"target":           map[string]any{"type": "string", "description": "Optional semantic target or '[N]' Set-of-Mark badge"},
+					"ui_tars_action":   map[string]any{"type": "string", "description": "Optional raw UI-TARS Thought/Action string (e.g. click(start_box='(500,300)'))"},
+					"text":             map[string]any{"type": "string", "description": "Text to type or key chord to press"},
+					"scroll_direction": map[string]any{"type": "string", "description": "up | down | left | right"},
+					"scroll_amount":    map[string]any{"type": "integer", "description": "Scroll ticks (default 3)"},
+					"duration":         map[string]any{"type": "number", "description": "Wait duration in seconds"},
+					"auto_screenshot":  map[string]any{"type": "boolean", "description": "Automatically capture and return a screenshot after the action"},
+					"auto_annotate":    map[string]any{"type": "boolean", "description": "Automatically run Set-of-Mark annotation after the action"},
+				},
+			},
+		})
+	}
+	if !seen["run_agent_task"] {
+		toolsSlice = append(toolsSlice, map[string]any{
+			"name":        "run_agent_task",
+			"description": "End-to-end autonomous GUI task runner: executes a multi-step goal via either the built-in 3-Tier Hybrid Semantic planner ('step1 -> step2') or an OpenAI-compatible VLM + Set-of-Mark loop.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"goal":         map[string]any{"type": "string", "description": "Task goal or multi-step pipeline (e.g. 'wait_for Login -> click Login -> type admin -> key Return')"},
+					"max_steps":    map[string]any{"type": "integer", "description": "Max steps (default 8, max 25)"},
+					"llm_endpoint": map[string]any{"type": "string", "description": "Optional OpenAI-compatible VLM endpoint for autonomous Set-of-Mark planning"},
+					"llm_model":    map[string]any{"type": "string", "description": "Optional VLM model name"},
+					"force_vision": map[string]any{"type": "boolean", "description": "Force visual detection"},
+					"verify":       map[string]any{"type": "boolean", "description": "Verify UI state transition after clicks"},
+					"trace_id":     map[string]any{"type": "string", "description": "Optional active recording trace_id"},
+				},
+				"required": []string{"goal"},
 			},
 		})
 	}

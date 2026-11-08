@@ -269,6 +269,112 @@ func cmdWaitElement(ctx context.Context, client aurav1connect.ControllerAdminCli
 	return printJSON(resp.Msg.GetJsonEnvelope())
 }
 
+// cmdComputer 处理 `computer <node-id>`：调用统一多模型 Computer-Use 适配器。
+func cmdComputer(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 1 {
+		return errors.New("usage: auractl computer <node-id> [--action A] [--som N] [--target T] [--ui-tars S] [--text TXT] [--coord X,Y] [--coord-space display|native|normalized_1000] [--auto-screenshot] [--auto-annotate]")
+	}
+	nodeID := args[0]
+	fs := flag.NewFlagSet("computer", flag.ContinueOnError)
+	action := fs.String("action", "", "computer action (left_click|double_click|right_click|type|key|scroll|wait|screenshot|annotate)")
+	somIndex := fs.Int("som", -1, "optional Set-of-Mark candidate index [0..N]")
+	target := fs.String("target", "", "optional semantic target or '[N]' SoM badge")
+	uiTars := fs.String("ui-tars", "", "optional raw UI-TARS action string (e.g. click(start_box='(500,300)'))")
+	text := fs.String("text", "", "text to type or key chord")
+	coord := fs.String("coord", "", "optional x,y coordinate")
+	coordSpace := fs.String("coord-space", "", "coordinate space: display|native|normalized_1000")
+	autoShot := fs.Bool("auto-screenshot", false, "capture post-action screenshot")
+	autoAnn := fs.Bool("auto-annotate", false, "capture post-action Set-of-Mark annotation")
+	forceVision := fs.Bool("force-vision", false, "force visual inference")
+	deadlineMs := fs.Int64("deadline-ms", 30000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl", "audit caller identity")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	reqMap := map[string]any{
+		"action":          *action,
+		"target":          *target,
+		"ui_tars_action":  *uiTars,
+		"text":            *text,
+		"coord_space":     *coordSpace,
+		"auto_screenshot": *autoShot,
+		"auto_annotate":   *autoAnn,
+		"force_vision":    *forceVision,
+	}
+	if *somIndex >= 0 {
+		reqMap["som_index"] = *somIndex
+	}
+	if *coord != "" {
+		parts := strings.Split(*coord, ",")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid --coord %q (want X,Y)", *coord)
+		}
+		var x, y int32
+		if _, err := fmt.Sscanf(strings.TrimSpace(parts[0]), "%d", &x); err != nil {
+			return err
+		}
+		if _, err := fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &y); err != nil {
+			return err
+		}
+		reqMap["coordinate"] = []int32{x, y}
+	}
+	payload, _ := json.Marshal(reqMap)
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "computer",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
+// cmdAgent 处理 `agent run <node-id> <goal>`：执行端到端自主多步 GUI Agent Loop。
+func cmdAgent(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
+	if len(args) < 3 || args[0] != "run" {
+		return errors.New("usage: auractl agent run <node-id> <goal> [--max-steps N] [--llm-endpoint URL] [--llm-model M] [--llm-api-key K] [--force-vision] [--verify] [--trace-id ID]")
+	}
+	nodeID, goal := args[1], args[2]
+	fs := flag.NewFlagSet("agent run", flag.ContinueOnError)
+	maxSteps := fs.Int("max-steps", 8, "max agent loop steps (1..25)")
+	llmEndpoint := fs.String("llm-endpoint", "", "optional OpenAI-compatible VLM endpoint for autonomous Set-of-Mark planning")
+	llmModel := fs.String("llm-model", "", "optional VLM model name")
+	llmAPIKey := fs.String("llm-api-key", "", "optional VLM bearer API key")
+	forceVision := fs.Bool("force-vision", false, "force visual inference")
+	verify := fs.Bool("verify", false, "verify post-click UI state transitions")
+	traceID := fs.String("trace-id", "", "optional active recording trace_id")
+	deadlineMs := fs.Int64("deadline-ms", 60000, "controller-side deadline in ms")
+	who := fs.String("who", "auractl-agent", "audit caller identity")
+	if err := fs.Parse(args[3:]); err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"goal":         goal,
+		"max_steps":    *maxSteps,
+		"llm_endpoint": *llmEndpoint,
+		"llm_model":    *llmModel,
+		"llm_api_key":  *llmAPIKey,
+		"force_vision": *forceVision,
+		"verify":       *verify,
+		"trace_id":     *traceID,
+	})
+	resp, err := client.DispatchTool(ctx, connect.NewRequest(&aurav1.DispatchToolRequest{
+		NodeId:     nodeID,
+		Tool:       "run_agent_task",
+		JsonArgs:   payload,
+		DeadlineMs: *deadlineMs,
+		Who:        *who,
+		TraceId:    *traceID,
+	}))
+	if err != nil {
+		return err
+	}
+	return printJSON(resp.Msg.GetJsonEnvelope())
+}
+
 // cmdA11y 处理 `a11y <node-id>`：便捷读取节点无障碍树（免手写 tool call JSON）。
 func cmdA11y(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
 	if len(args) < 1 {

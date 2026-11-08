@@ -135,22 +135,46 @@ func (s *ControllerAdminServer) DispatchTool(
 func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg *aurav1.DispatchToolRequest) ([]byte, bool) {
 	tool := msg.GetTool()
 	switch tool {
-	case "locate_element", "click_element", "annotate_screen", "wait_for_element":
+	case "locate_element", "click_element", "annotate_screen", "wait_for_element", "computer", "run_agent_task":
 	default:
 		return nil, false
 	}
 	var args struct {
-		Target      string `json:"target"`
-		Button      string `json:"button"`
-		DoubleClick bool   `json:"double_click"`
-		TypeText    string `json:"type_text"`
-		PressKey    string `json:"press_key"`
-		WaitMs      int64  `json:"wait_ms"`
-		TimeoutMs   int64  `json:"timeout_ms"`
-		State       string `json:"state"`
-		MaxElements int    `json:"max_elements"`
-		ForceVision bool   `json:"force_vision"`
-		Verify      bool   `json:"verify"`
+		Target          string                    `json:"target"`
+		Button          string                    `json:"button"`
+		DoubleClick     bool                      `json:"double_click"`
+		TypeText        string                    `json:"type_text"`
+		PressKey        string                    `json:"press_key"`
+		WaitMs          int64                     `json:"wait_ms"`
+		TimeoutMs       int64                     `json:"timeout_ms"`
+		State           string                    `json:"state"`
+		MaxElements     int                       `json:"max_elements"`
+		ForceVision     bool                      `json:"force_vision"`
+		Verify          bool                      `json:"verify"`
+		Action          string                    `json:"action"`
+		Coordinate      []int32                   `json:"coordinate"`
+		StartCoordinate []int32                   `json:"start_coordinate"`
+		X               *int32                    `json:"x"`
+		Y               *int32                    `json:"y"`
+		CoordSpace      string                    `json:"coord_space"`
+		Text            string                    `json:"text"`
+		Keys            []string                  `json:"keys"`
+		Path            []selection.ComputerPoint `json:"path"`
+		ScrollDirection string                    `json:"scroll_direction"`
+		ScrollAmount    int32                     `json:"scroll_amount"`
+		ScrollX         int32                     `json:"scroll_x"`
+		ScrollY         int32                     `json:"scroll_y"`
+		Duration        float64                   `json:"duration"`
+		Region          []int32                   `json:"region"`
+		SoMIndex        *int                      `json:"som_index"`
+		UITarsAction    string                    `json:"ui_tars_action"`
+		AutoScreenshot  bool                      `json:"auto_screenshot"`
+		AutoAnnotate    bool                      `json:"auto_annotate"`
+		Goal            string                    `json:"goal"`
+		MaxSteps        int                       `json:"max_steps"`
+		LLMEndpoint     string                    `json:"llm_endpoint"`
+		LLMAPIKey       string                    `json:"llm_api_key"`
+		LLMModel        string                    `json:"llm_model"`
 	}
 	if len(msg.GetJsonArgs()) > 0 {
 		if err := json.Unmarshal(msg.GetJsonArgs(), &args); err != nil {
@@ -268,6 +292,84 @@ func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg
 				"ok":    false,
 				"data":  out,
 				"error": map[string]any{"code": "E_WAIT_TIMEOUT", "message": out.Message},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	case "computer":
+		out, err := s.selector.ExecuteComputerAction(ctx, selection.ComputerActionInput{
+			NodeID:          msg.GetNodeId(),
+			Action:          args.Action,
+			Coordinate:      args.Coordinate,
+			StartCoordinate: args.StartCoordinate,
+			X:               args.X,
+			Y:               args.Y,
+			CoordSpace:      args.CoordSpace,
+			Button:          args.Button,
+			Text:            args.Text,
+			Keys:            args.Keys,
+			Path:            args.Path,
+			ScrollDirection: args.ScrollDirection,
+			ScrollAmount:    args.ScrollAmount,
+			ScrollX:         args.ScrollX,
+			ScrollY:         args.ScrollY,
+			Duration:        args.Duration,
+			Region:          args.Region,
+			Target:          args.Target,
+			SoMIndex:        args.SoMIndex,
+			UITarsAction:    args.UITarsAction,
+			AutoScreenshot:  args.AutoScreenshot,
+			AutoAnnotate:    args.AutoAnnotate,
+			ForceVision:     args.ForceVision,
+			Verify:          args.Verify,
+			DeadlineMs:      msg.GetDeadlineMs(),
+			Who:             who,
+			TraceID:         msg.GetTraceId(),
+		})
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_COMPUTER_ACTION_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		if !out.Executed {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_COMPUTER_ACTION_NOT_EXECUTED", "message": out.Message},
+			})
+			return b, true
+		}
+		b, _ := json.Marshal(map[string]any{"ok": true, "data": out})
+		return b, true
+	case "run_agent_task":
+		out, err := s.selector.RunAgentTask(ctx, selection.AgentTaskInput{
+			NodeID:      msg.GetNodeId(),
+			Goal:        args.Goal,
+			MaxSteps:    args.MaxSteps,
+			LLMEndpoint: args.LLMEndpoint,
+			LLMAPIKey:   args.LLMAPIKey,
+			LLMModel:    args.LLMModel,
+			ForceVision: args.ForceVision,
+			Verify:      args.Verify,
+			DeadlineMs:  msg.GetDeadlineMs(),
+			Who:         who,
+			TraceID:     msg.GetTraceId(),
+		})
+		if err != nil {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": map[string]any{"code": "E_AGENT_TASK_FAILED", "message": err.Error()},
+			})
+			return b, true
+		}
+		if !out.Completed {
+			b, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"data":  out,
+				"error": map[string]any{"code": "E_AGENT_TASK_INCOMPLETE", "message": out.Message},
 			})
 			return b, true
 		}
