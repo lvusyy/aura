@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "aura-capability"
-version = "0.4.1"
+version = "0.4.3"
 dependencies = [
  "async-trait",
  "base64",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "aura-node"
-version = "0.4.1"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "aura-capability",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "aura-platform"
-version = "0.4.1"
+version = "0.4.3"
 dependencies = [
  "async-trait",
  "atspi",
