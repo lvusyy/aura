@@ -771,7 +771,7 @@ mod backend {
 
     fn build_tree_sync(params: A11yParams) -> Result<A11yTree, CapError> {
         if unsafe { AXIsProcessTrusted() } == 0 {
-            return Err(CapError::A11yUnavailable(
+            return Err(CapError::Unavailable(
                 "macOS Accessibility permission (TCC) not granted for aura-node".to_string(),
             ));
         }
@@ -841,7 +841,7 @@ mod backend {
     pub(super) async fn get_a11y_tree(params: A11yParams) -> Result<A11yTree, CapError> {
         tokio::task::spawn_blocking(move || build_tree_sync(params))
             .await
-            .map_err(|e| CapError::A11yUnavailable(format!("macos a11y task join failed: {e}")))?
+            .map_err(|e| CapError::Unavailable(format!("macos a11y task join failed: {e}")))?
     }
 }
 
