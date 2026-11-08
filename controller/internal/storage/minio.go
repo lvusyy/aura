@@ -44,10 +44,11 @@ const (
 	// recordingsPrefix 是录屏 MP4 对象在产物桶内的键前缀：节点 stop_recording 产物卸桶
 	// recordings/<rec_id>.mp4（T07 presigned 上传）。ListRecordings 按此前缀列举录屏回放页数据源。
 	recordingsPrefix = "recordings/"
-	// maxRecordingsList 是 ListRecordings 单次列举的对象数硬上限（防御超大桶撑爆内存；录屏对象个位到
-	// 百量级，1000 留足冗余）。超限即截断——录屏为有界物料，无需 MinIO 侧 keyset 游标（分页由 transport
-	// 侧对全列结果做 offset 切片）。
+	// maxRecordingsList 是 ListRecordings 单次返回的对象数硬上限（防御超大桶撑爆响应；录屏对象个位到
+	// 百量级，1000 留足冗余）。扫描阶段允许跨页读取至 maxRecordingsScan（10000），先按 LastModified
+	// 降序排序再截断至 maxRecordingsList，防止字典序靠后的最新录屏在 >1000 桶内被提前丢弃。
 	maxRecordingsList = 1000
+	maxRecordingsScan = 10000
 )
 
 // RecordingObject 是一条录屏对象的元数据（ListRecordings 投影：对象存储键 + 大小 + 最后修改时刻）。
@@ -112,30 +113,35 @@ func NewMinioStoreFromEnv() (*MinioStore, error) {
 		return nil, nil
 	}
 
+	accessKey := os.Getenv("AURA_MINIO_ACCESS_KEY")
+	secretKey := os.Getenv("AURA_MINIO_SECRET_KEY")
+
 	var localClose func()
 	if strings.EqualFold(endpoint, "local") || (endpoint == "" && artifactDir != "") {
 		if artifactDir == "" {
 			artifactDir = "./aura-data/artifacts"
 		}
-		listenAddr := strings.TrimSpace(os.Getenv("AURA_LOCAL_S3_ADDR"))
-		boundAddr, closeFn, err := StartLocalS3Server(artifactDir, listenAddr)
-		if err != nil {
-			return nil, fmt.Errorf("start embedded local S3 store: %w", err)
-		}
-		endpoint = boundAddr
-		localClose = closeFn
-		slog.Info("embedded local S3 artifact store started", "endpoint", endpoint, "artifact_dir", artifactDir)
-	}
-
-	accessKey := os.Getenv("AURA_MINIO_ACCESS_KEY")
-	secretKey := os.Getenv("AURA_MINIO_SECRET_KEY")
-	if localClose != nil {
 		if accessKey == "" {
 			accessKey = "aura"
 		}
 		if secretKey == "" {
 			secretKey = "aurasecret"
 		}
+		listenAddr := strings.TrimSpace(os.Getenv("AURA_LOCAL_S3_ADDR"))
+		allowRemote := strings.EqualFold(strings.TrimSpace(os.Getenv("AURA_LOCAL_S3_ALLOW_REMOTE")), "true")
+		boundAddr, closeFn, err := StartLocalS3ServerWithOptions(LocalS3Options{
+			DataDir:     artifactDir,
+			ListenAddr:  listenAddr,
+			AccessKey:   accessKey,
+			SecretKey:   secretKey,
+			AllowRemote: allowRemote,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("start embedded local S3 store: %w", err)
+		}
+		endpoint = boundAddr
+		localClose = closeFn
+		slog.Info("embedded local S3 artifact store started", "endpoint", endpoint, "artifact_dir", artifactDir)
 	}
 	useSSL := os.Getenv("AURA_MINIO_SECURE") == "true"
 
@@ -359,12 +365,15 @@ func (s *MinioStore) ListRecordings(ctx context.Context) ([]RecordingObject, err
 			continue
 		}
 		out = append(out, RecordingObject{Key: obj.Key, Size: obj.Size, Modified: obj.LastModified})
-		if len(out) >= maxRecordingsList {
+		if len(out) >= maxRecordingsScan {
 			break
 		}
 	}
-	// 最新录屏在前（对象 LastModified 降序）；ListObjects 无稳定序保证，显式排序。
+	// 最新录屏在前（对象 LastModified 降序）；ListObjects 按字典序跨页返回，须先排序再截断至 maxRecordingsList。
 	sort.Slice(out, func(i, j int) bool { return out[i].Modified.After(out[j].Modified) })
+	if len(out) > maxRecordingsList {
+		out = out[:maxRecordingsList]
+	}
 	return out, nil
 }
 

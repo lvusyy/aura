@@ -167,6 +167,7 @@ func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg
 		Duration        float64                   `json:"duration"`
 		Region          []int32                   `json:"region"`
 		SoMIndex        *int                      `json:"som_index"`
+		SnapshotID      string                    `json:"snapshot_id"`
 		UITarsAction    string                    `json:"ui_tars_action"`
 		AutoScreenshot  bool                      `json:"auto_screenshot"`
 		AutoAnnotate    bool                      `json:"auto_annotate"`
@@ -318,6 +319,7 @@ func (s *ControllerAdminServer) tryDispatchSelectorTool(ctx context.Context, msg
 			Region:          args.Region,
 			Target:          args.Target,
 			SoMIndex:        args.SoMIndex,
+			SnapshotID:      args.SnapshotID,
 			UITarsAction:    args.UITarsAction,
 			AutoScreenshot:  args.AutoScreenshot,
 			AutoAnnotate:    args.AutoAnnotate,

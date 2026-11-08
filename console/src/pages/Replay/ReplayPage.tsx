@@ -269,19 +269,22 @@ export function ReplayPage() {
 
   const onExportScript = useCallback(() => {
     if (!selected || !detail) return;
+    const sanitizeComment = (s: string) => s.replace(/[\r\n]+/g, " ");
+    const shellSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
     const nodeDefault = targetNode || detail.nodeId || "<node-id>";
     const lines: string[] = [
       "#!/usr/bin/env bash",
       "set -euo pipefail",
-      `# AURA Trace Replay Script — trace_id=${selected.traceId} source_node=${detail.nodeId || "-"} platform=${detail.platform || "-"}`,
-      `NODE_ID="\${1:-${nodeDefault}}"`,
+      `# AURA Trace Replay Script — trace_id=${sanitizeComment(selected.traceId)} source_node=${sanitizeComment(detail.nodeId || "-")} platform=${sanitizeComment(detail.platform || "-")}`,
+      `DEFAULT_NODE=${shellSingleQuote(nodeDefault)}`,
+      `NODE_ID="\${1:-$DEFAULT_NODE}"`,
       "",
     ];
     for (const step of detail.steps) {
       const rawArgs = step.jsonArgs?.length ? bytesDecoder.decode(step.jsonArgs).trim() : "{}";
-      const safeArgs = (rawArgs || "{}").replace(/'/g, "'\\''");
-      lines.push(`# Step #${Number(step.seq)}: ${step.tool}`);
-      lines.push(`auractl tool call "$NODE_ID" ${step.tool} --args '${safeArgs}'`);
+      const toolName = (step.tool || "").trim();
+      lines.push(`# Step #${Number(step.seq)}: ${sanitizeComment(toolName)}`);
+      lines.push(`auractl tool call "$NODE_ID" ${shellSingleQuote(toolName)} --args ${shellSingleQuote(rawArgs || "{}")}`);
     }
     const blob = new Blob([lines.join("\n") + "\n"], { type: "text/x-shellscript;charset=utf-8" });
     const url = URL.createObjectURL(blob);

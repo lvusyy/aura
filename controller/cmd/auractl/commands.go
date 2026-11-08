@@ -79,7 +79,8 @@ func cmdNode(ctx context.Context, client aurav1connect.ControllerAdminClient, ar
 	return nil
 }
 
-// cmdTool 处理 `tool call <node-id> <tool>`：下发工具调用，输出解码后的 Envelope JSON。
+// cmdTool 处理 `tool call <node-id> <tool>`：下发工具调用，输出解码后的 Envelope JSON；
+// 若 envelope.ok=false 或 assert 步 passed=false，返回非零退出错误以保证导出脚本 set -e 可靠中断（修复 Finding #13）。
 func cmdTool(ctx context.Context, client aurav1connect.ControllerAdminClient, args []string) error {
 	if len(args) < 3 || args[0] != "call" {
 		return errors.New("usage: auractl tool call <node-id> <tool> [--args JSON] [--deadline-ms N] [--who W]")
@@ -102,7 +103,14 @@ func cmdTool(ctx context.Context, client aurav1connect.ControllerAdminClient, ar
 	if err != nil {
 		return err
 	}
-	return printJSON(resp.Msg.GetJsonEnvelope())
+	envBytes := resp.Msg.GetJsonEnvelope()
+	if err := printJSON(envBytes); err != nil {
+		return err
+	}
+	if status, detail := evalStep(tool, envBytes); status != "PASS" {
+		return fmt.Errorf("tool %s failed: %s", tool, detail)
+	}
+	return nil
 }
 
 // cmdLocate 处理 `locate <node-id> <target>`：调用控制面混合元素定位（Tier 0 A11y → Tier 1/2 Jev 视觉）。
@@ -629,6 +637,16 @@ func cmdTrace(ctx context.Context, client aurav1connect.ControllerAdminClient, a
 	}
 }
 
+func sanitizeShellComment(s string) string {
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return s
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // formatTraceExport 将 trace 步序渲染为可复现的 bash 脚本（sh）或结构化 JSON 文档（json）。
 func formatTraceExport(traceID, srcNode, srcPlatform, nodeOverride, format string, steps []*aurav1.TraceStep) (string, error) {
 	targetNode := srcNode
@@ -643,16 +661,18 @@ func formatTraceExport(traceID, srcNode, srcPlatform, nodeOverride, format strin
 		var b strings.Builder
 		b.WriteString("#!/usr/bin/env bash\n")
 		b.WriteString("set -euo pipefail\n")
-		fmt.Fprintf(&b, "# AURA Trace Replay Script — trace_id=%s source_node=%s platform=%s\n", traceID, srcNode, srcPlatform)
-		fmt.Fprintf(&b, "NODE_ID=\"${1:-%s}\"\n\n", targetNode)
+		fmt.Fprintf(&b, "# AURA Trace Replay Script — trace_id=%s source_node=%s platform=%s\n",
+			sanitizeShellComment(traceID), sanitizeShellComment(srcNode), sanitizeShellComment(srcPlatform))
+		fmt.Fprintf(&b, "DEFAULT_NODE=%s\n", shellSingleQuote(targetNode))
+		b.WriteString("NODE_ID=\"${1:-$DEFAULT_NODE}\"\n\n")
 		for _, step := range steps {
 			rawArgs := strings.TrimSpace(string(step.GetJsonArgs()))
 			if rawArgs == "" {
 				rawArgs = "{}"
 			}
-			safeArgs := strings.ReplaceAll(rawArgs, "'", `'\''`)
-			fmt.Fprintf(&b, "# Step #%d: %s\n", step.GetSeq(), step.GetTool())
-			fmt.Fprintf(&b, "auractl tool call \"$NODE_ID\" %s --args '%s'\n", step.GetTool(), safeArgs)
+			toolName := strings.TrimSpace(step.GetTool())
+			fmt.Fprintf(&b, "# Step #%d: %s\n", step.GetSeq(), sanitizeShellComment(toolName))
+			fmt.Fprintf(&b, "auractl tool call \"$NODE_ID\" %s --args %s\n", shellSingleQuote(toolName), shellSingleQuote(rawArgs))
 		}
 		return b.String(), nil
 	case "json":

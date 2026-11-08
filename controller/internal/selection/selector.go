@@ -37,6 +37,12 @@ type cachedVisualBoxes struct {
 	at          time.Time
 }
 
+type cachedSoMSnapshot struct {
+	out     AnnotateOutput
+	at      time.Time
+	mutated bool
+}
+
 // SelectorEngine 编排三层混合定位（Tier 0 A11y → Tier 1 YOLO+Jev Choice/Noul → Tier 2 Jev Box）与一步点击。
 type SelectorEngine struct {
 	disp                 fusion.Dispatcher
@@ -45,11 +51,13 @@ type SelectorEngine struct {
 	localDetectorToken   string
 	httpClient           *http.Client
 
-	mu          sync.RWMutex
-	memSettings store.VisionSettings
-	jevOverride JevClient
-	detOverride fusion.DetectorClient
-	candCache   map[string]cachedVisualBoxes
+	mu              sync.RWMutex
+	memSettings     store.VisionSettings
+	jevOverride     JevClient
+	detOverride     fusion.DetectorClient
+	plannerOverride AgentPlannerClient
+	candCache       map[string]cachedVisualBoxes
+	somCache        map[string]cachedSoMSnapshot
 }
 
 // NewSelectorEngine 构造 SelectorEngine。st 可为 nil（纯内存模式兜底）。
@@ -67,6 +75,7 @@ func NewSelectorEngine(
 		httpClient:           &http.Client{Timeout: 20 * time.Second},
 		memSettings:          store.DefaultVisionSettings(defaultLocalEndpoint),
 		candCache:            make(map[string]cachedVisualBoxes),
+		somCache:             make(map[string]cachedSoMSnapshot),
 	}
 }
 
@@ -76,6 +85,14 @@ func (e *SelectorEngine) WithOverrides(det fusion.DetectorClient, jev JevClient)
 	defer e.mu.Unlock()
 	e.detOverride = det
 	e.jevOverride = jev
+	return e
+}
+
+// WithAgentPlanner 供单元测试或自定义扩展注入多模态 VLM 规划器窄接口实现。
+func (e *SelectorEngine) WithAgentPlanner(p AgentPlannerClient) *SelectorEngine {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.plannerOverride = p
 	return e
 }
 
@@ -403,7 +420,34 @@ func (e *SelectorEngine) getLastShotHashes(nodeID string) (exactHash, dHash uint
 func (e *SelectorEngine) invalidateNodeCache(nodeID string) {
 	e.mu.Lock()
 	delete(e.candCache, nodeID)
+	if s, ok := e.somCache[nodeID]; ok {
+		s.mutated = true
+		e.somCache[nodeID] = s
+	}
 	e.mu.Unlock()
+}
+
+func (e *SelectorEngine) putSoMSnapshot(nodeID string, out AnnotateOutput) {
+	e.mu.Lock()
+	if len(e.somCache) >= maxCandidateCacheNodes {
+		for k := range e.somCache {
+			delete(e.somCache, k)
+			break
+		}
+	}
+	e.somCache[nodeID] = cachedSoMSnapshot{
+		out:     out,
+		at:      time.Now(),
+		mutated: false,
+	}
+	e.mu.Unlock()
+}
+
+func (e *SelectorEngine) getSoMSnapshot(nodeID string) (cachedSoMSnapshot, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	s, ok := e.somCache[nodeID]
+	return s, ok
 }
 
 func computeA11yFingerprint(elems []fusion.FusedElement) string {
@@ -526,11 +570,13 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 	// 1. 采集 A11y 树（容错：若平台不支持 A11y 或采集失败，不阻断后续视觉分支）
 	var flatA11y []fusion.FusedElement
 	var a11yTruncated bool
+	var a11yObserved bool
 	if treeRaw, aerr := e.dispatchNodeTool(ctx, in.NodeID, "get_a11y_tree", nil, deadlineMs, who, in.TraceID); aerr == nil {
 		var tree fusion.A11yTree
 		if json.Unmarshal(treeRaw, &tree) == nil {
 			flatA11y = fusion.FlattenA11y(tree)
 			a11yTruncated = tree.Truncated
+			a11yObserved = true
 		}
 	}
 
@@ -541,6 +587,7 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 				var tree fusion.A11yTree
 				if json.Unmarshal(treeRaw, &tree) == nil {
 					flatA11y = fusion.FlattenA11y(tree)
+					a11yObserved = true
 				}
 			}
 		}
@@ -573,6 +620,14 @@ func (e *SelectorEngine) locateOnce(ctx context.Context, in LocateInput) (Locate
 
 	// 若视觉模式被显式禁用且未强制开启
 	if cfg.Mode == "disabled" && !in.ForceVision {
+		if !a11yObserved {
+			return LocateOutput{
+				Found:     false,
+				Status:    "observation_unavailable",
+				LatencyMs: time.Since(t0).Milliseconds(),
+				Message:   "A11y 采集不可用且视觉推理当前设为禁用 (disabled)，无法确认元素状态",
+			}, nil
+		}
 		if matched, score, ok := matchA11yCandidate(flatA11y, target); ok && score >= 0.50 {
 			cp := CenterPoint(matched.Bounds)
 			return LocateOutput{
@@ -978,7 +1033,8 @@ func (e *SelectorEngine) Click(ctx context.Context, in ClickInput) (ClickOutput,
 	if _, cerr := e.dispatchNodeTool(ctx, in.NodeID, clickTool, rawArgs, deadlineMs, who, in.TraceID); cerr != nil {
 		// 兼容真实 aura-node（仅注册单次 "click" 工具，未单独注册 "double_click"）：
 		// 当 double_click 返回 E_UNSUPPORTED / unknown tool 时，自动回退为连续两次快速 click。
-		if in.DoubleClick && (strings.Contains(cerr.Error(), "E_UNSUPPORTED") || strings.Contains(cerr.Error(), "unknown tool")) {
+		errLower := strings.ToLower(cerr.Error())
+		if in.DoubleClick && (strings.Contains(cerr.Error(), "E_UNSUPPORTED") || strings.Contains(errLower, "unknown")) {
 			if _, cerr1 := e.dispatchNodeTool(ctx, in.NodeID, "click", rawArgs, deadlineMs, who, in.TraceID); cerr1 != nil {
 				cerr = cerr1
 			} else {
@@ -1226,6 +1282,9 @@ func (e *SelectorEngine) Annotate(ctx context.Context, in AnnotateInput) (Annota
 	if snapshotID == "" {
 		snapshotID = strings.TrimSpace(shot.SnapshotID)
 	}
+	if snapshotID == "" {
+		snapshotID = fmt.Sprintf("som-%d", time.Now().UnixNano())
+	}
 	mime := shot.Mime
 	if mime == "" {
 		mime = "image/webp"
@@ -1287,7 +1346,7 @@ func (e *SelectorEngine) Annotate(ctx context.Context, in AnnotateInput) (Annota
 		})
 	}
 
-	return AnnotateOutput{
+	out := AnnotateOutput{
 		NodeID:         in.NodeID,
 		ScreenW:        meta.NativeW,
 		ScreenH:        meta.NativeH,
@@ -1301,7 +1360,9 @@ func (e *SelectorEngine) Annotate(ctx context.Context, in AnnotateInput) (Annota
 		Candidates:     indexed,
 		LatencyMs:      time.Since(t0).Milliseconds(),
 		Message:        fmt.Sprintf("已标注 %d 个界面元素 (scale=%.2f, snapshot=%s)", len(indexed), meta.Scale, snapshotID),
-	}, nil
+	}
+	e.putSoMSnapshot(in.NodeID, out)
+	return out, nil
 }
 
 // WaitFor 轮询等待目标 UI 元素出现（state="present"，缺省）或消失（state="absent"|"gone"）。
@@ -1335,27 +1396,51 @@ func (e *SelectorEngine) WaitFor(ctx context.Context, in WaitForInput) (WaitForO
 		timeoutMs = 30_000
 	}
 	deadlineDur := time.Duration(timeoutMs) * time.Millisecond
+	deadlineAt := t0.Add(deadlineDur)
+	waitCtx, cancel := context.WithTimeout(ctx, deadlineDur)
+	defer cancel()
 
 	polls := 0
 	var last LocateOutput
 	for {
 		polls++
 		e.invalidateNodeCache(in.NodeID)
-		out, err := e.locateOnce(ctx, LocateInput{
+		remMs := time.Until(deadlineAt).Milliseconds()
+		if remMs <= 0 {
+			remMs = 200
+		}
+		stepDeadline := in.DeadlineMs
+		if stepDeadline <= 0 || stepDeadline > remMs {
+			stepDeadline = remMs
+		}
+		out, err := e.locateOnce(waitCtx, LocateInput{
 			NodeID:      in.NodeID,
 			Target:      target,
 			ForceVision: in.ForceVision,
-			DeadlineMs:  in.DeadlineMs,
+			DeadlineMs:  stepDeadline,
 			Who:         in.Who,
 			TraceID:     in.TraceID,
 		})
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				elapsed := time.Since(t0).Milliseconds()
+				return WaitForOutput{
+					Satisfied: false,
+					State:     stateNorm,
+					Target:    target,
+					Polls:     polls,
+					ElapsedMs: elapsed,
+					Last:      last,
+					Message:   fmt.Sprintf("等待目标 %q 变为 %s 超时（轮询 %d 次，耗时 %dms）", target, stateNorm, polls, elapsed),
+				}, nil
+			}
 			return WaitForOutput{}, err
 		}
 		last = out
 		last.Candidates = compactCandidates(last.Candidates, 16)
 
-		satisfied := (!wantAbsent && out.Found) || (wantAbsent && !out.Found)
+		// 仅在有效观测（非 observation_unavailable）下才将 !out.Found 认定为 absent
+		satisfied := (!wantAbsent && out.Found) || (wantAbsent && !out.Found && out.Status != "observation_unavailable")
 		elapsed := time.Since(t0).Milliseconds()
 		if satisfied {
 			msg := fmt.Sprintf("目标 %q 已出现（轮询 %d 次，耗时 %dms）", target, polls, elapsed)
@@ -1372,8 +1457,11 @@ func (e *SelectorEngine) WaitFor(ctx context.Context, in WaitForInput) (WaitForO
 				Message:   msg,
 			}, nil
 		}
-		if time.Since(t0) >= deadlineDur || out.Status == "vision_disabled" && !wantAbsent {
+		if time.Since(t0) >= deadlineDur {
 			msg := fmt.Sprintf("等待目标 %q 变为 %s 超时（轮询 %d 次，耗时 %dms）", target, stateNorm, polls, elapsed)
+			if out.Status == "observation_unavailable" {
+				msg = fmt.Sprintf("等待目标 %q 变为 %s 失败：无可用观测源 (%s)", target, stateNorm, out.Message)
+			}
 			return WaitForOutput{
 				Satisfied: false,
 				State:     stateNorm,
@@ -1387,6 +1475,17 @@ func (e *SelectorEngine) WaitFor(ctx context.Context, in WaitForInput) (WaitForO
 		select {
 		case <-ctx.Done():
 			return WaitForOutput{}, ctx.Err()
+		case <-waitCtx.Done():
+			elapsed := time.Since(t0).Milliseconds()
+			return WaitForOutput{
+				Satisfied: false,
+				State:     stateNorm,
+				Target:    target,
+				Polls:     polls,
+				ElapsedMs: elapsed,
+				Last:      last,
+				Message:   fmt.Sprintf("等待目标 %q 变为 %s 超时（轮询 %d 次，耗时 %dms）", target, stateNorm, polls, elapsed),
+			}, nil
 		case <-time.After(300 * time.Millisecond):
 		}
 	}

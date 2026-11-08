@@ -20,7 +20,7 @@ jobs:
           cache-dependency-path: controller/go.sum
       - run: go build ./...
       - run: go vet ./...
-      - run: go test ./...
+      - run: go test -race ./...
 
   console:
     name: console (TypeScript)
@@ -65,9 +65,9 @@ jobs:
       # 曾漏过一次字段缺失，故 CI 必带 test 编译）。
       - name: Build (production features)
         run: cargo build -p aura-node --features grpc,enroll,otel
-      # xvfb 提供虚拟显示器供图形相关单测；-a 自动挑 display 号。
+      # xvfb 提供虚拟显示器供图形相关单测；-a 自动挑 display 号。同时跑 aura-capability / aura-platform / aura-node 全 workspace 单测。
       - name: Test
-        run: xvfb-run -a cargo test -p aura-node --features grpc,enroll,otel
+        run: xvfb-run -a cargo test --workspace --features aura-node/grpc,aura-node/enroll,aura-node/otel
 
   # 端到端回归（M16 T1.1/T1.2）：起真 controller + 真 aura-node，经 mTLS 反连 + REST 管理面跑完整链路。
   # 独立 job——重（构建两二进制 + PG service + xvfb 桌面），失败不掩盖单元 job 的快速反馈。

@@ -265,6 +265,7 @@ type ComputerActionInput struct {
 	Region          []int32         `json:"region,omitempty"`   // zoom 区域 [x0, y0, x1, y1]
 	Target          string          `json:"target,omitempty"`   // 可选语义目标或 "[N]" SoM 编号
 	SoMIndex        *int            `json:"som_index,omitempty"`
+	SnapshotID      string          `json:"snapshot_id,omitempty"` // 可选快照 ID，绑定 SoM 编号防并发/过期错位
 	UITarsAction    string          `json:"ui_tars_action,omitempty"`
 	AutoScreenshot  bool            `json:"auto_screenshot,omitempty"`
 	AutoAnnotate    bool            `json:"auto_annotate,omitempty"`
@@ -281,6 +282,7 @@ type ComputerActionOutput struct {
 	Finished       bool                  `json:"finished,omitempty"`
 	NormalizedOp   string                `json:"normalized_op"`
 	CoordSpace     string                `json:"coord_space,omitempty"`
+	SnapshotID     string                `json:"snapshot_id,omitempty"`
 	Coordinate     [2]int32              `json:"coordinate,omitempty"`
 	EndCoordinate  [2]int32              `json:"end_coordinate,omitempty"`
 	Text           string                `json:"text,omitempty"`
@@ -296,6 +298,21 @@ type ComputerActionOutput struct {
 	Scale          float64               `json:"scale,omitempty"`
 	TotalLatencyMs int64                 `json:"total_latency_ms"`
 	Message        string                `json:"message"`
+}
+
+// VLMPlanRequest 是向多模态 VLM 规划器发起单步决策的请求载荷。
+type VLMPlanRequest struct {
+	Endpoint  string
+	APIKey    string
+	Model     string
+	Goal      string
+	Annotated AnnotateOutput
+	History   []AgentStepLog
+}
+
+// AgentPlannerClient 是多模态 VLM 规划器窄接口（隔离第三方 HTTP 协议与鉴权）。
+type AgentPlannerClient interface {
+	PlanNextAction(ctx context.Context, req VLMPlanRequest) (ComputerActionInput, string, error)
 }
 
 // AgentTaskInput 是端到端 GUI Agent 任务闭环（RunAgentTask）的入参。

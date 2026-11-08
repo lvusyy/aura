@@ -132,7 +132,7 @@ type fakeGatewayDisp struct {
 	shotB64 string
 }
 
-func (f *fakeGatewayDisp) Dispatch(_ context.Context, _, tool string, _ []byte, _ int64, _, _ string) (*aurav1.ToolResponse, string, error) {
+func (f *fakeGatewayDisp) Dispatch(_ context.Context, _, tool string, args []byte, _ int64, _, _ string) (*aurav1.ToolResponse, string, error) {
 	var data any
 	switch tool {
 	case "get_a11y_tree":
@@ -155,8 +155,40 @@ func (f *fakeGatewayDisp) Dispatch(_ context.Context, _, tool string, _ []byte, 
 				"snapshot_id": "snap-gw-e2e",
 			},
 		}
-	default:
+	case "click", "move_mouse":
+		var p struct {
+			Coordinate *[2]int32 `json:"coordinate"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil || p.Coordinate == nil {
+			raw, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": "INVALID_ARGS", "message": "missing coordinate [x,y]"}})
+			return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+		}
 		data = map[string]any{"ok": true}
+	case "drag":
+		var p struct {
+			From *[2]int32 `json:"from"`
+			To   *[2]int32 `json:"to"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil || p.From == nil || p.To == nil {
+			raw, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": "INVALID_ARGS", "message": "missing from/to"}})
+			return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+		}
+		data = map[string]any{"ok": true}
+	case "scroll":
+		var p struct {
+			Coordinate      *[2]int32 `json:"coordinate"`
+			ScrollDirection string    `json:"scroll_direction"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil || p.Coordinate == nil || p.ScrollDirection == "" {
+			raw, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": "INVALID_ARGS", "message": "missing coordinate or scroll_direction"}})
+			return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
+		}
+		data = map[string]any{"ok": true}
+	case "type", "key", "wait":
+		data = map[string]any{"ok": true}
+	default:
+		raw, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": "UNKNOWN_TOOL", "message": "unexpected node tool: " + tool}})
+		return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil
 	}
 	raw, _ := json.Marshal(map[string]any{"ok": true, "data": data})
 	return &aurav1.ToolResponse{JsonEnvelope: raw}, "", nil

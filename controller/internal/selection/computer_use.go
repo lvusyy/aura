@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -216,6 +217,39 @@ func normalizeHotkeyChord(raw string) string {
 	return strings.Join(mapped, "+")
 }
 
+func isSupportedComputerAction(action string) bool {
+	switch action {
+	case "finished", "finish", "done",
+		"screenshot", "annotate", "annotate_screen", "zoom",
+		"left_click", "click", "left_single", "right_click", "right_single", "middle_click", "double_click", "left_double", "triple_click",
+		"mouse_move", "move", "hover",
+		"left_click_drag", "drag", "swipe",
+		"type", "key", "keypress", "hotkey",
+		"scroll", "wait":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDirectTargetClickAction(action string) bool {
+	switch action {
+	case "left_click", "click", "left_single", "right_click", "right_single", "middle_click", "double_click", "left_double":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTargetLocateAction(action string) bool {
+	switch action {
+	case "triple_click", "mouse_move", "move", "hover", "scroll":
+		return true
+	default:
+		return false
+	}
+}
+
 func (e *SelectorEngine) fetchNodeShot(ctx context.Context, nodeID string, deadlineMs int64, who, traceID string) (shotPayload, error) {
 	raw, err := e.dispatchNodeTool(ctx, nodeID, "screenshot", nil, deadlineMs, who, traceID)
 	if err != nil {
@@ -318,6 +352,11 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		}
 	}
 
+	// 在执行任何 Target/SoM 定位或节点工具调用前，先严格校验动作名与参数组合合法性（修复 Finding #6）
+	if !isSupportedComputerAction(action) {
+		return ComputerActionOutput{}, fmt.Errorf("unsupported computer action %q", action)
+	}
+
 	coordSpace := strings.ToLower(strings.TrimSpace(in.CoordSpace))
 	if coordSpace == "" {
 		coordSpace = "display"
@@ -325,6 +364,9 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 
 	// 分支 1：终态宣告（UI-TARS finished / Agent Loop finish）
 	if action == "finished" || action == "finish" || action == "done" {
+		if in.Target != "" {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with target %q", action, in.Target)
+		}
 		return ComputerActionOutput{
 			Executed:       true,
 			Finished:       true,
@@ -337,6 +379,9 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 
 	// 分支 2：截图或 Set-of-Mark 视觉标注
 	if action == "screenshot" {
+		if in.Target != "" {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with target %q", action, in.Target)
+		}
 		shot, err := e.fetchNodeShot(ctx, in.NodeID, deadlineMs, who, in.TraceID)
 		if err != nil {
 			return ComputerActionOutput{}, err
@@ -344,6 +389,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		return ComputerActionOutput{
 			Executed:       true,
 			NormalizedOp:   "screenshot",
+			SnapshotID:     firstNonEmpty(shot.Meta.SnapshotID, shot.SnapshotID),
 			ImageBase64:    shot.ImageBase64,
 			ImageMime:      shot.Mime,
 			ScreenW:        shot.Meta.NativeW,
@@ -356,6 +402,9 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		}, nil
 	}
 	if action == "annotate" || action == "annotate_screen" {
+		if in.Target != "" {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with target %q", action, in.Target)
+		}
 		ann, err := e.Annotate(ctx, AnnotateInput{
 			NodeID:      in.NodeID,
 			ForceVision: in.ForceVision,
@@ -369,6 +418,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		return ComputerActionOutput{
 			Executed:       true,
 			NormalizedOp:   "annotate_screen",
+			SnapshotID:     ann.SnapshotID,
 			ImageBase64:    ann.SoMImageBase64,
 			ImageMime:      ann.SoMMime,
 			Candidates:     ann.Candidates,
@@ -383,6 +433,9 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		}, nil
 	}
 	if action == "zoom" {
+		if in.Target != "" {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with target %q", action, in.Target)
+		}
 		if len(in.Region) != 4 {
 			return ComputerActionOutput{}, errors.New("zoom requires region [x0, y0, x1, y1]")
 		}
@@ -411,67 +464,136 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		}, nil
 	}
 
-	// 若指定了语义 Target（且无显式坐标），直接走三层混合定位 SelectorEngine.Click
+	var locatedForOut *LocateOutput
+
+	// 若指定了语义 Target（且无显式坐标），按动作语义分流处理（修复 Finding #6：非点击动作绝不误触发 Click）
 	if in.Target != "" && len(in.Coordinate) < 2 && in.SoMIndex == nil {
-		btn := strings.ToLower(strings.TrimSpace(in.Button))
-		dbl := false
-		switch action {
-		case "right_click", "right_single":
-			btn = "right"
-		case "middle_click":
-			btn = "middle"
-		case "double_click", "left_double":
-			dbl = true
+		if action == "type" && strings.TrimSpace(in.Text) == "" {
+			return ComputerActionOutput{}, errors.New("type requires non-empty text")
 		}
-		if btn == "" {
-			btn = "left"
+		if isDirectTargetClickAction(action) || action == "type" {
+			btn := strings.ToLower(strings.TrimSpace(in.Button))
+			dbl := false
+			switch action {
+			case "right_click", "right_single":
+				btn = "right"
+			case "middle_click":
+				btn = "middle"
+			case "double_click", "left_double":
+				dbl = true
+			}
+			if btn == "" {
+				btn = "left"
+			}
+			clickOut, err := e.Click(ctx, ClickInput{
+				NodeID:      in.NodeID,
+				Target:      in.Target,
+				Button:      btn,
+				DoubleClick: dbl,
+				TypeText:    in.Text,
+				ForceVision: in.ForceVision,
+				Verify:      in.Verify,
+				DeadlineMs:  deadlineMs,
+				Who:         who,
+				TraceID:     in.TraceID,
+			})
+			if err != nil {
+				return ComputerActionOutput{}, err
+			}
+			out := ComputerActionOutput{
+				Executed:       clickOut.Clicked,
+				NormalizedOp:   "click_element",
+				CoordSpace:     "native",
+				Coordinate:     clickOut.Located.ClickPoint,
+				Located:        &clickOut.Located,
+				TotalLatencyMs: time.Since(start).Milliseconds(),
+				Message:        clickOut.Message,
+			}
+			if !clickOut.Clicked {
+				return out, nil
+			}
+			return e.attachPostObservation(ctx, in, out, deadlineMs, who, start)
 		}
-		clickOut, err := e.Click(ctx, ClickInput{
-			NodeID:      in.NodeID,
-			Target:      in.Target,
-			Button:      btn,
-			DoubleClick: dbl,
-			TypeText:    in.Text,
-			ForceVision: in.ForceVision,
-			Verify:      in.Verify,
-			DeadlineMs:  deadlineMs,
-			Who:         who,
-			TraceID:     in.TraceID,
-		})
-		if err != nil {
-			return ComputerActionOutput{}, err
+
+		if isTargetLocateAction(action) {
+			loc, err := e.Locate(ctx, LocateInput{
+				NodeID:      in.NodeID,
+				Target:      in.Target,
+				ForceVision: in.ForceVision,
+				DeadlineMs:  deadlineMs,
+				Who:         who,
+				TraceID:     in.TraceID,
+			})
+			if err != nil {
+				return ComputerActionOutput{}, err
+			}
+			if !loc.Found {
+				return ComputerActionOutput{
+					Executed:       false,
+					NormalizedOp:   action,
+					Located:        &loc,
+					TotalLatencyMs: time.Since(start).Milliseconds(),
+					Message:        loc.Message,
+				}, nil
+			}
+			in.Coordinate = []int32{loc.ClickPoint[0], loc.ClickPoint[1]}
+			coordSpace = "native"
+			locatedForOut = &loc
+		} else {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with semantic target %q", action, in.Target)
 		}
-		out := ComputerActionOutput{
-			Executed:       clickOut.Clicked,
-			NormalizedOp:   "click_element",
-			CoordSpace:     "native",
-			Coordinate:     clickOut.Located.ClickPoint,
-			Located:        &clickOut.Located,
-			TotalLatencyMs: time.Since(start).Milliseconds(),
-			Message:        clickOut.Message,
+	} else if in.Target != "" {
+		if !isDirectTargetClickAction(action) && !isTargetLocateAction(action) && action != "type" {
+			return ComputerActionOutput{}, fmt.Errorf("action %q cannot be combined with semantic target %q", action, in.Target)
 		}
-		if !clickOut.Clicked {
-			return out, nil
-		}
-		return e.attachPostObservation(ctx, in, out, deadlineMs, who, start)
 	}
 
-	// 若指定了 SoMIndex，先通过 Annotate 解析对应候选框的 native 中心点
+	// 若指定了 SoMIndex，优先校验/复用已缓存的快照候选表（修复 Finding #10：绑定快照防并发/重排点错元素）
+	resolvedSnapshotID := strings.TrimSpace(in.SnapshotID)
 	if in.SoMIndex != nil && len(in.Coordinate) < 2 {
 		targetIdx := *in.SoMIndex
-		ann, err := e.Annotate(ctx, AnnotateInput{
-			NodeID:      in.NodeID,
-			ForceVision: in.ForceVision,
-			MaxElements: max(48, targetIdx+4),
-			DeadlineMs:  deadlineMs,
-			Who:         who,
-			TraceID:     in.TraceID,
-		})
-		if err != nil {
-			return ComputerActionOutput{}, fmt.Errorf("resolve som_index %d: %w", targetIdx, err)
+		var candidates []AnnotatedCandidate
+		cached, hasCached := e.getSoMSnapshot(in.NodeID)
+
+		if resolvedSnapshotID != "" {
+			if !hasCached || cached.out.SnapshotID != resolvedSnapshotID || cached.mutated {
+				return ComputerActionOutput{
+					Executed:       false,
+					NormalizedOp:   action,
+					SnapshotID:     resolvedSnapshotID,
+					TotalLatencyMs: time.Since(start).Milliseconds(),
+					Message:        fmt.Sprintf("som snapshot %q is stale or mismatched (re-run annotate_screen)", resolvedSnapshotID),
+				}, nil
+			}
+			candidates = cached.out.Candidates
+		} else if hasCached && !cached.mutated && time.Since(cached.at) <= candidateCacheTTL {
+			for _, cand := range cached.out.Candidates {
+				if cand.Index == targetIdx {
+					candidates = cached.out.Candidates
+					resolvedSnapshotID = cached.out.SnapshotID
+					break
+				}
+			}
 		}
+
+		if candidates == nil {
+			ann, err := e.Annotate(ctx, AnnotateInput{
+				NodeID:      in.NodeID,
+				ForceVision: in.ForceVision,
+				MaxElements: max(48, targetIdx+4),
+				DeadlineMs:  deadlineMs,
+				Who:         who,
+				TraceID:     in.TraceID,
+			})
+			if err != nil {
+				return ComputerActionOutput{}, fmt.Errorf("resolve som_index %d: %w", targetIdx, err)
+			}
+			candidates = ann.Candidates
+			resolvedSnapshotID = ann.SnapshotID
+		}
+
 		found := false
-		for _, cand := range ann.Candidates {
+		for _, cand := range candidates {
 			if cand.Index == targetIdx {
 				in.Coordinate = []int32{cand.ClickPoint[0], cand.ClickPoint[1]}
 				coordSpace = "native"
@@ -483,8 +605,9 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 			return ComputerActionOutput{
 				Executed:       false,
 				NormalizedOp:   action,
+				SnapshotID:     resolvedSnapshotID,
 				TotalLatencyMs: time.Since(start).Milliseconds(),
-				Message:        fmt.Sprintf("som_index [%d] not found in %d candidates", targetIdx, len(ann.Candidates)),
+				Message:        fmt.Sprintf("som_index [%d] not found in %d candidates", targetIdx, len(candidates)),
 			}, nil
 		}
 	}
@@ -518,15 +641,17 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 
 	var out ComputerActionOutput
 	out.CoordSpace = coordSpace
+	out.SnapshotID = resolvedSnapshotID
+	out.Located = locatedForOut
 
 	switch action {
-	case "left_click", "click", "right_click", "middle_click", "double_click", "triple_click":
+	case "left_click", "click", "left_single", "right_click", "right_single", "middle_click", "double_click", "left_double", "triple_click":
 		if len(in.Coordinate) < 2 {
 			return ComputerActionOutput{}, fmt.Errorf("%s requires coordinate [x, y], som_index, or target", action)
 		}
 		btn := strings.ToLower(strings.TrimSpace(in.Button))
 		switch action {
-		case "right_click":
+		case "right_click", "right_single":
 			btn = "right"
 		case "middle_click":
 			btn = "middle"
@@ -540,17 +665,21 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 			}
 		}
 		clicks := 1
-		if action == "double_click" {
+		if action == "double_click" || action == "left_double" {
 			clicks = 2
 		} else if action == "triple_click" {
 			clicks = 3
 		}
-		clickArgs, _ := json.Marshal(map[string]any{
-			"x":           in.Coordinate[0],
-			"y":           in.Coordinate[1],
+		// 对齐 Rust aura-node ClickParams 契约：coordinate: [x, y]
+		clickPayload := map[string]any{
+			"coordinate":  []int32{in.Coordinate[0], in.Coordinate[1]},
 			"button":      btn,
 			"coord_space": coordSpace,
-		})
+		}
+		if resolvedSnapshotID != "" && coordSpace == "display" {
+			clickPayload["snapshot_id"] = resolvedSnapshotID
+		}
+		clickArgs, _ := json.Marshal(clickPayload)
 		for i := 0; i < clicks; i++ {
 			if i > 0 {
 				time.Sleep(40 * time.Millisecond)
@@ -559,6 +688,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 				return ComputerActionOutput{}, err
 			}
 		}
+		e.invalidateNodeCache(in.NodeID)
 		out.Executed = true
 		out.NormalizedOp = action
 		out.Coordinate = [2]int32{in.Coordinate[0], in.Coordinate[1]}
@@ -568,16 +698,20 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		if len(in.Coordinate) < 2 {
 			return ComputerActionOutput{}, fmt.Errorf("%s requires coordinate [x, y]", action)
 		}
-		moveArgs, _ := json.Marshal(map[string]any{
-			"x":           in.Coordinate[0],
-			"y":           in.Coordinate[1],
+		// 对齐 Rust aura-node MoveMouseParams 契约：工具名 move_mouse，参数 coordinate: [x, y]
+		movePayload := map[string]any{
+			"coordinate":  []int32{in.Coordinate[0], in.Coordinate[1]},
 			"coord_space": coordSpace,
-		})
-		if _, err := e.dispatchNodeTool(ctx, in.NodeID, "move", moveArgs, deadlineMs, who, in.TraceID); err != nil {
+		}
+		if resolvedSnapshotID != "" && coordSpace == "display" {
+			movePayload["snapshot_id"] = resolvedSnapshotID
+		}
+		moveArgs, _ := json.Marshal(movePayload)
+		if _, err := e.dispatchNodeTool(ctx, in.NodeID, "move_mouse", moveArgs, deadlineMs, who, in.TraceID); err != nil {
 			return ComputerActionOutput{}, err
 		}
 		out.Executed = true
-		out.NormalizedOp = "move"
+		out.NormalizedOp = "move_mouse"
 		out.Coordinate = [2]int32{in.Coordinate[0], in.Coordinate[1]}
 		out.Message = fmt.Sprintf("moved cursor to (%d,%d) [%s]", in.Coordinate[0], in.Coordinate[1], coordSpace)
 
@@ -585,17 +719,20 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		if len(in.StartCoordinate) < 2 || len(in.Coordinate) < 2 {
 			return ComputerActionOutput{}, fmt.Errorf("%s requires start_coordinate [x0, y0] and coordinate [x1, y1]", action)
 		}
-		dragArgs, _ := json.Marshal(map[string]any{
-			"from_x":      in.StartCoordinate[0],
-			"from_y":      in.StartCoordinate[1],
-			"to_x":        in.Coordinate[0],
-			"to_y":        in.Coordinate[1],
-			"duration_ms": 300,
+		// 对齐 Rust aura-node DragParams 契约：from: [x0, y0], to: [x1, y1]
+		dragPayload := map[string]any{
+			"from":        []int32{in.StartCoordinate[0], in.StartCoordinate[1]},
+			"to":          []int32{in.Coordinate[0], in.Coordinate[1]},
 			"coord_space": coordSpace,
-		})
+		}
+		if resolvedSnapshotID != "" && coordSpace == "display" {
+			dragPayload["snapshot_id"] = resolvedSnapshotID
+		}
+		dragArgs, _ := json.Marshal(dragPayload)
 		if _, err := e.dispatchNodeTool(ctx, in.NodeID, "drag", dragArgs, deadlineMs, who, in.TraceID); err != nil {
 			return ComputerActionOutput{}, err
 		}
+		e.invalidateNodeCache(in.NodeID)
 		out.Executed = true
 		out.NormalizedOp = "drag"
 		out.Coordinate = [2]int32{in.StartCoordinate[0], in.StartCoordinate[1]}
@@ -625,6 +762,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 				return ComputerActionOutput{}, err
 			}
 		}
+		e.invalidateNodeCache(in.NodeID)
 		out.Executed = true
 		out.NormalizedOp = "type"
 		out.Text = in.Text
@@ -639,6 +777,7 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		if _, err := e.dispatchNodeTool(ctx, in.NodeID, "key", keyArgs, deadlineMs, who, in.TraceID); err != nil {
 			return ComputerActionOutput{}, err
 		}
+		e.invalidateNodeCache(in.NodeID)
 		out.Executed = true
 		out.NormalizedOp = "key"
 		out.Text = chord
@@ -667,23 +806,41 @@ func (e *SelectorEngine) ExecuteComputerAction(ctx context.Context, in ComputerA
 		if amt <= 0 {
 			amt = 3
 		}
-		scrollPayload := map[string]any{
-			"direction":   dir,
-			"amount":      amt,
-			"coord_space": coordSpace,
+		// Rust aura-node ScrollParams 要求必填 coordinate: [x, y]；若调用方未显式传坐标，取当前屏幕中心作为滚动锚点
+		if len(in.Coordinate) < 2 {
+			cx, cy := int32(640), int32(360)
+			if shot, serr := e.fetchNodeShot(ctx, in.NodeID, deadlineMs, who, in.TraceID); serr == nil {
+				if coordSpace == "native" && shot.Meta.NativeW > 0 && shot.Meta.NativeH > 0 {
+					cx, cy = shot.Meta.NativeW/2, shot.Meta.NativeH/2
+				} else if shot.Meta.DisplayW > 0 && shot.Meta.DisplayH > 0 {
+					cx, cy = shot.Meta.DisplayW/2, shot.Meta.DisplayH/2
+					coordSpace = "display"
+				} else if shot.Meta.NativeW > 0 && shot.Meta.NativeH > 0 {
+					cx, cy = shot.Meta.NativeW/2, shot.Meta.NativeH/2
+					coordSpace = "native"
+				}
+			}
+			in.Coordinate = []int32{cx, cy}
 		}
-		if len(in.Coordinate) >= 2 {
-			scrollPayload["x"] = in.Coordinate[0]
-			scrollPayload["y"] = in.Coordinate[1]
-			out.Coordinate = [2]int32{in.Coordinate[0], in.Coordinate[1]}
+		scrollPayload := map[string]any{
+			"coordinate":       []int32{in.Coordinate[0], in.Coordinate[1]},
+			"scroll_direction": dir,
+			"scroll_amount":    amt,
+			"coord_space":      coordSpace,
+		}
+		if resolvedSnapshotID != "" && coordSpace == "display" {
+			scrollPayload["snapshot_id"] = resolvedSnapshotID
 		}
 		scrollArgs, _ := json.Marshal(scrollPayload)
 		if _, err := e.dispatchNodeTool(ctx, in.NodeID, "scroll", scrollArgs, deadlineMs, who, in.TraceID); err != nil {
 			return ComputerActionOutput{}, err
 		}
+		e.invalidateNodeCache(in.NodeID)
 		out.Executed = true
 		out.NormalizedOp = "scroll"
-		out.Message = fmt.Sprintf("scrolled %s by %d", dir, amt)
+		out.CoordSpace = coordSpace
+		out.Coordinate = [2]int32{in.Coordinate[0], in.Coordinate[1]}
+		out.Message = fmt.Sprintf("scrolled %s by %d at (%d,%d)", dir, amt, in.Coordinate[0], in.Coordinate[1])
 
 	case "wait":
 		durMs := int64(1000)
@@ -718,13 +875,17 @@ func (e *SelectorEngine) attachPostObservation(
 ) (ComputerActionOutput, error) {
 	if in.AutoAnnotate {
 		time.Sleep(120 * time.Millisecond)
-		if ann, err := e.Annotate(ctx, AnnotateInput{
+		ann, err := e.Annotate(ctx, AnnotateInput{
 			NodeID:      in.NodeID,
 			ForceVision: in.ForceVision,
 			DeadlineMs:  deadlineMs,
 			Who:         who,
 			TraceID:     in.TraceID,
-		}); err == nil {
+		})
+		if err != nil {
+			out.Message += fmt.Sprintf(" (post-annotate failed: %v)", err)
+		} else {
+			out.SnapshotID = ann.SnapshotID
 			out.ImageBase64 = ann.SoMImageBase64
 			out.ImageMime = ann.SoMMime
 			out.Candidates = ann.Candidates
@@ -737,7 +898,11 @@ func (e *SelectorEngine) attachPostObservation(
 		}
 	} else if in.AutoScreenshot {
 		time.Sleep(120 * time.Millisecond)
-		if shot, err := e.fetchNodeShot(ctx, in.NodeID, deadlineMs, who, in.TraceID); err == nil {
+		shot, err := e.fetchNodeShot(ctx, in.NodeID, deadlineMs, who, in.TraceID)
+		if err != nil {
+			out.Message += fmt.Sprintf(" (post-screenshot failed: %v)", err)
+		} else {
+			out.SnapshotID = firstNonEmpty(shot.Meta.SnapshotID, shot.SnapshotID)
 			out.ImageBase64 = shot.ImageBase64
 			out.ImageMime = shot.Mime
 			out.ScreenW = shot.Meta.NativeW
@@ -749,6 +914,44 @@ func (e *SelectorEngine) attachPostObservation(
 	}
 	out.TotalLatencyMs = time.Since(start).Milliseconds()
 	return out, nil
+}
+
+// resolveAgentLLMConfig 将 endpoint、credential 与 model 作为统一 provider 配置解析（修复 Finding #1）：
+// 当调用方覆盖自定义 LLMEndpoint（且与服务端默认 AURA_AGENT_LLM_ENDPOINT 不同）时，严禁继承服务端默认 API Key，
+// 阻断恶意请求借自定义地址窃取服务端凭据与截图的路径。
+func resolveAgentLLMConfig(in AgentTaskInput) (endpoint, apiKey, model string, err error) {
+	reqEndpoint := strings.TrimRight(strings.TrimSpace(in.LLMEndpoint), "/")
+	envEndpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("AURA_AGENT_LLM_ENDPOINT")), "/")
+	model = firstNonEmpty(in.LLMModel, os.Getenv("AURA_AGENT_LLM_MODEL"), "gpt-4o")
+
+	if reqEndpoint != "" {
+		u, uerr := url.Parse(reqEndpoint)
+		if uerr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return "", "", "", fmt.Errorf("invalid llm_endpoint %q (must be http:// or https://)", in.LLMEndpoint)
+		}
+		if reqEndpoint != envEndpoint {
+			if strings.EqualFold(strings.TrimSpace(os.Getenv("AURA_ALLOW_CUSTOM_LLM_ENDPOINT")), "false") {
+				return "", "", "", errors.New("custom llm_endpoint is disabled by server policy")
+			}
+			// 自定义 endpoint 仅允许使用调用方自带的 LLMAPIKey，绝不回落读取服务端 AURA_AGENT_LLM_API_KEY
+			return reqEndpoint, strings.TrimSpace(in.LLMAPIKey), model, nil
+		}
+		return reqEndpoint, firstNonEmpty(in.LLMAPIKey, os.Getenv("AURA_AGENT_LLM_API_KEY")), model, nil
+	}
+	if envEndpoint != "" {
+		return envEndpoint, firstNonEmpty(in.LLMAPIKey, os.Getenv("AURA_AGENT_LLM_API_KEY")), model, nil
+	}
+	return "", "", model, nil
+}
+
+func (e *SelectorEngine) resolveAgentPlanner() AgentPlannerClient {
+	e.mu.RLock()
+	override := e.plannerOverride
+	e.mu.RUnlock()
+	if override != nil {
+		return override
+	}
+	return NewHTTPVLMPlannerClient(e.httpClient)
 }
 
 // RunAgentTask 执行端到端多步 GUI 任务闭环（支持外部 OpenAI 兼容 VLM + Set-of-Mark 规划器，
@@ -778,11 +981,16 @@ func (e *SelectorEngine) RunAgentTask(ctx context.Context, in AgentTaskInput) (A
 		who = "aura-agent"
 	}
 
-	llmEndpoint := firstNonEmpty(in.LLMEndpoint, os.Getenv("AURA_AGENT_LLM_ENDPOINT"))
-	llmAPIKey := firstNonEmpty(in.LLMAPIKey, os.Getenv("AURA_AGENT_LLM_API_KEY"))
-	llmModel := firstNonEmpty(in.LLMModel, os.Getenv("AURA_AGENT_LLM_MODEL"), "gpt-4o")
+	llmEndpoint, llmAPIKey, llmModel, err := resolveAgentLLMConfig(in)
+	if err != nil {
+		return AgentTaskOutput{}, err
+	}
 
-	if llmEndpoint != "" {
+	e.mu.RLock()
+	hasPlannerOverride := e.plannerOverride != nil
+	e.mu.RUnlock()
+
+	if llmEndpoint != "" || hasPlannerOverride {
 		return e.runVLMSoMLoop(ctx, in, goal, maxSteps, deadlineMs, who, llmEndpoint, llmAPIKey, llmModel, start)
 	}
 	return e.runHybridSemanticLoop(ctx, in, goal, maxSteps, deadlineMs, who, start)
@@ -811,13 +1019,20 @@ func (e *SelectorEngine) runHybridSemanticLoop(
 	who string,
 	start time.Time,
 ) (AgentTaskOutput, error) {
-	subGoals := splitSubGoals(goal)
-	if len(subGoals) > maxSteps {
-		subGoals = subGoals[:maxSteps]
+	allSubGoals := splitSubGoals(goal)
+	totalSubGoals := len(allSubGoals)
+	truncatedByBudget := false
+	execSubGoals := allSubGoals
+	if len(execSubGoals) > maxSteps {
+		execSubGoals = execSubGoals[:maxSteps]
+		truncatedByBudget = true
 	}
-	steps := make([]AgentStepLog, 0, len(subGoals))
+	steps := make([]AgentStepLog, 0, len(execSubGoals))
 
-	for idx, sub := range subGoals {
+	for idx, sub := range execSubGoals {
+		if err := ctx.Err(); err != nil {
+			return AgentTaskOutput{}, err
+		}
 		stepStart := time.Now()
 		stepNum := idx + 1
 		actIn, waitIn, isWaitFor, thought := parseSubGoalIntent(in.NodeID, sub, in.ForceVision, in.Verify, deadlineMs, who, in.TraceID)
@@ -887,6 +1102,20 @@ func (e *SelectorEngine) runHybridSemanticLoop(
 		}
 		logEntry.Status = "ok"
 		steps = append(steps, logEntry)
+	}
+
+	// 修复 Finding #8：当子目标数量超出 max_steps 时，返回 Completed:false 与 max_steps_reached，不误报完整成功
+	if truncatedByBudget {
+		return AgentTaskOutput{
+			NodeID:         in.NodeID,
+			Goal:           goal,
+			Completed:      false,
+			Status:         "max_steps_reached",
+			Planner:        "hybrid_semantic",
+			Steps:          steps,
+			TotalLatencyMs: time.Since(start).Milliseconds(),
+			Message:        fmt.Sprintf("reached max_steps (%d/%d sub-goals executed)", len(steps), totalSubGoals),
+		}, nil
 	}
 
 	return AgentTaskOutput{
@@ -1052,8 +1281,12 @@ func (e *SelectorEngine) runVLMSoMLoop(
 	llmEndpoint, llmAPIKey, llmModel string,
 	start time.Time,
 ) (AgentTaskOutput, error) {
+	planner := e.resolveAgentPlanner()
 	steps := make([]AgentStepLog, 0, maxSteps)
 	for stepNum := 1; stepNum <= maxSteps; stepNum++ {
+		if err := ctx.Err(); err != nil {
+			return AgentTaskOutput{}, err
+		}
 		stepStart := time.Now()
 		ann, err := e.Annotate(ctx, AnnotateInput{
 			NodeID:      in.NodeID,
@@ -1076,7 +1309,14 @@ func (e *SelectorEngine) runVLMSoMLoop(
 			}, nil
 		}
 
-		actIn, thought, err := e.queryVLMSoMPlanner(ctx, llmEndpoint, llmAPIKey, llmModel, goal, ann, steps)
+		actIn, thought, err := planner.PlanNextAction(ctx, VLMPlanRequest{
+			Endpoint:  llmEndpoint,
+			APIKey:    llmAPIKey,
+			Model:     llmModel,
+			Goal:      goal,
+			Annotated: ann,
+			History:   steps,
+		})
 		if err != nil {
 			return AgentTaskOutput{
 				NodeID:         in.NodeID,
@@ -1095,6 +1335,9 @@ func (e *SelectorEngine) runVLMSoMLoop(
 		actIn.DeadlineMs = deadlineMs
 		actIn.Who = who
 		actIn.TraceID = in.TraceID
+		if actIn.SnapshotID == "" {
+			actIn.SnapshotID = ann.SnapshotID
+		}
 
 		// 若 VLM 决策为 SoM 索引，直接从本次已捕获的 ann.Candidates 解析 native 坐标，避免重复 Annotate
 		if actIn.SoMIndex != nil && len(actIn.Coordinate) < 2 {
@@ -1166,23 +1409,51 @@ func (e *SelectorEngine) runVLMSoMLoop(
 	}, nil
 }
 
-func (e *SelectorEngine) queryVLMSoMPlanner(
-	ctx context.Context,
-	endpoint, apiKey, model, goal string,
-	ann AnnotateOutput,
-	history []AgentStepLog,
-) (ComputerActionInput, string, error) {
-	url := strings.TrimRight(strings.TrimSpace(endpoint), "/")
-	if !strings.HasSuffix(url, "/chat/completions") {
-		if strings.HasSuffix(url, "/v1") {
-			url += "/chat/completions"
+// HTTPVLMPlannerClient 是 OpenAI 兼容 Chat Completions VLM 规划器的窄接口适配器实现。
+type HTTPVLMPlannerClient struct {
+	client *http.Client
+}
+
+// NewHTTPVLMPlannerClient 构造安全隔离的 HTTP VLM 规划器客户端（拒绝跨源重定向携带 Authorization）。
+func NewHTTPVLMPlannerClient(base *http.Client) *HTTPVLMPlannerClient {
+	timeout := 25 * time.Second
+	var transport http.RoundTripper
+	if base != nil {
+		if base.Timeout > 0 {
+			timeout = base.Timeout
+		}
+		transport = base.Transport
+	}
+	safeClient := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return errors.New("stopped after 3 redirects")
+			}
+			if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+				req.Header.Del("Authorization")
+			}
+			return nil
+		},
+	}
+	return &HTTPVLMPlannerClient{client: safeClient}
+}
+
+// PlanNextAction 发送带 Set-of-Mark 视觉标注图与候选索引的提示词，解析下一步 GUI 动作决策。
+func (c *HTTPVLMPlannerClient) PlanNextAction(ctx context.Context, req VLMPlanRequest) (ComputerActionInput, string, error) {
+	urlStr := strings.TrimRight(strings.TrimSpace(req.Endpoint), "/")
+	if !strings.HasSuffix(urlStr, "/chat/completions") {
+		if strings.HasSuffix(urlStr, "/v1") {
+			urlStr += "/chat/completions"
 		} else {
-			url += "/v1/chat/completions"
+			urlStr += "/v1/chat/completions"
 		}
 	}
 
+	ann := req.Annotated
 	var histBuf strings.Builder
-	for _, h := range history {
+	for _, h := range req.History {
 		somStr := "-"
 		if h.SoMIndex != nil {
 			somStr = strconv.Itoa(*h.SoMIndex)
@@ -1197,7 +1468,7 @@ func (e *SelectorEngine) queryVLMSoMPlanner(
 			"Numbered Set-of-Mark UI candidates:\n%s\n\n"+
 			"Respond ONLY with a single JSON object (or UI-TARS Thought/Action):\n"+
 			`{"thought":"...","action":"left_click|double_click|right_click|type|key|scroll|wait|finished","som_index":0,"target":"","text":""}`,
-		ann.DisplayW, ann.DisplayH, goal, histBuf.String(), strings.Join(ann.Choices, "\n"),
+		ann.DisplayW, ann.DisplayH, req.Goal, histBuf.String(), strings.Join(ann.Choices, "\n"),
 	)
 
 	userContent := []map[string]any{
@@ -1214,27 +1485,30 @@ func (e *SelectorEngine) queryVLMSoMPlanner(
 	}
 
 	reqPayload, _ := json.Marshal(map[string]any{
-		"model":       model,
+		"model":       req.Model,
 		"temperature": 0.0,
 		"messages": []map[string]any{
 			{"role": "user", "content": userContent},
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqPayload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, bytes.NewReader(reqPayload))
 	if err != nil {
 		return ComputerActionInput{}, "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if req.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
 	}
-	resp, err := e.httpClient.Do(req)
+	resp, err := c.client.Do(httpReq)
 	if err != nil {
 		return ComputerActionInput{}, "", err
 	}
 	defer resp.Body.Close()
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return ComputerActionInput{}, "", fmt.Errorf("read VLM response body: %w", err)
+	}
 	if resp.StatusCode >= 300 {
 		return ComputerActionInput{}, "", fmt.Errorf("VLM HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}

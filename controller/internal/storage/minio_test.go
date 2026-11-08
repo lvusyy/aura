@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/minio/minio-go/v7"
 )
 
 func decodeS3Body(r *http.Request) []byte {
@@ -299,5 +301,200 @@ func TestLocalDiskS3ServerPersistenceAndListRecordings(t *testing.T) {
 	tail, err := io.ReadAll(rc)
 	if err != nil || string(tail) != string(mp4Data[5:]) {
 		t.Fatalf("Range Seek read = %q, want %q (err=%v)", string(tail), string(mp4Data[5:]), err)
+	}
+}
+
+func TestLocalDiskS3SecurityAndHardening(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. 默认拒绝非回环监听地址，除非显式 AllowRemote=true
+	if _, _, err := StartLocalS3ServerWithOptions(LocalS3Options{
+		DataDir:    tmpDir,
+		ListenAddr: "0.0.0.0:0",
+		AccessKey:  "ak",
+		SecretKey:  "sk-secret-123",
+	}); err == nil {
+		t.Fatal("expected non-loopback ListenAddr without AllowRemote to be rejected")
+	}
+
+	ep, closeFn, err := StartLocalS3ServerWithOptions(LocalS3Options{
+		DataDir:   tmpDir,
+		AccessKey: "test-ak",
+		SecretKey: "test-sk-secret",
+	})
+	if err != nil {
+		t.Fatalf("StartLocalS3ServerWithOptions: %v", err)
+	}
+	defer closeFn()
+
+	store, err := NewMinioStore(ep, "test-ak", "test-sk-secret", false)
+	if err != nil {
+		t.Fatalf("NewMinioStore: %v", err)
+	}
+	ctx := context.Background()
+	if err := store.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket: %v", err)
+	}
+	if err := store.PutObject(ctx, "recordings/sec.mp4", []byte("secret-video"), "video/mp4"); err != nil {
+		t.Fatalf("PutObject: %v", err)
+	}
+
+	// 2. 未签名请求（GET / PUT / DELETE）必须返回 403 Forbidden
+	baseURL := "http://" + ep + "/aura-artifacts/recordings/sec.mp4"
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		req, _ := http.NewRequest(method, baseURL, strings.NewReader("pwned"))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("unauthenticated %s error: %v", method, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("unauthenticated %s status = %d, want 403", method, resp.StatusCode)
+		}
+	}
+
+	// 3. 篡改签名的预签名 URL 必须返回 403 Forbidden
+	preGet, err := store.PresignedGet(ctx, "recordings/sec.mp4", time.Minute)
+	if err != nil {
+		t.Fatalf("PresignedGet: %v", err)
+	}
+	tampered := *preGet
+	q := tampered.Query()
+	q.Set("X-Amz-Signature", strings.Repeat("0", 64))
+	tampered.RawQuery = q.Encode()
+	resp, err := http.Get(tampered.String())
+	if err != nil {
+		t.Fatalf("GET tampered presigned URL: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("tampered presigned URL status = %d, want 403", resp.StatusCode)
+	}
+
+	// 4. 禁止写入 .aura-internal 内部元数据命名空间，且相邻后缀键 (.ct / .tmp) 互不污染
+	if err := store.PutObject(ctx, ".aura-internal/hack", []byte("bad"), "text/plain"); err == nil {
+		t.Fatal("expected writing to .aura-internal to fail")
+	}
+	for _, k := range []string{"siblings/item", "siblings/item.ct", "siblings/item.tmp"} {
+		if err := store.PutObject(ctx, k, []byte("val:"+k), "text/plain"); err != nil {
+			t.Fatalf("PutObject(%q): %v", k, err)
+		}
+	}
+	for _, k := range []string{"siblings/item", "siblings/item.ct", "siblings/item.tmp"} {
+		got, _, err := store.GetObject(ctx, k)
+		if err != nil || string(got) != "val:"+k {
+			t.Fatalf("GetObject(%q) = %q, want %q (err=%v)", k, string(got), "val:"+k, err)
+		}
+	}
+}
+
+func TestLocalDiskS3MultipartIsolationQuotaAndPagination(t *testing.T) {
+	// 1. 配额保护测试：设置 MaxUploadBytes=128，验证超额写入返回 413 且不破坏已提交对象
+	quotaDir := t.TempDir()
+	qEp, qClose, err := StartLocalS3ServerWithOptions(LocalS3Options{
+		DataDir:        quotaDir,
+		AccessKey:      "test-ak",
+		SecretKey:      "test-sk-secret",
+		MaxUploadBytes: 128,
+	})
+	if err != nil {
+		t.Fatalf("StartLocalS3ServerWithOptions(quota): %v", err)
+	}
+	defer qClose()
+
+	qStore, err := NewMinioStore(qEp, "test-ak", "test-sk-secret", false)
+	if err != nil {
+		t.Fatalf("NewMinioStore(quota): %v", err)
+	}
+	ctx := context.Background()
+	if err := qStore.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket(quota): %v", err)
+	}
+	committed := []byte("COMMITTED-V1-PAYLOAD")
+	if err := qStore.PutObject(ctx, "recordings/atomic.mp4", committed, "video/mp4"); err != nil {
+		t.Fatalf("initial PutObject: %v", err)
+	}
+	prePut, err := qStore.PresignedPut(ctx, "recordings/atomic.mp4", time.Minute, "")
+	if err != nil {
+		t.Fatalf("PresignedPut: %v", err)
+	}
+	overReq, _ := http.NewRequest(http.MethodPut, prePut.String(), bytes.NewReader(bytes.Repeat([]byte("X"), 256)))
+	overResp, err := http.DefaultClient.Do(overReq)
+	if err != nil {
+		t.Fatalf("over-quota PUT: %v", err)
+	}
+	overResp.Body.Close()
+	if overResp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("over-quota PUT status = %d, want 413", overResp.StatusCode)
+	}
+	gotAfterOver, _, err := qStore.GetObject(ctx, "recordings/atomic.mp4")
+	if err != nil || !bytes.Equal(gotAfterOver, committed) {
+		t.Fatalf("committed object corrupted after over-quota PUT: got %q, want %q", string(gotAfterOver), string(committed))
+	}
+
+	// 2. Multipart 大文件分片上传 + >1000 对象的 ListObjectsV2 分页完整遍历
+	tmpDir := t.TempDir()
+	ep, closeFn, err := StartLocalS3ServerWithOptions(LocalS3Options{
+		DataDir:   tmpDir,
+		AccessKey: "test-ak",
+		SecretKey: "test-sk-secret",
+	})
+	if err != nil {
+		t.Fatalf("StartLocalS3ServerWithOptions: %v", err)
+	}
+	defer closeFn()
+
+	store, err := NewMinioStore(ep, "test-ak", "test-sk-secret", false)
+	if err != nil {
+		t.Fatalf("NewMinioStore: %v", err)
+	}
+	if err := store.EnsureBucket(ctx); err != nil {
+		t.Fatalf("EnsureBucket: %v", err)
+	}
+
+	// 20 MiB 触发真实 Local S3 的 Multipart Upload 会话创建、Part ETag 校验与 Complete 合并
+	bigPayload := bytes.Repeat([]byte("LOCAL-S3-MP-"), 1750000)
+	if err := store.PutObject(ctx, "recordings/multipart.mp4", bigPayload, "video/mp4"); err != nil {
+		t.Fatalf("Multipart PutObject on LocalS3: %v", err)
+	}
+	gotBig, _, err := store.GetObject(ctx, "recordings/multipart.mp4")
+	if err != nil || !bytes.Equal(gotBig, bigPayload) {
+		t.Fatalf("Multipart GetObject len = %d, want %d (err=%v)", len(gotBig), len(bigPayload), err)
+	}
+
+	const totalRecs = 1005
+	for i := 0; i < totalRecs; i++ {
+		key := "recordings/batch-" + strconv.Itoa(i) + ".mp4"
+		if err := store.PutObject(ctx, key, []byte("m"), "video/mp4"); err != nil {
+			t.Fatalf("PutObject #%d: %v", i, err)
+		}
+	}
+	// 写入字典序排在最后但修改时间最新的录屏对象，验证跨 1000 键分页扫描后最新录屏排在首位
+	time.Sleep(10 * time.Millisecond)
+	if err := store.PutObject(ctx, "recordings/zz-latest.mp4", []byte("latest"), "video/mp4"); err != nil {
+		t.Fatalf("PutObject zz-latest: %v", err)
+	}
+
+	// 直接验证 S3 ListObjectsV2 跨 1000 键边界完整分页（1005 + multipart + zz-latest = 1007）
+	rawCount := 0
+	for obj := range store.client.ListObjects(ctx, store.bucket, minio.ListObjectsOptions{Prefix: "recordings/"}) {
+		if obj.Err != nil {
+			t.Fatalf("ListObjects pagination err: %v", obj.Err)
+		}
+		rawCount++
+	}
+	if rawCount != totalRecs+2 {
+		t.Fatalf("S3 ListObjectsV2 paginated count = %d, want %d", rawCount, totalRecs+2)
+	}
+
+	recs, err := store.ListRecordings(ctx)
+	if err != nil {
+		t.Fatalf("ListRecordings over >1000 objects: %v", err)
+	}
+	if len(recs) != maxRecordingsList {
+		t.Fatalf("ListRecordings count = %d, want %d", len(recs), maxRecordingsList)
+	}
+	if recs[0].Key != "recordings/zz-latest.mp4" {
+		t.Fatalf("newest recording key = %q, want recordings/zz-latest.mp4 (cross-page sort failed)", recs[0].Key)
 	}
 }

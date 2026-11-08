@@ -567,7 +567,7 @@ func (o mcpSetupOptions) bridgeCommandAndArgs() (string, []string, map[string]st
 	return cmd, args, env
 }
 
-// applyAgentConfigFile 无损合并 AURA MCP 条目至目标 Agent 配置文件。
+// applyAgentConfigFile 无损合并 AURA MCP 条目至目标 Agent 配置文件（带备份校验与同目录临时文件原子替换）。
 func applyAgentConfigFile(spec agentSpec, cfgPath string, opts mcpSetupOptions, dryRun bool) (string, error) {
 	serverName := opts.ServerName
 	if serverName == "" {
@@ -578,6 +578,8 @@ func applyAgentConfigFile(spec agentSpec, cfgPath string, opts mcpSetupOptions, 
 	var existingBytes []byte
 	if b, err := os.ReadFile(cfgPath); err == nil {
 		existingBytes = b
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("read existing config %q: %w", cfgPath, err)
 	}
 
 	var rendered string
@@ -596,13 +598,49 @@ func applyAgentConfigFile(spec agentSpec, cfgPath string, opts mcpSetupOptions, 
 			return "", err
 		}
 		if len(existingBytes) > 0 && string(existingBytes) != rendered {
-			_ = os.WriteFile(cfgPath+".bak", existingBytes, 0o600)
+			if err := atomicWriteFile(cfgPath+".bak", existingBytes, 0o600); err != nil {
+				return "", fmt.Errorf("backup existing config %q: %w", cfgPath+".bak", err)
+			}
 		}
-		if err := os.WriteFile(cfgPath, []byte(rendered), 0o600); err != nil {
+		if err := atomicWriteFile(cfgPath, []byte(rendered), 0o600); err != nil {
 			return "", err
 		}
 	}
 	return rendered, nil
+}
+
+func atomicWriteFile(targetPath string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmpFile, err := os.CreateTemp(dir, ".auractl-cfg-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	cleanup := func() {
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return err
+	}
+	if err := tmpFile.Chmod(perm); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpPath, targetPath); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }
 
 func mergeAgentJSON(existing []byte, spec agentSpec, serverName, mode string, opts mcpSetupOptions) (string, error) {
@@ -679,6 +717,21 @@ func mergeAgentJSON(existing []byte, spec agentSpec, serverName, mode string, op
 	return string(out) + "\n", nil
 }
 
+func formatTOMLServerKey(serverName string) string {
+	for i := 0; i < len(serverName); i++ {
+		c := serverName[i]
+		isBare := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+		if !isBare {
+			b, _ := json.Marshal(serverName)
+			return string(b)
+		}
+	}
+	if serverName == "" {
+		return `"aura"`
+	}
+	return serverName
+}
+
 func mergeCodexTOML(existing, serverName, mode string, opts mcpSetupOptions) (string, error) {
 	cleaned := stripCodexTOMLSection(existing, serverName)
 	var b strings.Builder
@@ -686,7 +739,7 @@ func mergeCodexTOML(existing, serverName, mode string, opts mcpSetupOptions) (st
 		b.WriteString(strings.TrimRight(cleaned, "\r\n"))
 		b.WriteString("\n\n")
 	}
-	fmt.Fprintf(&b, "[mcp_servers.%s]\n", serverName)
+	fmt.Fprintf(&b, "[mcp_servers.%s]\n", formatTOMLServerKey(serverName))
 	if mode == "bridge" {
 		cmd, args, env := opts.bridgeCommandAndArgs()
 		cmdJSON, _ := json.Marshal(cmd)
@@ -717,16 +770,68 @@ func mergeCodexTOML(existing, serverName, mode string, opts mcpSetupOptions) (st
 	return b.String(), nil
 }
 
+// stripTOMLInlineComment 剥离 TOML 行内未加引号的 `# ...` 注释，确保 `[other] # comment` 被正确识别为新 section。
+func stripTOMLInlineComment(line string) string {
+	inSingle := false
+	inDouble := false
+	escaped := false
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inDouble && ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '#' && !inSingle && !inDouble {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+func isTargetCodexMCPHeader(headerNoComment, serverName string) bool {
+	quotedBytes, _ := json.Marshal(serverName)
+	quotedName := string(quotedBytes)
+	candidates := []string{
+		fmt.Sprintf("[mcp_servers.%s]", serverName),
+		fmt.Sprintf("[mcp_servers.%s]", quotedName),
+	}
+	subPrefixes := []string{
+		fmt.Sprintf("[mcp_servers.%s.", serverName),
+		fmt.Sprintf("[mcp_servers.%s.", quotedName),
+	}
+	for _, c := range candidates {
+		if headerNoComment == c {
+			return true
+		}
+	}
+	for _, p := range subPrefixes {
+		if strings.HasPrefix(headerNoComment, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func stripCodexTOMLSection(content, serverName string) string {
-	targetHeader := fmt.Sprintf("[mcp_servers.%s]", serverName)
-	targetSubPrefix := fmt.Sprintf("[mcp_servers.%s.", serverName)
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	var kept []string
 	skipping := false
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			if trimmed == targetHeader || strings.HasPrefix(trimmed, targetSubPrefix) {
+		noComment := strings.TrimSpace(stripTOMLInlineComment(line))
+		if strings.HasPrefix(noComment, "[") && strings.HasSuffix(noComment, "]") {
+			if isTargetCodexMCPHeader(noComment, serverName) {
 				skipping = true
 				continue
 			}
@@ -755,7 +860,7 @@ func removeAgentConfigEntry(spec agentSpec, cfgPath, serverName string) (bool, e
 		if cleaned != "" {
 			cleaned += "\n"
 		}
-		return true, os.WriteFile(cfgPath, []byte(cleaned), 0o600)
+		return true, atomicWriteFile(cfgPath, []byte(cleaned), 0o600)
 	}
 
 	var root map[string]any
@@ -795,5 +900,5 @@ func removeAgentConfigEntry(spec agentSpec, cfgPath, serverName string) (bool, e
 	if err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(cfgPath, append(out, '\n'), 0o600)
+	return true, atomicWriteFile(cfgPath, append(out, '\n'), 0o600)
 }

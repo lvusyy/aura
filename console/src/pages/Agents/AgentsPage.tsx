@@ -208,7 +208,7 @@ export function AgentsPage() {
 
   const autoSetupCmd = useMemo(() => {
     const nodeArg = nodeFilter || "<节点ID>";
-    return `auractl --server ${window.location.origin} --token <你的访问令牌> --insecure mcp setup ${nodeArg}`;
+    return `auractl --server ${window.location.origin} --token <你的访问令牌> mcp setup ${nodeArg}`;
   }, [nodeFilter]);
 
   const callsTotal = overview ? Number(overview.callsTotal) : 0;

@@ -25,6 +25,16 @@ func TestMcpSetupMergesNonDestructivelyAndRemoves(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 预先在 Codex config.toml 中写入带行内注释的其他 section（修复 Finding #7：确保 [other] # comment 不被误删）
+	codexPath := resolveAgentConfigPath("codex", tmpHome, tmpAppData, "linux")
+	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initialCodexTOML := "model = \"gpt-5.5\"\n\n[mcp_servers.aura]\nurl = \"http://old\"\n\n[profiles.work] # inline section comment\nmodel = \"o3\"\n"
+	if err := os.WriteFile(codexPath, []byte(initialCodexTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	opts := mcpSetupOptions{
 		ServerName: "aura",
 		NodeID:     "node-win11",
@@ -61,17 +71,29 @@ func TestMcpSetupMergesNonDestructivelyAndRemoves(t *testing.T) {
 		t.Fatalf("expected backup file %s.bak to exist: %v", cursorPath, err)
 	}
 
-	// 验证 Codex TOML 格式正确且可移除
-	codexPath := resolveAgentConfigPath("codex", tmpHome, tmpAppData, "linux")
+	// 验证 Codex TOML 中带行内注释的 [profiles.work] # inline section comment 完好保留
 	codexBytes, err := os.ReadFile(codexPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(codexBytes), "[mcp_servers.aura]") {
-		t.Fatalf("unexpected codex config:\n%s", string(codexBytes))
+	codexStr := string(codexBytes)
+	if !strings.Contains(codexStr, "[mcp_servers.aura]") || !strings.Contains(codexStr, "[profiles.work] # inline section comment") || !strings.Contains(codexStr, `model = "o3"`) {
+		t.Fatalf("codex config lost commented section or missing aura:\n%s", codexStr)
 	}
 
-	// 验证 remove 仅移除 aura 而不破坏 Cursor 里的 playwright
+	// 验证含特殊字符的 serverName（如 "my.aura"）在 TOML 中自动加引号且可无损移除
+	codexSpec := supportedAgents[4] // codex
+	dotOpts := opts
+	dotOpts.ServerName = "my.aura"
+	dotOut, err := applyAgentConfigFile(codexSpec, codexPath, dotOpts, false)
+	if err != nil || !strings.Contains(dotOut, `[mcp_servers."my.aura"]`) {
+		t.Fatalf("expected quoted TOML server name, got err=%v:\n%s", err, dotOut)
+	}
+	if removed, err := removeAgentConfigEntry(codexSpec, codexPath, "my.aura"); err != nil || !removed {
+		t.Fatalf("expected remove my.aura to succeed, removed=%v err=%v", removed, err)
+	}
+
+	// 验证 remove 仅移除 aura 而不破坏 Cursor 里的 playwright 或 Codex 里的 [profiles.work]
 	for _, spec := range supportedAgents {
 		cfgPath := resolveAgentConfigPath(spec.ID, tmpHome, tmpAppData, "linux")
 		removed, err := removeAgentConfigEntry(spec, cfgPath, "aura")
@@ -82,6 +104,10 @@ func TestMcpSetupMergesNonDestructivelyAndRemoves(t *testing.T) {
 	cursorCleaned, _ := os.ReadFile(cursorPath)
 	if !strings.Contains(string(cursorCleaned), `"playwright"`) || strings.Contains(string(cursorCleaned), `"aura"`) {
 		t.Fatalf("unexpected cursor config after remove:\n%s", string(cursorCleaned))
+	}
+	codexCleaned, _ := os.ReadFile(codexPath)
+	if !strings.Contains(string(codexCleaned), "[profiles.work] # inline section comment") || strings.Contains(string(codexCleaned), "mcp_servers.aura") {
+		t.Fatalf("unexpected codex config after remove:\n%s", string(codexCleaned))
 	}
 }
 
